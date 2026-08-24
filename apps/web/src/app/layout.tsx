@@ -19,7 +19,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
-      <body className="flex min-h-dvh flex-col bg-white text-gray-900 antialiased">
+      <body className="flex min-h-dvh flex-col bg-white/90 text-gray-900 antialiased">
         <Navbar />
 
         <main className="flex-1">

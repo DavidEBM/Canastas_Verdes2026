@@ -34,7 +34,7 @@ export default function Navbar() {
   };
 
   return (
-    <header className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur">
+    <header className="sticky top-0 z-50 border-b border-gray-200/50 bg-green/50 backdrop-blur">
       <nav
         className="mx-auto flex min-h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8"
         aria-label="Navegación principal"
@@ -74,7 +74,7 @@ export default function Navbar() {
         {/* Botón móvil */}
         <button
           type="button"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 text-gray-900 transition-colors hover:bg-gray-100 md:hidden"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-black-200 text-gray-900 transition-colors hover:bg-gray-100 md:hidden"
           aria-label={isMenuOpen ? "Cerrar menú" : "Abrir menú"}
           aria-expanded={isMenuOpen}
           onClick={() => setIsMenuOpen((current) => !current)}
@@ -107,7 +107,7 @@ export default function Navbar() {
 
       {/* Menú móvil */}
       {isMenuOpen && (
-        <div className="border-t border-gray-200 bg-white md:hidden">
+        <div className="border-t border-black-20 bg-white/50  md:hidden">
           <div className="mx-auto flex max-w-7xl flex-col px-4 py-3 sm:px-6">
             {navigation.map((item) => (
               <Link
@@ -123,7 +123,7 @@ export default function Navbar() {
             <Link
               href="/login"
               onClick={closeMenu}
-              className="mt-3 rounded-lg bg-gray-900 px-4 py-3 text-center text-sm font-medium text-white"
+              className="mt-3 rounded-lg rounded-md border-2 border-black/50 bg-green-800/80 px-4 py-3 text-center text-sm font-medium text-white transition-opacity hover:opacity-90 bg-green/40 hover:bg-green/70 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2"
             >
               Iniciar sesión
             </Link>

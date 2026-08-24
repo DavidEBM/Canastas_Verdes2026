@@ -6,7 +6,7 @@ export default function ContactoPage() {
       {/* Hero */}
       <section className="relative min-h-[40dvh] overflow-hidden">
         <Image
-          src="/images/backgrounds/contacto.webp"
+          src="/images/backgrounds/Contacto.jpg"
           alt="Contacto Canastas Verdes"
           fill
           priority
@@ -174,7 +174,7 @@ export default function ContactoPage() {
 
               <button
                 type="submit"
-                className="w-full rounded-[var(--radius-md)] bg-[var(--primary)] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#18572f] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2"
+                className="w-full rounded-[var(--radius-md)] bg-[var(--primary)] border-2 border-black/30 px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#18572f] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:ring-offset-2"
               >
                 Enviar mensaje
               </button>
@@ -197,7 +197,7 @@ export default function ContactoPage() {
 
           <a
             href="/ubicaciones"
-            className="mt-6 inline-flex rounded-[var(--radius-md)] bg-[var(--primary)] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#18572f]"
+            className="mt-6 inline-flex rounded-[var(--radius-md)] bg-[var(--primary)] border-2 border-black/30 px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#18572f]"
           >
             Ver ubicaciones
           </a>

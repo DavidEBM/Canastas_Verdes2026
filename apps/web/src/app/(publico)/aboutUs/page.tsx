@@ -78,7 +78,7 @@ export default function AboutUsPage() {
 
           <div className="relative aspect-[4/3] overflow-hidden rounded-[var(--radius-xl)]">
             <Image
-              src="/images/backgrounds/about-us-content.webp"
+              src="/images/backgrounds/content.webp"
               alt="Productos de Canastas Verdes"
               fill
               className="object-cover"

@@ -41,15 +41,15 @@ const products: Product[] = [
     price: 3500,
     unit: "por kg",
     category: "Frutas",
-    image: "/images/products/limon-tahiti.jpg",
+    image: "/images/products/limon-tahiti.webp",
   },
   {
-    name: "Aguacate Hass",
+    name: "Aguacate",
     location: "Antioquia",
     price: 6200,
     unit: "por kg",
     category: "Frutas",
-    image: "/images/products/aguacate-hass.jpg",
+    image: "/images/products/aguacate.webp",
   },
   {
     name: "Tomate Chonto",
@@ -57,7 +57,7 @@ const products: Product[] = [
     price: 3800,
     unit: "por kg",
     category: "Verduras",
-    image: "/images/products/tomate-chonto.jpg",
+    image: "/images/products/tomate-chonto.webp",
   },
   {
     name: "Zanahoria",
@@ -65,7 +65,7 @@ const products: Product[] = [
     price: 2500,
     unit: "por kg",
     category: "Verduras",
-    image: "/images/products/zanahoria.jpg",
+    image: "/images/products/zanahoria.webp",
   },
   {
     name: "Papa Criolla",
@@ -81,7 +81,7 @@ const products: Product[] = [
     price: 11000,
     unit: "por docena",
     category: "Productos del campo",
-    image: "/images/products/huevos-campesinos.jpg",
+    image: "/images/products/huevos-campesinos.webp",
   },
 ];
 export default function TiendaPage() {
@@ -92,7 +92,7 @@ export default function TiendaPage() {
       ========================================================= */}
       <section className="relative min-h-[620px] overflow-hidden">
         <Image
-          src="/images/products/hero-tienda.jpg"
+          src="/images/backgrounds/hero-tienda.webp"
           alt="Productos frescos del campo"
           fill
           priority
@@ -122,7 +122,7 @@ export default function TiendaPage() {
 
             <Link
               href="#productos"
-              className="mt-8 inline-flex rounded-[var(--radius-md)] bg-[var(--primary)] px-7 py-3.5 text-sm font-bold text-white shadow-lg transition hover:bg-[#18572f]"
+              className="mt-8 inline-flex rounded-[var(--radius-md)] bg-[var(--primary)] border-2 border-white/50 px-7 py-3.5 text-sm font-bold text-white shadow-lg transition hover:bg-[#18572f]"
             >
               🌿 Ver productos
             </Link>
@@ -268,7 +268,7 @@ export default function TiendaPage() {
       <section className="px-4 pb-16 sm:px-6 lg:px-8">
         <div className="relative mx-auto max-w-7xl overflow-hidden rounded-[var(--radius-xl)]">
           <Image
-            src="/images/products/banner-campo.jpg"
+            src="/images/backgrounds/banner-campo.webp"
             alt="Productos del campo"
             fill
             className="object-cover"
@@ -290,7 +290,7 @@ export default function TiendaPage() {
 
             <Link
               href="/aboutUs"
-              className="shrink-0 rounded-[var(--radius-md)] bg-white px-6 py-3 text-center text-sm font-bold text-[var(--primary)] transition hover:bg-[var(--secondary)]"
+              className="shrink-0 rounded-[var(--radius-md)] bg-green-200/50 px-6 py-3 text-center text-sm font-bold text-[var(--primary)] transition hover:bg-[var(--secondary)]"
             >
               Conoce más
             </Link>
