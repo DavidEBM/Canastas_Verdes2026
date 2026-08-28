@@ -1,255 +1,259 @@
 import {
   collection,
+  doc,
+  getDoc,
   getDocs,
   orderBy,
   query,
+  Timestamp,
   where,
-  type DocumentData,
-  type QueryDocumentSnapshot,
-  type Timestamp,
 } from "firebase/firestore";
 
-import {
-  getDownloadURL,
-  ref,
-} from "firebase/storage";
+import { db } from "@/lib/firebase";
 
-import { db, storage } from "@/lib/firebase";
+/* =========================================================
+   Tipos
+========================================================= */
 
-/**
- * Producto registrado en Firebase.
- */
-export interface Producto {
-  /**
-   * ID interno del documento de Firestore.
-   */
+export interface Product {
   id: string;
 
-  /**
-   * Código de registro del producto.
-   * Ejemplo: AS0001
-   */
   code: string;
-
   nombre: string;
-
   descripcion: string;
 
   precio: number;
-
   stock: number;
 
   categoria: string;
-
   unidad: string;
 
-  /**
-   * Ruta de la imagen dentro de Firebase Storage.
-   * Ejemplo: products/tomate.jpg
-   */
   imgPath: string;
-
-  /**
-   * Nombre original del archivo de imagen.
-   * Ejemplo: tomate.jpg
-   */
   imageName: string;
 
-  /**
-   * Indica si el producto está disponible
-   * actualmente en la tienda.
-   */
   activo: boolean;
 
-  /**
-   * Fecha en la que se creó el registro.
-   */
-  fechaCreacion: Timestamp | null;
-
-  /**
-   * Identificador de la granja productora.
-   */
   IdGranja: string;
-
-  /**
-   * Identificador de la municipalidad donde
-   * está ubicada la granja.
-   */
   IdMunicipalidad: string;
 
-  /**
-   * Última modificación del producto,
-   * incluyendo cambios de stock.
-   */
+  fechaCreacion: Timestamp | null;
   ultimaActualizacion: Timestamp | null;
-
-  /**
-   * Fecha en la que el producto fue retirado
-   * de la tienda.
-   *
-   * null = todavía disponible.
-   */
   fechaCierre: Timestamp | null;
-
-  /**
-   * URL temporal/pública obtenida desde
-   * Firebase Storage.
-   */
-  imagenUrl: string;
 }
 
-/**
- * Convierte un documento de Firestore
- * en nuestro modelo Producto.
- */
-function mapProducto(
-  document: QueryDocumentSnapshot<DocumentData>,
-): Omit<Producto, "imagenUrl"> {
-  const data = document.data();
+/* =========================================================
+   Colección
+========================================================= */
 
+const PRODUCTS_COLLECTION = "productos";
+
+/* =========================================================
+   Conversión Firestore → Product
+========================================================= */
+
+function mapProduct(
+  id: string,
+  data: Record<string, unknown>,
+): Product {
   return {
-    id: document.id,
+    id,
 
-    code: data.code ?? "",
+    code:
+      typeof data.code === "string"
+        ? data.code
+        : "",
 
-    nombre: data.nombre ?? "",
+    nombre:
+      typeof data.nombre === "string"
+        ? data.nombre
+        : "",
 
-    descripcion: data.descripcion ?? "",
+    descripcion:
+      typeof data.descripcion === "string"
+        ? data.descripcion
+        : "",
 
-    precio: Number(data.precio ?? 0),
+    precio:
+      typeof data.precio === "number"
+        ? data.precio
+        : Number(data.precio ?? 0),
 
-    stock: Number(data.stock ?? 0),
+    stock:
+      typeof data.stock === "number"
+        ? data.stock
+        : Number(data.stock ?? 0),
 
-    categoria: data.categoria ?? "",
+    categoria:
+      typeof data.categoria === "string"
+        ? data.categoria
+        : "",
 
-    unidad: data.unidad ?? "unidad",
+    unidad:
+      typeof data.unidad === "string"
+        ? data.unidad
+        : "",
 
-    imgPath: data.imgPath ?? "",
+    imgPath:
+      typeof data.imgPath === "string"
+        ? data.imgPath
+        : "",
 
-    imageName: data.imageName ?? "",
+    imageName:
+      typeof data.imageName === "string"
+        ? data.imageName
+        : "",
 
-    activo: data.activo ?? true,
+    activo:
+      data.activo === true,
 
-    fechaCreacion: data.fechaCreacion ?? null,
+    IdGranja:
+      typeof data.IdGranja === "string"
+        ? data.IdGranja
+        : "",
 
-    IdGranja: data.IdGranja ?? "",
+    IdMunicipalidad:
+      typeof data.IdMunicipalidad === "string"
+        ? data.IdMunicipalidad
+        : "",
 
-    IdMunicipalidad: data.IdMunicipalidad ?? "",
+    fechaCreacion:
+      data.fechaCreacion instanceof Timestamp
+        ? data.fechaCreacion
+        : null,
 
     ultimaActualizacion:
-      data.ultimaActualizacion ?? null,
+      data.ultimaActualizacion instanceof Timestamp
+        ? data.ultimaActualizacion
+        : null,
 
-    fechaCierre: data.fechaCierre ?? null,
+    fechaCierre:
+      data.fechaCierre instanceof Timestamp
+        ? data.fechaCierre
+        : null,
   };
 }
 
-/**
- * Obtiene la URL de una imagen almacenada
- * en Firebase Storage.
- */
-async function obtenerImagenUrl(
-  imgPath: string,
-): Promise<string> {
-  if (!imgPath) {
-    return "";
-  }
+/* =========================================================
+   Obtener todos los productos activos
+========================================================= */
 
-  try {
-    const imagenRef = ref(storage, imgPath);
+export async function getActiveProducts(): Promise<
+  Product[]
+> {
+  const productsRef = collection(
+    db,
+    PRODUCTS_COLLECTION,
+  );
 
-    return await getDownloadURL(imagenRef);
-  } catch (error) {
-    console.error(
-      `No se pudo cargar la imagen: ${imgPath}`,
-      error,
+  const productsQuery = query(
+    productsRef,
+    where("activo", "==", true),
+    orderBy("nombre", "asc"),
+  );
+
+  const snapshot =
+    await getDocs(productsQuery);
+
+  return snapshot.docs
+    .map((document) =>
+      mapProduct(
+        document.id,
+        document.data(),
+      ),
+    )
+    .filter(
+      (product) =>
+        product.stock > 0,
     );
+}
 
-    return "";
+/* =========================================================
+   Obtener todos los productos activos,
+   incluyendo los que actualmente tienen stock 0.
+   
+   Esto será útil para mostrar "No Stock".
+========================================================= */
+
+export async function getStoreProducts(): Promise<
+  Product[]
+> {
+  const productsRef = collection(
+    db,
+    PRODUCTS_COLLECTION,
+  );
+
+  const productsQuery = query(
+    productsRef,
+    where("activo", "==", true),
+    orderBy("nombre", "asc"),
+  );
+
+  const snapshot =
+    await getDocs(productsQuery);
+
+  return snapshot.docs.map(
+    (document) =>
+      mapProduct(
+        document.id,
+        document.data(),
+      ),
+  );
+}
+
+/* =========================================================
+   Obtener producto por ID
+========================================================= */
+
+export async function getProductById(
+  productId: string,
+): Promise<Product | null> {
+  const productRef = doc(
+    db,
+    PRODUCTS_COLLECTION,
+    productId,
+  );
+
+  const snapshot =
+    await getDoc(productRef);
+
+  if (!snapshot.exists()) {
+    return null;
   }
+
+  return mapProduct(
+    snapshot.id,
+    snapshot.data(),
+  );
 }
 
-/**
- * Obtiene todos los productos activos
- * disponibles en la tienda.
- */
-export async function obtenerProductos(): Promise<Producto[]> {
-  const productosRef = collection(db, "productos");
+/* =========================================================
+   Obtener producto por CODE
+========================================================= */
 
-  const productosQuery = query(
-    productosRef,
-    where("activo", "==", true),
-    orderBy("nombre", "asc"),
+export async function getProductByCode(
+  code: string,
+): Promise<Product | null> {
+  const productsRef = collection(
+    db,
+    PRODUCTS_COLLECTION,
   );
 
-  const snapshot = await getDocs(productosQuery);
-
-  const productos = await Promise.all(
-    snapshot.docs.map(async (document) => {
-      const producto = mapProducto(document);
-
-      const imagenUrl = await obtenerImagenUrl(
-        producto.imgPath,
-      );
-
-      return {
-        ...producto,
-        imagenUrl,
-      };
-    }),
+  const productsQuery = query(
+    productsRef,
+    where("code", "==", code),
   );
 
-  return productos;
-}
+  const snapshot =
+    await getDocs(productsQuery);
 
-/**
- * Obtiene productos de una categoría determinada.
- */
-export async function obtenerProductosPorCategoria(
-  categoria: string,
-): Promise<Producto[]> {
-  const productosRef = collection(db, "productos");
+  if (snapshot.empty) {
+    return null;
+  }
 
-  const productosQuery = query(
-    productosRef,
-    where("activo", "==", true),
-    where("categoria", "==", categoria),
-    orderBy("nombre", "asc"),
-  );
+  const document = snapshot.docs[0];
 
-  const snapshot = await getDocs(productosQuery);
-
-  const productos = await Promise.all(
-    snapshot.docs.map(async (document) => {
-      const producto = mapProducto(document);
-
-      const imagenUrl = await obtenerImagenUrl(
-        producto.imgPath,
-      );
-
-      return {
-        ...producto,
-        imagenUrl,
-      };
-    }),
-  );
-
-  return productos;
-}
-
-/**
- * Obtiene todas las categorías disponibles
- * entre los productos activos.
- */
-export async function obtenerCategorias(): Promise<string[]> {
-  const productos = await obtenerProductos();
-
-  const categorias = new Set(
-    productos
-      .map((producto) => producto.categoria.trim())
-      .filter(Boolean),
-  );
-
-  return Array.from(categorias).sort((a, b) =>
-    a.localeCompare(b),
+  return mapProduct(
+    document.id,
+    document.data(),
   );
 }

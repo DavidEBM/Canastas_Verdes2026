@@ -22,29 +22,36 @@ const navigation = [
 
 export default function Footer() {
   return (
-    <footer className="border-t border-white/10 bg-black text-white">
+    <footer className="border-t border-[var(--primary)]/20 bg-[var(--foreground)] text-white">
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="grid gap-10 md:grid-cols-3">
+
           {/* Identidad */}
           <div>
             <Link
               href="/"
               className="inline-block text-2xl font-bold tracking-tight"
             >
-              <span>Canastas </span>
-              <span className="text-yellow-500">Verdes</span>
+              <span className="text-white">
+                Canastas
+              </span>{" "}
+              <span className="text-[var(--secondary)]">
+                Verdes
+              </span>
             </Link>
 
-            <p className="mt-4 max-w-sm text-sm leading-6 text-white/65">
-              Productos, pedidos y distribución desde una plataforma pensada
-              para ofrecer una experiencia sencilla y accesible.
+            <p className="mt-4 max-w-sm text-sm leading-6 text-white/70">
+              Productos frescos del campo, conectando
+              productores, familias y comunidades a
+              través de una plataforma sencilla y
+              accesible.
             </p>
           </div>
 
           {/* Navegación */}
           {navigation.map((section) => (
             <div key={section.title}>
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-yellow-500">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--secondary)]">
                 {section.title}
               </h2>
 
@@ -53,7 +60,7 @@ export default function Footer() {
                   <li key={link.href}>
                     <Link
                       href={link.href}
-                      className="text-sm text-white/70 transition-colors hover:text-white"
+                      className="text-sm text-white/70 transition-colors hover:text-white hover:underline"
                     >
                       {link.label}
                     </Link>
@@ -68,12 +75,13 @@ export default function Footer() {
         <div className="mt-10 border-t border-white/10 pt-6">
           <div className="flex flex-col gap-3 text-sm text-white/50 sm:flex-row sm:items-center sm:justify-between">
             <p>
-              © {new Date().getFullYear()} Canastas Verdes. Todos los derechos
-              reservados.
+              © {new Date().getFullYear()} Canastas
+              Verdes. Todos los derechos reservados.
             </p>
 
             <p>
-              Plataforma web Canastas Verdes
+              Productos del campo directamente
+              para nuestra comunidad.
             </p>
           </div>
         </div>

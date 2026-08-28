@@ -1,246 +1,441 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
-export interface Product {
-  name: string;
-  location: string;
-  price: number;
-  unit: string;
-  category: string;
-  image: string;
-}
+import { useCart } from "@/hooks/useCart";
+import type { Product } from "@/services/productos.service";
 
 interface ProductGridProps {
   products: Product[];
+  loading?: boolean;
+  emptyMessage?: string;
 }
 
-export default function ProductGrid({ products }: ProductGridProps) {
-  const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("Todas");
-  const [priceRange, setPriceRange] = useState("todos");
-  const [sort, setSort] = useState("default");
+function formatPrice(price: number): string {
+  return new Intl.NumberFormat(
+    "es-CO",
+    {
+      style: "currency",
+      currency: "COP",
+      maximumFractionDigits: 0,
+    },
+  ).format(price);
+}
 
-  const categories = useMemo(() => {
-    return [
-      "Todas",
-      ...Array.from(new Set(products.map((product) => product.category))),
-    ];
-  }, [products]);
+function getImageUrl(
+  product: Product,
+): string | null {
+  /*
+   * Firebase Storage debe proporcionar posteriormente
+   * la URL definitiva mediante imageName/imgPath.
+   *
+   * Mientras tanto, si imgPath ya contiene una URL,
+   * podemos utilizarla directamente.
+   */
 
-  const filteredProducts = useMemo(() => {
-    let result = products.filter((product) => {
-      const searchValue = search.toLowerCase().trim();
+  if (
+    product.imgPath &&
+    (
+      product.imgPath.startsWith(
+        "http://",
+      ) ||
+      product.imgPath.startsWith(
+        "https://",
+      )
+    )
+  ) {
+    return product.imgPath;
+  }
 
-      const matchesSearch =
-        searchValue === "" ||
-        product.name.toLowerCase().includes(searchValue) ||
-        product.location.toLowerCase().includes(searchValue) ||
-        product.category.toLowerCase().includes(searchValue);
+  return null;
+}
 
-      const matchesCategory =
-        category === "Todas" || product.category === category;
+/* =========================================================
+   Skeleton
+========================================================= */
 
-      let matchesPrice = true;
+function ProductSkeleton() {
+  return (
+    <article className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)]">
+      <div className="aspect-[4/3] animate-pulse bg-[var(--surface)]" />
 
-      if (priceRange === "under5000") {
-        matchesPrice = product.price < 5000;
-      }
+      <div className="space-y-3 p-4">
+        <div className="h-5 w-3/4 animate-pulse rounded bg-[var(--surface)]" />
 
-      if (priceRange === "5000-10000") {
-        matchesPrice = product.price >= 5000 && product.price <= 10000;
-      }
+        <div className="h-4 w-full animate-pulse rounded bg-[var(--surface)]" />
 
-      if (priceRange === "over10000") {
-        matchesPrice = product.price > 10000;
-      }
+        <div className="h-4 w-1/2 animate-pulse rounded bg-[var(--surface)]" />
 
-      return matchesSearch && matchesCategory && matchesPrice;
-    });
+        <div className="h-10 w-full animate-pulse rounded bg-[var(--surface)]" />
+      </div>
+    </article>
+  );
+}
 
-    if (sort === "price-low") {
-      result = [...result].sort((a, b) => a.price - b.price);
-    }
+/* =========================================================
+   Product Card
+========================================================= */
 
-    if (sort === "price-high") {
-      result = [...result].sort((a, b) => b.price - a.price);
-    }
+function ProductCard({
+  product,
+}: {
+  product: Product;
+}) {
+  const {
+    addToCart,
+  } = useCart();
 
-    if (sort === "name") {
-      result = [...result].sort((a, b) =>
-        a.name.localeCompare(b.name, "es"),
+  const [quantity, setQuantity] =
+    useState(1);
+
+  const [imageError, setImageError] =
+    useState(false);
+
+  const available =
+    product.activo === true &&
+    product.stock > 0;
+
+  const imageUrl =
+    getImageUrl(product);
+
+  const increase =
+    () => {
+      setQuantity(
+        (current) =>
+          Math.min(
+            current + 1,
+            product.stock,
+          ),
       );
-    }
+    };
 
-    return result;
-  }, [products, search, category, priceRange, sort]);
+  const decrease =
+    () => {
+      setQuantity(
+        (current) =>
+          Math.max(
+            1,
+            current - 1,
+          ),
+      );
+    };
 
-  const clearFilters = () => {
-    setSearch("");
-    setCategory("Todas");
-    setPriceRange("todos");
-    setSort("default");
-  };
+  const handleAddToCart =
+    () => {
+      if (!available) {
+        return;
+      }
+
+      addToCart(
+        product,
+        quantity,
+      );
+    };
 
   return (
-    <div>
-      {/* FILTROS */}
-      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr_auto]">
-        {/* BUSQUEDA */}
-        <div className="relative">
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar productos..."
-            className="h-12 w-full rounded-[var(--radius-md)] border border-[var(--border)] bg-white px-4 pr-12 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20"
+    <article className="group flex h-full flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)] shadow-sm transition-shadow hover:shadow-md">
+      {/* =================================================
+          Imagen
+      ================================================= */}
+
+      <div className="relative aspect-[4/3] overflow-hidden bg-[var(--surface)]">
+        {imageUrl &&
+        !imageError ? (
+          <Image
+            src={imageUrl}
+            alt={product.nombre}
+            fill
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+            className="object-cover transition-transform duration-300 group-hover:scale-105"
+            onError={() =>
+              setImageError(true)
+            }
           />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <div className="text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[var(--secondary)] text-[var(--primary)]">
+                <svg
+                  width="30"
+                  height="30"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M7 20h10" />
+                  <path d="M9 20V8" />
+                  <path d="M15 20V8" />
+                  <path d="M5 8h14" />
+                  <path d="M8 8 12 3l4 5" />
+                </svg>
+              </div>
 
-          <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">
-            🔍
+              <p className="mt-2 text-xs text-[var(--muted)]">
+                Imagen no disponible
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* =================================================
+            Categoría
+        ================================================= */}
+
+        {product.categoria && (
+          <span className="absolute left-3 top-3 rounded-full bg-[var(--background)]/95 px-3 py-1 text-xs font-semibold text-[var(--primary)] shadow-sm backdrop-blur">
+            {product.categoria}
           </span>
-        </div>
+        )}
 
-        {/* CATEGORIA */}
-        <select
-          value={category}
-          onChange={(event) => setCategory(event.target.value)}
-          className="h-12 rounded-[var(--radius-md)] border border-[var(--border)] bg-white px-4 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
-        >
-          {categories.map((item) => (
-            <option key={item} value={item}>
-              {item === "Todas" ? "Todas las categorías" : item}
-            </option>
-          ))}
-        </select>
+        {/* =================================================
+            No stock
+        ================================================= */}
 
-        {/* PRECIO */}
-        <select
-          value={priceRange}
-          onChange={(event) => setPriceRange(event.target.value)}
-          className="h-12 rounded-[var(--radius-md)] border border-[var(--border)] bg-white px-4 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
-        >
-          <option value="todos">Rango de precio</option>
-          <option value="under5000">Menos de $5.000</option>
-          <option value="5000-10000">$5.000 - $10.000</option>
-          <option value="over10000">Más de $10.000</option>
-        </select>
-
-        {/* ORDEN */}
-        <select
-          value={sort}
-          onChange={(event) => setSort(event.target.value)}
-          className="h-12 rounded-[var(--radius-md)] border border-[var(--border)] bg-white px-4 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
-        >
-          <option value="default">Ordenar por</option>
-          <option value="price-low">Precio menor</option>
-          <option value="price-high">Precio mayor</option>
-          <option value="name">Nombre A-Z</option>
-        </select>
-
-        {/* LIMPIAR */}
-        <button
-          type="button"
-          onClick={clearFilters}
-          className="h-12 rounded-[var(--radius-md)] border border-[var(--primary)] px-5 text-sm font-bold text-[var(--primary)] transition hover:bg-[var(--primary)] hover:text-white"
-        >
-          Limpiar
-        </button>
-      </div>
-
-      {/* RESULTADOS */}
-      <div className="mt-8 flex items-center justify-between">
-        <p className="text-sm text-[var(--muted)]">
-          <span className="font-semibold text-[var(--foreground)]">
-            {filteredProducts.length}
-          </span>{" "}
-          {filteredProducts.length === 1
-            ? "producto encontrado"
-            : "productos encontrados"}
-        </p>
-
-        {(search || category !== "Todas" || priceRange !== "todos") && (
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="text-sm font-semibold text-[var(--primary)] hover:underline"
-          >
-            Restablecer filtros
-          </button>
+        {!available && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/45">
+            <span className="rounded-full bg-white px-4 py-2 text-sm font-bold text-red-600">
+              No Stock
+            </span>
+          </div>
         )}
       </div>
 
-      {/* GRID */}
-      {filteredProducts.length > 0 ? (
-        <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-          {filteredProducts.map((product) => (
-            <article
-              key={product.name}
-              className="group overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-white transition hover:-translate-y-1 hover:shadow-lg"
-            >
-              <div className="relative aspect-square overflow-hidden bg-[var(--surface)]">
-                <Image
-                  src={product.image}
-                  alt={product.name}
-                  fill
-                  className="object-cover transition duration-300 group-hover:scale-105"
-                />
-              </div>
+      {/* =================================================
+          Contenido
+      ================================================= */}
 
-              <div className="p-4">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]">
-                  {product.category}
+      <div className="flex flex-1 flex-col p-4">
+        {/* Código */}
+
+        <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+          Código: {product.code}
+        </p>
+
+        {/* Nombre */}
+
+        <h3 className="mt-1 text-lg font-bold text-[var(--foreground)]">
+          {product.nombre}
+        </h3>
+
+        {/* Descripción */}
+
+        <p className="mt-2 line-clamp-2 min-h-12 text-sm leading-6 text-[var(--muted)]">
+          {product.descripcion}
+        </p>
+
+        {/* Precio */}
+
+        <div className="mt-4">
+          <span className="text-xl font-bold text-[var(--primary)]">
+            {formatPrice(
+              product.precio,
+            )}
+          </span>
+
+          <span className="ml-2 text-sm text-[var(--muted)]">
+            / {product.unidad}
+          </span>
+        </div>
+
+        {/* Stock */}
+
+        <div className="mt-2 text-xs text-[var(--muted)]">
+          {available ? (
+            <>
+              Disponible:{" "}
+              <span className="font-semibold text-[var(--primary)]">
+                {product.stock}
+              </span>
+            </>
+          ) : (
+            <span className="font-semibold text-red-600">
+              No Stock
+            </span>
+          )}
+        </div>
+
+        {/* =================================================
+            Compra
+        ================================================= */}
+
+        <div className="mt-auto pt-5">
+          {available ? (
+            <div className="space-y-3">
+              {/* Cantidad */}
+
+              <div className="flex items-center justify-between rounded-lg border border-[var(--border)]">
+                <button
+                  type="button"
+                  onClick={
+                    decrease
+                  }
+                  disabled={
+                    quantity <= 1
+                  }
+                  aria-label={`Disminuir cantidad de ${product.nombre}`}
+                  className="flex h-10 w-11 items-center justify-center text-lg font-bold text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-30"
+                >
+                  −
+                </button>
+
+                <span className="min-w-10 text-center text-sm font-semibold text-[var(--foreground)]">
+                  {quantity}
                 </span>
-
-                <h3 className="mt-1 font-bold text-[var(--foreground)]">
-                  {product.name}
-                </h3>
-
-                <p className="mt-1 text-xs text-[var(--muted)]">
-                  {product.location}
-                </p>
-
-                <div className="mt-4">
-                  <p className="text-lg font-bold text-[var(--foreground)]">
-                    ${product.price.toLocaleString("es-CO")}
-                  </p>
-
-                  <p className="text-xs text-[var(--muted)]">
-                    {product.unit}
-                  </p>
-                </div>
 
                 <button
                   type="button"
-                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-[var(--radius-md)] border border-[var(--primary)] px-3 py-2 text-xs font-bold text-[var(--primary)] transition hover:bg-[var(--primary)] hover:text-white"
+                  onClick={
+                    increase
+                  }
+                  disabled={
+                    quantity >=
+                    product.stock
+                  }
+                  aria-label={`Aumentar cantidad de ${product.nombre}`}
+                  className="flex h-10 w-11 items-center justify-center text-lg font-bold text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-30"
                 >
-                  🛒 Agregar
+                  +
                 </button>
               </div>
-            </article>
-          ))}
+
+              {/* Agregar */}
+
+              <button
+                type="button"
+                onClick={
+                  handleAddToCart
+                }
+                className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle
+                    cx="9"
+                    cy="20"
+                    r="1"
+                  />
+
+                  <circle
+                    cx="19"
+                    cy="20"
+                    r="1"
+                  />
+
+                  <path d="M3 4h2l2.4 11.4a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 2-1.6L21 8H6" />
+                </svg>
+
+                Agregar a la cesta
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              disabled
+              className="h-11 w-full cursor-not-allowed rounded-lg bg-[var(--surface)] px-4 text-sm font-semibold text-[var(--muted)]"
+            >
+              Producto agotado
+            </button>
+          )}
         </div>
-      ) : (
-        <div className="mt-8 rounded-[var(--radius-lg)] border border-dashed border-[var(--border)] bg-[var(--surface)] px-6 py-16 text-center">
-          <div className="text-4xl">🌱</div>
+      </div>
+    </article>
+  );
+}
 
-          <h3 className="mt-4 text-lg font-bold text-[var(--foreground)]">
-            No encontramos productos
-          </h3>
+/* =========================================================
+   Product Grid
+========================================================= */
 
-          <p className="mt-2 text-sm text-[var(--muted)]">
-            Intenta cambiar los filtros o realizar una búsqueda diferente.
-          </p>
+export default function ProductGrid({
+  products,
+  loading = false,
+  emptyMessage = "No hay productos disponibles.",
+}: ProductGridProps) {
+  /* =======================================================
+     Loading
+  ======================================================= */
 
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="mt-6 rounded-[var(--radius-md)] bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#18572f]"
+  if (loading) {
+    return (
+      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {Array.from({
+          length: 8,
+        }).map((_, index) => (
+          <ProductSkeleton
+            key={index}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  /* =======================================================
+     Sin resultados
+  ======================================================= */
+
+  if (products.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)] px-6 py-16 text-center">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[var(--secondary)] text-[var(--primary)]">
+          <svg
+            width="30"
+            height="30"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
           >
-            Ver todos los productos
-          </button>
+            <circle
+              cx="11"
+              cy="11"
+              r="8"
+            />
+
+            <path d="m21 21-4.3-4.3" />
+          </svg>
         </div>
+
+        <h3 className="mt-4 text-lg font-bold text-[var(--foreground)]">
+          No encontramos productos
+        </h3>
+
+        <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--muted)]">
+          {emptyMessage}
+        </p>
+      </div>
+    );
+  }
+
+  /* =======================================================
+     Productos
+  ======================================================= */
+
+  return (
+    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {products.map(
+        (product) => (
+          <ProductCard
+            key={product.id}
+            product={product}
+          />
+        ),
       )}
     </div>
   );
