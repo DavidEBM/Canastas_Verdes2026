@@ -333,14 +333,16 @@ export default function DashboardUsuariosPage() {
       </div>
 
       {/* Información */}
-      <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-        <p className="text-sm text-[var(--foreground)]">
-          Los roles se almacenan mediante
-          Firebase Custom Claims. El usuario
-          deberá renovar su token para que el
-          nuevo permiso sea reconocido.
-        </p>
-      </div>
+<div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+  <p className="text-sm text-[var(--foreground)]">
+    Los roles se almacenan en la colección
+    <strong> usuarios </strong>
+    de Firestore, utilizando el campo
+    <strong> Rol</strong>. Los cambios se
+    aplican directamente sobre el usuario
+    seleccionado.
+  </p>
+</div>
 
       {/* Mensajes */}
       {error && (

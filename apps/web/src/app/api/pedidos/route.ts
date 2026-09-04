@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { adminDb } from "@/lib/firebase-admin";
+import { requireAdmin } from "@/lib/require-admin";
 
 export const runtime = "nodejs";
 
@@ -13,19 +14,10 @@ const ESTADOS = [
 
 type EstadoPedido = (typeof ESTADOS)[number];
 
-function tokenFrom(request: Request): string | null {
-  const value = request.headers.get("authorization");
-
-  if (!value?.startsWith("Bearer ")) {
-    return null;
-  }
-
-  const token = value.slice(7).trim();
-
-  return token || null;
-}
-
-function errorResponse(message: string, status: number) {
+function errorResponse(
+  message: string,
+  status: number,
+) {
   return NextResponse.json(
     {
       success: false,
@@ -35,26 +27,14 @@ function errorResponse(message: string, status: number) {
   );
 }
 
-async function requireAdmin(request: Request) {
-  const token = tokenFrom(request);
-
-  if (!token) {
-    throw new Error("NO_AUTH");
-  }
-
-  const decoded = await adminAuth.verifyIdToken(token);
-
-  if (decoded.role !== "admin") {
-    throw new Error("FORBIDDEN");
-  }
-
-  return decoded;
-}
-
-function normalizeEstado(value: unknown): EstadoPedido | null {
+function normalizeEstado(
+  value: unknown,
+): EstadoPedido | null {
   if (
     typeof value === "string" &&
-    ESTADOS.includes(value as EstadoPedido)
+    ESTADOS.includes(
+      value as EstadoPedido,
+    )
   ) {
     return value as EstadoPedido;
   }
@@ -62,7 +42,22 @@ function normalizeEstado(value: unknown): EstadoPedido | null {
   return null;
 }
 
-function normalizeDate(value: unknown): string | null {
+function limpiarNombre(
+  value: unknown,
+): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeDate(
+  value: unknown,
+): string | null {
   if (
     value &&
     typeof value === "object" &&
@@ -71,9 +66,19 @@ function normalizeDate(value: unknown): string | null {
   ) {
     const date = value.toDate();
 
-    if (date instanceof Date && !Number.isNaN(date.getTime())) {
+    if (
+      date instanceof Date &&
+      !Number.isNaN(date.getTime())
+    ) {
       return date.toISOString();
     }
+  }
+
+  if (
+    value instanceof Date &&
+    !Number.isNaN(value.getTime())
+  ) {
+    return value.toISOString();
   }
 
   return null;
@@ -92,9 +97,10 @@ function mapPedido(
         ? data.usuarioId
         : "",
 
-    productos: Array.isArray(data.productos)
-      ? data.productos
-      : [],
+    productos:
+      Array.isArray(data.productos)
+        ? data.productos
+        : [],
 
     subtotal:
       typeof data.subtotal === "number"
@@ -116,70 +122,224 @@ function mapPedido(
         : null,
 
     IdMunicipalidad:
-      typeof data.IdMunicipalidad === "string"
+      typeof data.IdMunicipalidad ===
+      "string"
         ? data.IdMunicipalidad
         : "",
 
     direccionEntrega:
-      typeof data.direccionEntrega === "string"
+      typeof data.direccionEntrega ===
+      "string"
         ? data.direccionEntrega
         : "",
 
     repartidorId:
-      typeof data.repartidorId === "string"
+      typeof data.repartidorId ===
+      "string"
         ? data.repartidorId
         : null,
 
     fechaCreacion:
-      normalizeDate(data.fechaCreacion),
+      normalizeDate(
+        data.fechaCreacion,
+      ),
 
     ultimaActualizacion:
-      normalizeDate(data.ultimaActualizacion),
+      normalizeDate(
+        data.ultimaActualizacion,
+      ),
 
     fechaCancelacion:
-      normalizeDate(data.fechaCancelacion),
+      normalizeDate(
+        data.fechaCancelacion,
+      ),
   };
 }
 
-export async function GET(request: Request) {
+export async function GET(
+  request: Request,
+) {
   try {
     await requireAdmin(request);
 
-    const url = new URL(request.url);
+    const url = new URL(
+      request.url,
+    );
 
-    const estadoParam = url.searchParams.get("estado");
+    const estadoParam =
+      url.searchParams.get(
+        "estado",
+      );
+
     const estado = estadoParam
-      ? normalizeEstado(estadoParam)
+      ? normalizeEstado(
+          estadoParam,
+        )
       : null;
 
-    if (estadoParam && !estado) {
+    if (
+      estadoParam &&
+      !estado
+    ) {
       return errorResponse(
         "El estado solicitado no es válido.",
         400,
       );
     }
 
-    const snapshot = await adminDb
-      .collection("pedidos")
-      .get();
+    /*
+     * Obtener pedidos
+     */
+    const pedidosSnapshot =
+      await adminDb
+        .collection("pedidos")
+        .get();
 
-    let pedidos = snapshot.docs.map(mapPedido);
+    const pedidosBase =
+      pedidosSnapshot.docs.map(
+        mapPedido,
+      );
 
-    if (estado) {
-      pedidos = pedidos.filter(
-        (pedido) => pedido.estado === estado,
+    /*
+     * Obtener todos los usuarios
+     * necesarios para resolver los nombres.
+     *
+     * Usamos getAll() para evitar
+     * una consulta por cada pedido.
+     */
+    const usuarioIds = [
+      ...new Set(
+        pedidosBase
+          .map(
+            (pedido) =>
+              pedido.usuarioId,
+          )
+          .filter(Boolean),
+      ),
+    ];
+
+    const usuariosMap =
+      new Map<
+        string,
+        string
+      >();
+
+    if (
+      usuarioIds.length > 0
+    ) {
+      const referencias =
+        usuarioIds.map(
+          (uid) =>
+            adminDb
+              .collection(
+                "usuarios",
+              )
+              .doc(uid),
+        );
+
+      const usuarios =
+        await adminDb.getAll(
+          ...referencias,
+        );
+
+      usuarios.forEach(
+        (
+          snapshot,
+          index,
+        ) => {
+          if (
+            !snapshot.exists
+          ) {
+            return;
+          }
+
+          const data =
+            snapshot.data();
+
+          if (!data) {
+            return;
+          }
+
+          const nombres =
+            limpiarNombre(
+              data.Nombres,
+            );
+
+          const apellidos =
+            limpiarNombre(
+              data.Apellidos,
+            );
+
+          const nombreCompleto =
+            `${nombres} ${apellidos}`.trim();
+
+          if (
+            nombreCompleto
+          ) {
+            usuariosMap.set(
+              usuarioIds[index],
+              nombreCompleto,
+            );
+          }
+        },
       );
     }
 
-    pedidos.sort((a, b) => {
-      if (!a.fechaCreacion) return 1;
-      if (!b.fechaCreacion) return -1;
+    /*
+     * Agregar nombre del cliente
+     */
+    let pedidos =
+      pedidosBase.map(
+        (pedido) => ({
+          ...pedido,
 
-      return (
-        new Date(b.fechaCreacion).getTime() -
-        new Date(a.fechaCreacion).getTime()
+          nombreCliente:
+            usuariosMap.get(
+              pedido.usuarioId,
+            ) ??
+            "Cliente no identificado",
+        }),
       );
-    });
+
+    /*
+     * Filtro por estado
+     */
+    if (estado) {
+      pedidos =
+        pedidos.filter(
+          (pedido) =>
+            pedido.estado ===
+            estado,
+        );
+    }
+
+    /*
+     * Más recientes primero
+     */
+    pedidos.sort(
+      (a, b) => {
+        if (
+          !a.fechaCreacion
+        ) {
+          return 1;
+        }
+
+        if (
+          !b.fechaCreacion
+        ) {
+          return -1;
+        }
+
+        return (
+          new Date(
+            b.fechaCreacion,
+          ).getTime() -
+          new Date(
+            a.fechaCreacion,
+          ).getTime()
+        );
+      },
+    );
 
     return NextResponse.json({
       success: true,
@@ -193,7 +353,8 @@ export async function GET(request: Request) {
 
     if (
       error instanceof Error &&
-      error.message === "NO_AUTH"
+      error.message ===
+        "NO_AUTH"
     ) {
       return errorResponse(
         "Debes iniciar sesión.",
@@ -203,7 +364,8 @@ export async function GET(request: Request) {
 
     if (
       error instanceof Error &&
-      error.message === "FORBIDDEN"
+      error.message ===
+        "FORBIDDEN"
     ) {
       return errorResponse(
         "Solo un administrador puede consultar los pedidos.",
@@ -217,4 +379,3 @@ export async function GET(request: Request) {
     );
   }
 }
-

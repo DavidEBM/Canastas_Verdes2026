@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 
-import {
-  adminAuth,
-  adminDb,
-} from "@/lib/firebase-admin";
+import { adminDb } from "@/lib/firebase-admin";
+import { requireAdmin } from "@/lib/require-admin";
 
 export const runtime = "nodejs";
 
@@ -58,41 +56,6 @@ function numeric(value: unknown): number {
   return NaN;
 }
 
-function tokenFrom(
-  request: Request,
-): string | null {
-  const authorization =
-    request.headers.get("authorization");
-
-  if (!authorization) {
-    return null;
-  }
-
-  const match =
-    authorization.match(/^Bearer\s+(.+)$/i);
-
-  return match?.[1]?.trim() || null;
-}
-
-async function requireAdmin(
-  request: Request,
-) {
-  const token = tokenFrom(request);
-
-  if (!token) {
-    throw new Error("NO_AUTH");
-  }
-
-  const decoded =
-    await adminAuth.verifyIdToken(token);
-
-  if (decoded.role !== "admin") {
-    throw new Error("FORBIDDEN");
-  }
-
-  return decoded;
-}
-
 function normalizeProduct(
   input: ProductInput,
 ) {
@@ -140,17 +103,16 @@ function normalizeProduct(
   };
 }
 
-function errorResponse(
-  error: unknown,
-) {
+function errorResponse(error: unknown) {
   if (
     error instanceof Error &&
-    error.message === "NO_AUTH"
+    error.message === "AUTH_REQUIRED"
   ) {
     return NextResponse.json(
       {
         success: false,
-        message: "No autenticado.",
+        message:
+          "Debes iniciar sesión para realizar esta acción.",
       },
       { status: 401 },
     );
@@ -158,7 +120,35 @@ function errorResponse(
 
   if (
     error instanceof Error &&
-    error.message === "FORBIDDEN"
+    error.message === "USER_NOT_FOUND"
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        message:
+          "No existe un registro de usuario para esta cuenta.",
+      },
+      { status: 403 },
+    );
+  }
+
+  if (
+    error instanceof Error &&
+    error.message === "USER_INVALID"
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        message:
+          "La información del usuario no es válida.",
+      },
+      { status: 403 },
+    );
+  }
+
+  if (
+    error instanceof Error &&
+    error.message === "ADMIN_REQUIRED"
   ) {
     return NextResponse.json(
       {
@@ -191,7 +181,8 @@ function errorResponse(
     return NextResponse.json(
       {
         success: false,
-        message: "Identificador de producto inválido.",
+        message:
+          "Identificador de producto inválido.",
       },
       { status: 400 },
     );
@@ -223,6 +214,11 @@ function validateId(id: string) {
   }
 }
 
+/* =========================================================
+   PUT
+   Editar producto
+========================================================= */
+
 export async function PUT(
   request: Request,
   {
@@ -232,6 +228,17 @@ export async function PUT(
   },
 ) {
   try {
+    /*
+     * IMPORTANTE:
+     *
+     * requireAdmin verifica:
+     *
+     * Firebase Authentication
+     * +
+     * usuarios/{uid}.Rol === "admin"
+     *
+     * No utiliza decoded.role.
+     */
     await requireAdmin(request);
 
     const { id } = await params;
@@ -262,15 +269,15 @@ export async function PUT(
       return NextResponse.json(
         {
           success: false,
-          message: "Producto no encontrado.",
+          message:
+            "Producto no encontrado.",
         },
         { status: 404 },
       );
     }
 
     /*
-     * Evita que dos productos tengan el mismo código.
-     * La comparación es insensible a mayúsculas/minúsculas.
+     * Evitar códigos duplicados.
      */
     const existing =
       await adminDb
@@ -324,6 +331,11 @@ export async function PUT(
   }
 }
 
+/* =========================================================
+   DELETE
+   Desactivar producto
+========================================================= */
+
 export async function DELETE(
   request: Request,
   {
@@ -349,7 +361,8 @@ export async function DELETE(
       return NextResponse.json(
         {
           success: false,
-          message: "Producto no encontrado.",
+          message:
+            "Producto no encontrado.",
         },
         { status: 404 },
       );
@@ -365,10 +378,10 @@ export async function DELETE(
 
     return NextResponse.json({
       success: true,
-      message: "Producto desactivado correctamente.",
+      message:
+        "Producto desactivado correctamente.",
     });
   } catch (error) {
     return errorResponse(error);
   }
 }
-

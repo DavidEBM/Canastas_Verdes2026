@@ -8,12 +8,21 @@ import {
   useState,
 } from "react";
 
+import {
+  deleteObject,
+  getDownloadURL,
+  ref,
+  uploadBytes,
+} from "firebase/storage";
+
+import { storage } from "@/lib/firebase";
+
 import * as XLSX from "xlsx";
 
 import { useAuth } from "@/hooks/useAuth";
 
 /* =========================================================
-   Tipos
+   TIPOS
 ========================================================= */
 
 type Product = {
@@ -34,8 +43,13 @@ type Product = {
 
 type ProductForm = Omit<Product, "id">;
 
+type CatalogOption = {
+  id: string;
+  nombre: string;
+};
+
 /* =========================================================
-   Estado inicial
+   FORMULARIO
 ========================================================= */
 
 const empty: ProductForm = {
@@ -54,7 +68,29 @@ const empty: ProductForm = {
 };
 
 /* =========================================================
-   Columnas para Excel
+   UNIDAD / PRESENTACIÓN
+========================================================= */
+
+function parseUnidad(unidad: string) {
+  const match = unidad.match(
+    /^\s*(.*?)\s*x\s*(.*?)\s*$/i,
+  );
+
+  if (!match) {
+    return {
+      cantidad: "",
+      presentacion: unidad.trim(),
+    };
+  }
+
+  return {
+    cantidad: match[1].trim(),
+    presentacion: match[2].trim(),
+  };
+}
+
+/* =========================================================
+   EXCEL
 ========================================================= */
 
 const columns: (keyof ProductForm)[] = [
@@ -72,10 +108,6 @@ const columns: (keyof ProductForm)[] = [
   "IdMunicipalidad",
 ];
 
-/* =========================================================
-   Formato de precio
-========================================================= */
-
 function formatPrice(value: number) {
   return new Intl.NumberFormat("es-CO", {
     style: "currency",
@@ -85,7 +117,259 @@ function formatPrice(value: number) {
 }
 
 /* =========================================================
-   Página
+   CATÁLOGOS
+========================================================= */
+
+function normalizeOptions(
+  value: unknown,
+): CatalogOption[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const data =
+        item as Record<string, unknown>;
+
+      const id =
+        typeof data.id === "string"
+          ? data.id
+          : typeof data.Id === "string"
+            ? data.Id
+            : "";
+
+      const nombre =
+        typeof data.nombre === "string"
+          ? data.nombre
+          : typeof data.Nombre === "string"
+            ? data.Nombre
+            : typeof data.name === "string"
+              ? data.name
+              : "";
+
+      if (!nombre.trim()) {
+        return null;
+      }
+
+      return {
+        id: id || nombre,
+        nombre: nombre.trim(),
+      };
+    })
+    .filter(
+      (
+        item,
+      ): item is CatalogOption =>
+        item !== null,
+    );
+}
+
+/* =========================================================
+   COMBOBOX
+========================================================= */
+
+interface CatalogComboboxProps {
+  label: string;
+  value: string;
+  options: CatalogOption[];
+  loading?: boolean;
+  required?: boolean;
+  placeholder?: string;
+  onChange: (value: string) => void;
+}
+
+function CatalogCombobox({
+  label,
+  value,
+  options,
+  loading = false,
+  required = false,
+  placeholder = "Seleccionar...",
+  onChange,
+}: CatalogComboboxProps) {
+  const [open, setOpen] =
+    useState(false);
+
+  const [search, setSearch] =
+    useState(value);
+
+  useEffect(() => {
+    setSearch(value);
+  }, [value]);
+
+  const filteredOptions =
+    options.filter((item) =>
+      item.nombre
+        .toLowerCase()
+        .includes(
+          search.trim().toLowerCase(),
+        ),
+    );
+
+  const selectOption = (
+    option: CatalogOption,
+  ) => {
+    onChange(option.nombre);
+    setSearch(option.nombre);
+    setOpen(false);
+  };
+
+  const clear = () => {
+    onChange("");
+    setSearch("");
+    setOpen(true);
+  };
+
+  return (
+    <div className="relative">
+      <label className="mb-1.5 block text-sm font-semibold">
+        {label}{" "}
+        {required && (
+          <span className="text-red-600">
+            *
+          </span>
+        )}
+      </label>
+
+      <div className="relative">
+        <input
+          type="text"
+          required={required}
+          value={search}
+          placeholder={
+            loading
+              ? "Cargando opciones..."
+              : options.length === 0
+                ? "No hay opciones disponibles"
+                : placeholder
+          }
+          disabled={
+            loading ||
+            options.length === 0
+          }
+          onFocus={() =>
+            setOpen(true)
+          }
+          onChange={(event) => {
+            const newValue =
+              event.target.value;
+
+            setSearch(newValue);
+            onChange(newValue);
+            setOpen(true);
+          }}
+          className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5 pr-10 text-sm outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/10 disabled:cursor-not-allowed disabled:opacity-60"
+        />
+
+        <button
+          type="button"
+          onClick={() => {
+            if (
+              !loading &&
+              options.length > 0
+            ) {
+              setOpen(
+                (current) => !current,
+              );
+            }
+          }}
+          disabled={
+            loading ||
+            options.length === 0
+          }
+          className="absolute right-0 top-0 flex h-full w-10 items-center justify-center text-[var(--foreground)]/60"
+          aria-label={`Mostrar opciones de ${label}`}
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={`transition-transform ${
+              open ? "rotate-180" : ""
+            }`}
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+      </div>
+
+      {open &&
+        !loading &&
+        options.length > 0 && (
+          <div className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--background)] shadow-lg">
+            {filteredOptions.length >
+            0 ? (
+              filteredOptions.map(
+                (option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() =>
+                      selectOption(
+                        option,
+                      )
+                    }
+                    className={`block w-full px-3 py-2.5 text-left text-sm transition-colors hover:bg-[var(--surface-hover)] ${
+                      value ===
+                      option.nombre
+                        ? "bg-[var(--secondary)] font-semibold text-[var(--primary)]"
+                        : "text-[var(--foreground)]"
+                    }`}
+                  >
+                    {option.nombre}
+                  </button>
+                ),
+              )
+            ) : (
+              <div className="px-3 py-3 text-sm text-[var(--foreground)]/60">
+                No se encontraron
+                coincidencias.
+              </div>
+            )}
+
+            {value && (
+              <button
+                type="button"
+                onClick={clear}
+                className="w-full border-t border-[var(--border)] px-3 py-2.5 text-left text-xs font-semibold text-red-600 hover:bg-red-50"
+              >
+                Limpiar selección
+              </button>
+            )}
+          </div>
+        )}
+
+      {options.length === 0 &&
+        !loading && (
+          <p className="mt-1 text-xs text-amber-700">
+            No hay opciones
+            registradas en Firebase.
+          </p>
+        )}
+
+      {options.length > 0 && (
+        <p className="mt-1 text-xs text-[var(--foreground)]/55">
+          Escribe para buscar o
+          utiliza la flecha para
+          seleccionar.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* =========================================================
+   PÁGINA
 ========================================================= */
 
 export default function DashboardProductosPage() {
@@ -95,12 +379,32 @@ export default function DashboardProductosPage() {
     role,
   } = useAuth();
 
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] =
+    useState<Product[]>([]);
+
+  const [categories, setCategories] =
+    useState<CatalogOption[]>([]);
+
+  const [municipalities, setMunicipalities] =
+    useState<CatalogOption[]>([]);
+
+  const [farms, setFarms] =
+    useState<CatalogOption[]>([]);
+
+  /* NUEVO: catálogo de presentaciones */
+  const [presentations, setPresentations] =
+    useState<CatalogOption[]>([]);
 
   const [form, setForm] =
     useState<ProductForm>({
       ...empty,
     });
+
+  const [cantidad, setCantidad] =
+    useState("");
+
+  const [presentacion, setPresentacion] =
+    useState("");
 
   const [editing, setEditing] =
     useState<string | null>(null);
@@ -111,10 +415,19 @@ export default function DashboardProductosPage() {
   const [loadingProducts, setLoadingProducts] =
     useState(false);
 
+  const [loadingCatalogs, setLoadingCatalogs] =
+    useState(false);
+
   const [error, setError] =
     useState<string | null>(null);
 
   const [notice, setNotice] =
+    useState<string | null>(null);
+
+  const [imageFile, setImageFile] =
+    useState<File | null>(null);
+
+  const [originalImagePath, setOriginalImagePath] =
     useState<string | null>(null);
 
   /* =======================================================
@@ -136,13 +449,12 @@ export default function DashboardProductosPage() {
       const token =
         await user.getIdToken();
 
-      const response =
-        await fetch(path, {
+      const response = await fetch(
+        path,
+        {
           method,
           headers: {
-            Authorization:
-              `Bearer ${token}`,
-
+            Authorization: `Bearer ${token}`,
             ...(body !== undefined
               ? {
                   "Content-Type":
@@ -150,12 +462,12 @@ export default function DashboardProductosPage() {
                 }
               : {}),
           },
-
           body:
             body !== undefined
               ? JSON.stringify(body)
               : undefined,
-        });
+        },
+      );
 
       let result: unknown = null;
 
@@ -171,7 +483,8 @@ export default function DashboardProductosPage() {
           result &&
           typeof result === "object" &&
           "message" in result &&
-          typeof result.message === "string"
+          typeof result.message ===
+            "string"
             ? result.message
             : "No fue posible completar la operación.";
 
@@ -184,57 +497,156 @@ export default function DashboardProductosPage() {
   );
 
   /* =======================================================
-     Cargar productos
+     PRODUCTOS
   ======================================================= */
 
-  const load =
-    useCallback(async () => {
-      if (
-        !user ||
-        role !== "admin"
-      ) {
-        return;
-      }
-
-      try {
-        setLoadingProducts(true);
-        setError(null);
-
-        const result =
-          await api(
-            "/api/productos?admin=1",
-          );
-
+  const loadProducts =
+    useCallback(
+      async () => {
         if (
-          result &&
-          typeof result === "object" &&
-          "data" in result &&
-          Array.isArray(result.data)
+          !user ||
+          role !== "admin"
         ) {
-          setProducts(
-            result.data as Product[],
-          );
-        } else {
-          setProducts([]);
+          return;
         }
-      } catch (caught) {
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : "No fue posible cargar los productos.",
-        );
-      } finally {
-        setLoadingProducts(false);
-      }
-    }, [
-      api,
-      role,
-      user,
-    ]);
+
+        try {
+          setLoadingProducts(true);
+          setError(null);
+
+          const result =
+            await api(
+              "/api/productos?admin=1",
+            );
+
+          if (
+            result &&
+            typeof result ===
+              "object" &&
+            "data" in result &&
+            Array.isArray(
+              result.data,
+            )
+          ) {
+            setProducts(
+              result.data as Product[],
+            );
+          } else {
+            setProducts([]);
+          }
+        } catch (caught) {
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "No fue posible cargar los productos.",
+          );
+        } finally {
+          setLoadingProducts(false);
+        }
+      },
+      [api, role, user],
+    );
 
   /* =======================================================
-     Cargar al entrar
+     CATÁLOGOS
   ======================================================= */
+
+  const loadCatalogs =
+    useCallback(
+      async () => {
+        if (
+          !user ||
+          role !== "admin"
+        ) {
+          return;
+        }
+
+        try {
+          setLoadingCatalogs(true);
+
+          const [
+            categoriesResult,
+            municipalitiesResult,
+            farmsResult,
+            presentationsResult,
+          ] = await Promise.all([
+            api("/api/categorias"),
+            api(
+              "/api/municipalidades",
+            ),
+            api("/api/granjas"),
+
+            /* NUEVO */
+            api("/api/presentaciones"),
+          ]);
+
+          if (
+            categoriesResult &&
+            typeof categoriesResult ===
+              "object" &&
+            "data" in
+              categoriesResult
+          ) {
+            setCategories(
+              normalizeOptions(
+                categoriesResult.data,
+              ),
+            );
+          }
+
+          if (
+            municipalitiesResult &&
+            typeof municipalitiesResult ===
+              "object" &&
+            "data" in
+              municipalitiesResult
+          ) {
+            setMunicipalities(
+              normalizeOptions(
+                municipalitiesResult.data,
+              ),
+            );
+          }
+
+          if (
+            farmsResult &&
+            typeof farmsResult ===
+              "object" &&
+            "data" in farmsResult
+          ) {
+            setFarms(
+              normalizeOptions(
+                farmsResult.data,
+              ),
+            );
+          }
+
+          /* NUEVO */
+          if (
+            presentationsResult &&
+            typeof presentationsResult ===
+              "object" &&
+            "data" in
+              presentationsResult
+          ) {
+            setPresentations(
+              normalizeOptions(
+                presentationsResult.data,
+              ),
+            );
+          }
+        } catch (caught) {
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "No fue posible cargar los catálogos.",
+          );
+        } finally {
+          setLoadingCatalogs(false);
+        }
+      },
+      [api, role, user],
+    );
 
   useEffect(() => {
     if (
@@ -242,17 +654,19 @@ export default function DashboardProductosPage() {
       user &&
       role === "admin"
     ) {
-      void load();
+      void loadProducts();
+      void loadCatalogs();
     }
   }, [
-    load,
     loading,
-    role,
     user,
+    role,
+    loadProducts,
+    loadCatalogs,
   ]);
 
   /* =======================================================
-     Actualizar formulario
+     SET FORM
   ======================================================= */
 
   const set = (
@@ -261,7 +675,6 @@ export default function DashboardProductosPage() {
   ) => {
     setForm((current) => ({
       ...current,
-
       [key]:
         key === "precio" ||
         key === "stock"
@@ -271,31 +684,170 @@ export default function DashboardProductosPage() {
   };
 
   /* =======================================================
-     Restablecer formulario
+     RESET
   ======================================================= */
 
   const resetForm = () => {
     setEditing(null);
-
-    setForm({
-      ...empty,
-    });
-
+    setForm({ ...empty });
+    setCantidad("");
+    setPresentacion("");
+    setImageFile(null);
+    setOriginalImagePath(null);
     setError(null);
   };
 
   /* =======================================================
-     Guardar producto
+     IMAGEN
+  ======================================================= */
+
+  const selectImage = (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file =
+      event.target.files?.[0] ??
+      null;
+
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    if (
+      ![
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+      ].includes(file.type)
+    ) {
+      setError(
+        "Selecciona una imagen JPG, PNG o WEBP.",
+      );
+      return;
+    }
+
+    if (
+      file.size >
+      5 * 1024 * 1024
+    ) {
+      setError(
+        "La imagen no puede superar los 5 MB.",
+      );
+      return;
+    }
+
+    setError(null);
+    setImageFile(file);
+
+    if (!form.imageName.trim()) {
+      const originalName =
+        file.name.replace(
+          /\.[^/.]+$/,
+          "",
+        );
+
+      setForm((current) => ({
+        ...current,
+        imageName:
+          originalName,
+      }));
+    }
+  };
+
+  const clearSelectedImage = () => {
+    setImageFile(null);
+    setError(null);
+  };
+
+  /* =======================================================
+     SUBIR / REEMPLAZAR IMAGEN
+  ======================================================= */
+
+  const processImage =
+    async (): Promise<{
+      imgPath: string;
+      imageName: string;
+      newStoragePath: string | null;
+    }> => {
+      if (!imageFile) {
+        return {
+          imgPath: form.imgPath,
+          imageName:
+            form.imageName.trim(),
+          newStoragePath: null,
+        };
+      }
+
+      const cleanName =
+        form.imageName
+          .trim()
+          .replace(
+            /\.[^/.]+$/,
+            "",
+          )
+          .replace(
+            /[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑüÜ_-]+/g,
+            "-",
+          )
+          .replace(
+            /^-+|-+$/g,
+            "",
+          );
+
+      if (!cleanName) {
+        throw new Error(
+          "Indica un nombre válido para la imagen.",
+        );
+      }
+
+      const extension =
+        imageFile.name
+          .split(".")
+          .pop()
+          ?.toLowerCase() ||
+        "jpg";
+
+      const fileName =
+        `${cleanName}.${extension}`;
+
+      const storagePath =
+        `productos/${fileName}`;
+
+      const imageRef = ref(
+        storage,
+        storagePath,
+      );
+
+      await uploadBytes(
+        imageRef,
+        imageFile,
+        {
+          contentType:
+            imageFile.type,
+        },
+      );
+
+      const imageUrl =
+        await getDownloadURL(
+          imageRef,
+        );
+
+      return {
+        imgPath: imageUrl,
+        imageName: fileName,
+        newStoragePath: storagePath,
+      };
+    };
+
+  /* =======================================================
+     GUARDAR
   ======================================================= */
 
   const save = async (
     event: FormEvent<HTMLFormElement>,
   ) => {
     event.preventDefault();
-
-    /* -----------------------------------------------------
-       Validaciones
-    ----------------------------------------------------- */
 
     if (!form.code.trim()) {
       setError(
@@ -332,38 +884,90 @@ export default function DashboardProductosPage() {
       return;
     }
 
+    if (!form.categoria.trim()) {
+      setError(
+        "Selecciona una categoría.",
+      );
+      return;
+    }
+
+    if (!cantidad.trim()) {
+      setError(
+        "Indica la cantidad de la unidad.",
+      );
+      return;
+    }
+
+    if (!presentacion.trim()) {
+      setError(
+        "Selecciona una presentación.",
+      );
+      return;
+    }
+
+    if (!form.IdGranja.trim()) {
+      setError(
+        "Selecciona una granja.",
+      );
+      return;
+    }
+
+    if (
+      !form.IdMunicipalidad.trim()
+    ) {
+      setError(
+        "Selecciona una municipalidad.",
+      );
+      return;
+    }
+
     setBusy(true);
     setError(null);
     setNotice(null);
+
+    let uploadedNewPath:
+      | string
+      | null = null;
 
     try {
       const wasEditing =
         Boolean(editing);
 
+      /*
+       * La presentación seleccionada
+       * se mantiene en el campo unidad.
+       *
+       * Ejemplo:
+       * cantidad = 2
+       * presentación = Kg
+       * unidad = "2 x Kg"
+       */
+      const unidad =
+        `${cantidad.trim()} x ${presentacion.trim()}`;
+
+      const image =
+        await processImage();
+
+      uploadedNewPath =
+        image.newStoragePath;
+
       await api(
         editing
           ? `/api/productos/${editing}`
           : "/api/productos",
-        editing
-          ? "PUT"
-          : "POST",
+        editing ? "PUT" : "POST",
         {
           ...form,
 
-          code:
-            form.code.trim(),
-
-          nombre:
-            form.nombre.trim(),
-
+          code: form.code.trim(),
+          nombre: form.nombre.trim(),
           descripcion:
             form.descripcion.trim(),
 
           categoria:
             form.categoria.trim(),
 
-          unidad:
-            form.unidad.trim(),
+          unidad,
 
           IdGranja:
             form.IdGranja.trim(),
@@ -372,12 +976,34 @@ export default function DashboardProductosPage() {
             form.IdMunicipalidad.trim(),
 
           imgPath:
-            form.imgPath.trim(),
+            image.imgPath,
 
           imageName:
-            form.imageName.trim(),
+            image.imageName,
         },
       );
+
+      if (
+        wasEditing &&
+        uploadedNewPath &&
+        originalImagePath &&
+        originalImagePath !==
+          uploadedNewPath
+      ) {
+        try {
+          await deleteObject(
+            ref(
+              storage,
+              originalImagePath,
+            ),
+          );
+        } catch (caught) {
+          console.warn(
+            "No fue posible eliminar la imagen anterior:",
+            caught,
+          );
+        }
+      }
 
       resetForm();
 
@@ -387,8 +1013,21 @@ export default function DashboardProductosPage() {
           : "Producto creado correctamente.",
       );
 
-      await load();
+      await loadProducts();
     } catch (caught) {
+      if (uploadedNewPath) {
+        try {
+          await deleteObject(
+            ref(
+              storage,
+              uploadedNewPath,
+            ),
+          );
+        } catch {
+          // No interrumpimos el mensaje principal.
+        }
+      }
+
       setError(
         caught instanceof Error
           ? caught.message
@@ -400,7 +1039,7 @@ export default function DashboardProductosPage() {
   };
 
   /* =======================================================
-     Editar
+     EDITAR
   ======================================================= */
 
   const edit = (
@@ -411,12 +1050,33 @@ export default function DashboardProductosPage() {
       ...data
     } = product;
 
+    const parsed =
+      parseUnidad(
+        product.unidad,
+      );
+
     setEditing(id);
 
     setForm({
       ...empty,
       ...data,
     });
+
+    setCantidad(
+      parsed.cantidad,
+    );
+
+    setPresentacion(
+      parsed.presentacion,
+    );
+
+    setImageFile(null);
+
+    setOriginalImagePath(
+      product.imageName
+        ? `productos/${product.imageName}`
+        : null,
+    );
 
     setError(null);
     setNotice(null);
@@ -428,7 +1088,7 @@ export default function DashboardProductosPage() {
   };
 
   /* =======================================================
-     Eliminar
+     ELIMINAR
   ======================================================= */
 
   const remove = async (
@@ -436,7 +1096,7 @@ export default function DashboardProductosPage() {
   ) => {
     if (
       !window.confirm(
-        `¿Eliminar "${product.nombre}"?\n\nEsta acción no se puede deshacer.`,
+        `¿Eliminar "${product.nombre}"?\n\nEl producto será desactivado.`,
       )
     ) {
       return;
@@ -462,7 +1122,7 @@ export default function DashboardProductosPage() {
         "Producto eliminado correctamente.",
       );
 
-      await load();
+      await loadProducts();
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -475,38 +1135,34 @@ export default function DashboardProductosPage() {
   };
 
   /* =======================================================
-     Descargar plantilla Excel
+     EXCEL - PLANTILLA
   ======================================================= */
 
   const template = () => {
-    const rows:
-      Record<string, unknown>[] =
-      products.map(
-        (product) => ({
-          id: product.id,
+    const rows: Record<
+      string,
+      unknown
+    >[] = products.map(
+      (product) => ({
+        id: product.id,
+        accion: "ACTUALIZAR",
+        ...columns.reduce<
+          Record<string, unknown>
+        >(
+          (
+            result,
+            key,
+          ) => ({
+            ...result,
+            [key]:
+              product[key],
+          }),
+          {},
+        ),
+      }),
+    );
 
-          accion:
-            "ACTUALIZAR",
-
-          ...columns.reduce<
-            Record<string, unknown>
-          >(
-            (
-              result,
-              key,
-            ) => ({
-              ...result,
-              [key]:
-                product[key],
-            }),
-            {},
-          ),
-        }),
-      );
-
-    if (
-      rows.length === 0
-    ) {
+    if (rows.length === 0) {
       rows.push({
         id: "",
         accion: "CREAR",
@@ -531,29 +1187,32 @@ export default function DashboardProductosPage() {
     const instructionsSheet =
       XLSX.utils.aoa_to_sheet([
         ["Instrucciones"],
-
         [
           "Accion: CREAR, ACTUALIZAR o ELIMINAR.",
         ],
-
         [
           "Para actualizar o eliminar conserva el id.",
         ],
-
         [
           "Código, nombre, precio y stock son obligatorios.",
         ],
-
         [
           "Precio y stock deben ser valores numéricos.",
         ],
-
         [
           "Stock debe ser un número entero.",
         ],
-
         [
           "activo puede ser TRUE o FALSE.",
+        ],
+        [
+          "unidad debe utilizar el formato: 2 x Kg, 3 x Paquete, etc.",
+        ],
+        [
+          "categoria, IdGranja e IdMunicipalidad utilizan los nombres registrados.",
+        ],
+        [
+          "La presentación se selecciona desde el catálogo de presentaciones.",
         ],
       ]);
 
@@ -570,7 +1229,7 @@ export default function DashboardProductosPage() {
   };
 
   /* =======================================================
-     Importar Excel
+     IMPORTAR EXCEL
   ======================================================= */
 
   const importFile = async (
@@ -585,12 +1244,11 @@ export default function DashboardProductosPage() {
       return;
     }
 
-    const validExtension =
-      /\.(xlsx|xls)$/i.test(
+    if (
+      !/\.(xlsx|xls)$/i.test(
         file.name,
-      );
-
-    if (!validExtension) {
+      )
+    ) {
       setError(
         "Selecciona un archivo Excel válido (.xlsx o .xls).",
       );
@@ -605,9 +1263,7 @@ export default function DashboardProductosPage() {
       const workbook =
         XLSX.read(
           await file.arrayBuffer(),
-          {
-            type: "array",
-          },
+          { type: "array" },
         );
 
       const firstSheetName =
@@ -627,12 +1283,9 @@ export default function DashboardProductosPage() {
       const rows =
         XLSX.utils.sheet_to_json<
           Record<string, unknown>
-        >(
-          sheet,
-          {
-            defval: "",
-          },
-        );
+        >(sheet, {
+          defval: "",
+        });
 
       if (!rows.length) {
         throw new Error(
@@ -644,22 +1297,22 @@ export default function DashboardProductosPage() {
         await api(
           "/api/productos/importar",
           "POST",
-          {
-            rows,
-          },
+          { rows },
         );
 
       const data =
         result &&
-        typeof result === "object" &&
+        typeof result ===
+          "object" &&
         "data" in result &&
         result.data &&
-        typeof result.data === "object"
-          ? result.data as {
+        typeof result.data ===
+          "object"
+          ? (result.data as {
               created?: number;
               updated?: number;
               deleted?: number;
-            }
+            })
           : null;
 
       setNotice(
@@ -674,7 +1327,7 @@ export default function DashboardProductosPage() {
           : "Importación completada correctamente.",
       );
 
-      await load();
+      await loadProducts();
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -687,7 +1340,7 @@ export default function DashboardProductosPage() {
   };
 
   /* =======================================================
-     Estados de acceso
+     ESTADOS DE ACCESO
   ======================================================= */
 
   if (loading) {
@@ -722,23 +1375,19 @@ export default function DashboardProductosPage() {
 
         <p className="mt-2 text-sm text-[var(--foreground)]/70">
           Solo los administradores
-          pueden gestionar el catálogo.
+          pueden gestionar el
+          catálogo.
         </p>
       </main>
     );
   }
 
   /* =======================================================
-     Render
+     RENDER
   ======================================================= */
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-
-      {/* =================================================
-          ENCABEZADO
-      ================================================= */}
-
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
           <h1 className="text-3xl font-bold text-[var(--foreground)]">
@@ -752,22 +1401,17 @@ export default function DashboardProductosPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-
-          {/* Descargar Excel */}
-
           <button
             type="button"
             onClick={template}
             disabled={busy}
-            className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-semibold transition-colors hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--surface-hover)] disabled:opacity-50"
           >
             Descargar plantilla Excel
           </button>
 
-          {/* Importar Excel */}
-
           <label
-            className={`cursor-pointer rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90 ${
+            className={`cursor-pointer rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-semibold text-[var(--primary-foreground)] ${
               busy
                 ? "pointer-events-none opacity-50"
                 : ""
@@ -785,10 +1429,6 @@ export default function DashboardProductosPage() {
           </label>
         </div>
       </div>
-
-      {/* =================================================
-          MENSAJES
-      ================================================= */}
 
       {error && (
         <div
@@ -808,39 +1448,36 @@ export default function DashboardProductosPage() {
         </div>
       )}
 
-      {/* =================================================
+      {/* ===================================================
           FORMULARIO
-      ================================================= */}
+      =================================================== */}
 
       <form
         onSubmit={save}
         className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--background)] p-5"
       >
-
         <div className="mb-6">
-          <h2 className="text-lg font-bold text-[var(--foreground)]">
+          <h2 className="text-lg font-bold">
             {editing
               ? "Editar producto"
               : "Agregar producto"}
           </h2>
 
           <p className="mt-1 text-sm text-[var(--foreground)]/60">
-            Completa la información del
-            producto. Los campos marcados
-            con * son obligatorios.
+            Completa la información
+            del producto. Los campos
+            marcados con * son
+            obligatorios.
           </p>
         </div>
 
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-
-          {/* =================================================
-              CÓDIGO
-          ================================================= */}
+          {/* Código */}
 
           <div>
             <label
               htmlFor="product-code"
-              className="mb-1.5 block text-sm font-semibold text-[var(--foreground)]"
+              className="mb-1.5 block text-sm font-semibold"
             >
               Código del producto *
             </label>
@@ -856,22 +1493,16 @@ export default function DashboardProductosPage() {
                 )
               }
               placeholder="Ej. AS0001"
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/15"
+              className="w-full rounded-lg border border-[var(--border)] p-2.5 text-sm outline-none focus:border-[var(--primary)]"
             />
-
-            <p className="mt-1 text-xs text-[var(--foreground)]/55">
-              Identificador único del producto.
-            </p>
           </div>
 
-          {/* =================================================
-              NOMBRE
-          ================================================= */}
+          {/* Nombre */}
 
           <div>
             <label
               htmlFor="product-name"
-              className="mb-1.5 block text-sm font-semibold text-[var(--foreground)]"
+              className="mb-1.5 block text-sm font-semibold"
             >
               Nombre del producto *
             </label>
@@ -887,61 +1518,43 @@ export default function DashboardProductosPage() {
                 )
               }
               placeholder="Ej. Tomate Chonto"
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/15"
+              className="w-full rounded-lg border border-[var(--border)] p-2.5 text-sm outline-none focus:border-[var(--primary)]"
             />
-
-            <p className="mt-1 text-xs text-[var(--foreground)]/55">
-              Nombre que verá el cliente.
-            </p>
           </div>
 
-          {/* =================================================
-              PRECIO
-          ================================================= */}
+          {/* Precio */}
 
           <div>
             <label
               htmlFor="product-price"
-              className="mb-1.5 block text-sm font-semibold text-[var(--foreground)]"
+              className="mb-1.5 block text-sm font-semibold"
             >
               Precio *
             </label>
 
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-[var(--foreground)]/50">
-                $
-              </span>
-
-              <input
-                id="product-price"
-                required
-                min="0"
-                step="1"
-                type="number"
-                value={form.precio}
-                onChange={(event) =>
-                  set(
-                    "precio",
-                    event.target.value,
-                  )
-                }
-                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] py-2.5 pl-7 pr-3 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/15"
-              />
-            </div>
-
-            <p className="mt-1 text-xs text-[var(--foreground)]/55">
-              Precio en pesos colombianos (COP).
-            </p>
+            <input
+              id="product-price"
+              required
+              type="number"
+              min="0"
+              step="1"
+              value={form.precio}
+              onChange={(event) =>
+                set(
+                  "precio",
+                  event.target.value,
+                )
+              }
+              className="w-full rounded-lg border border-[var(--border)] p-2.5 text-sm outline-none focus:border-[var(--primary)]"
+            />
           </div>
 
-          {/* =================================================
-              STOCK
-          ================================================= */}
+          {/* Stock */}
 
           <div>
             <label
               htmlFor="product-stock"
-              className="mb-1.5 block text-sm font-semibold text-[var(--foreground)]"
+              className="mb-1.5 block text-sm font-semibold"
             >
               Stock disponible *
             </label>
@@ -949,9 +1562,9 @@ export default function DashboardProductosPage() {
             <input
               id="product-stock"
               required
+              type="number"
               min="0"
               step="1"
-              type="number"
               value={form.stock}
               onChange={(event) =>
                 set(
@@ -959,213 +1572,238 @@ export default function DashboardProductosPage() {
                   event.target.value,
                 )
               }
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/15"
+              className="w-full rounded-lg border border-[var(--border)] p-2.5 text-sm outline-none focus:border-[var(--primary)]"
             />
-
-            <p className="mt-1 text-xs text-[var(--foreground)]/55">
-              Cantidad disponible para venta.
-            </p>
           </div>
 
-          {/* =================================================
-              CATEGORÍA
-          ================================================= */}
+          {/* Categoría */}
+
+          <CatalogCombobox
+            label="Categoría"
+            value={form.categoria}
+            options={categories}
+            loading={loadingCatalogs}
+            required
+            placeholder="Escribe para buscar categoría..."
+            onChange={(value) =>
+              set(
+                "categoria",
+                value,
+              )
+            }
+          />
+
+          {/* Cantidad */}
 
           <div>
             <label
-              htmlFor="product-category"
-              className="mb-1.5 block text-sm font-semibold text-[var(--foreground)]"
+              htmlFor="product-quantity"
+              className="mb-1.5 block text-sm font-semibold"
             >
-              Categoría
+              Unidad *
             </label>
 
             <input
-              id="product-category"
-              value={form.categoria}
+              id="product-quantity"
+              required
+              type="text"
+              inputMode="decimal"
+              value={cantidad}
               onChange={(event) =>
-                set(
-                  "categoria",
+                setCantidad(
                   event.target.value,
                 )
               }
-              placeholder="Ej. Verduras"
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/15"
+              placeholder="Ej. 2"
+              className="w-full rounded-lg border border-[var(--border)] p-2.5 text-sm outline-none focus:border-[var(--primary)]"
             />
 
             <p className="mt-1 text-xs text-[var(--foreground)]/55">
-              Categoría a la que pertenece.
+              Cantidad incluida.
             </p>
           </div>
 
           {/* =================================================
-              UNIDAD / PRESENTACIÓN
+              PRESENTACIÓN - AHORA ES SELECTOR
           ================================================= */}
 
-          <div>
-            <label
-              htmlFor="product-unit"
-              className="mb-1.5 block text-sm font-semibold text-[var(--foreground)]"
-            >
-              Unidad / presentación
-            </label>
+          <CatalogCombobox
+            label="Presentación"
+            value={presentacion}
+            options={presentations}
+            loading={loadingCatalogs}
+            required
+            placeholder="Escribe para buscar presentación..."
+            onChange={(value) =>
+              setPresentacion(value)
+            }
+          />
 
-            <input
-              id="product-unit"
-              value={form.unidad}
-              onChange={(event) =>
-                set(
-                  "unidad",
-                  event.target.value,
-                )
-              }
-              placeholder="Ej. kg, libra, atado"
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/15"
-            />
+          {/* Granja */}
 
-            <p className="mt-1 text-xs text-[var(--foreground)]/55">
-              Forma en la que se vende el producto.
-            </p>
-          </div>
+          <CatalogCombobox
+            label="Granja productora"
+            value={form.IdGranja}
+            options={farms}
+            loading={loadingCatalogs}
+            required
+            placeholder="Escribe para buscar granja..."
+            onChange={(value) =>
+              set(
+                "IdGranja",
+                value,
+              )
+            }
+          />
+
+          {/* Municipalidad */}
+
+          <CatalogCombobox
+            label="Municipalidad"
+            value={
+              form.IdMunicipalidad
+            }
+            options={municipalities}
+            loading={loadingCatalogs}
+            required
+            placeholder="Escribe para buscar municipio..."
+            onChange={(value) =>
+              set(
+                "IdMunicipalidad",
+                value,
+              )
+            }
+          />
 
           {/* =================================================
-              ID GRANJA
+              IMAGEN
           ================================================= */}
 
-          <div>
-            <label
-              htmlFor="product-farm"
-              className="mb-1.5 block text-sm font-semibold text-[var(--foreground)]"
-            >
-              ID de la granja
+          <div className="sm:col-span-2 lg:col-span-4">
+            <label className="mb-1.5 block text-sm font-semibold">
+              Imagen del producto
             </label>
 
-            <input
-              id="product-farm"
-              value={form.IdGranja}
-              onChange={(event) =>
-                set(
-                  "IdGranja",
-                  event.target.value,
-                )
-              }
-              placeholder="Ej. GR001"
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/15"
-            />
+            <div className="grid gap-4 sm:grid-cols-[220px_1fr]">
+              <label
+                htmlFor="product-image"
+                className={`flex min-h-[90px] cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-[var(--primary)] bg-[var(--secondary)]/40 px-4 text-center transition hover:bg-[var(--secondary)] ${
+                  busy
+                    ? "pointer-events-none opacity-60"
+                    : ""
+                }`}
+              >
+                <div>
+                  <div className="mb-1 text-sm font-bold text-[var(--primary)]">
+                    {imageFile
+                      ? "Cambiar imagen"
+                      : editing &&
+                          form.imgPath
+                        ? "Reemplazar imagen"
+                        : "Seleccionar imagen"}
+                  </div>
 
-            <p className="mt-1 text-xs text-[var(--foreground)]/55">
-              Identificador de la granja productora.
-            </p>
+                  <div className="text-xs text-[var(--foreground)]/60">
+                    JPG, PNG o WEBP · Máx. 5 MB
+                  </div>
+                </div>
+
+                <input
+                  id="product-image"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={
+                    selectImage
+                  }
+                  disabled={busy}
+                  className="sr-only"
+                />
+              </label>
+
+              <div>
+                <label
+                  htmlFor="image-name"
+                  className="mb-1.5 block text-xs font-semibold text-[var(--foreground)]/70"
+                >
+                  Nombre del archivo
+                </label>
+
+                <input
+                  id="image-name"
+                  type="text"
+                  value={
+                    form.imageName
+                  }
+                  onChange={(event) =>
+                    setForm(
+                      (current) => ({
+                        ...current,
+                        imageName:
+                          event.target.value,
+                      }),
+                    )
+                  }
+                  placeholder="Ej. tomate-chonto"
+                  disabled={busy}
+                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/10 disabled:cursor-not-allowed disabled:opacity-60"
+                />
+
+                <p className="mt-1 text-xs text-[var(--foreground)]/55">
+                  Puedes cambiar el
+                  nombre incluso sin
+                  seleccionar una imagen
+                  nueva.
+                </p>
+
+                {imageFile && (
+                  <button
+                    type="button"
+                    onClick={
+                      clearSelectedImage
+                    }
+                    disabled={busy}
+                    className="mt-2 text-xs font-semibold text-red-600 hover:underline"
+                  >
+                    Cancelar nueva imagen
+                  </button>
+                )}
+
+                {editing &&
+                  form.imgPath &&
+                  !imageFile && (
+                    <p className="mt-2 text-xs text-green-700">
+                      Imagen actual:
+                      {" "}
+                      {form.imageName ||
+                        "registrada"}
+                    </p>
+                  )}
+
+                {imageFile && (
+                  <p className="mt-2 text-xs text-[var(--primary)]">
+                    Nueva imagen
+                    seleccionada. Se
+                    subirá al guardar.
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* =================================================
-              ID MUNICIPALIDAD
-          ================================================= */}
-
-          <div>
-            <label
-              htmlFor="product-municipality"
-              className="mb-1.5 block text-sm font-semibold text-[var(--foreground)]"
-            >
-              ID de municipalidad
-            </label>
-
-            <input
-              id="product-municipality"
-              value={
-                form.IdMunicipalidad
-              }
-              onChange={(event) =>
-                set(
-                  "IdMunicipalidad",
-                  event.target.value,
-                )
-              }
-              placeholder="Ej. MUN001"
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/15"
-            />
-
-            <p className="mt-1 text-xs text-[var(--foreground)]/55">
-              Municipio donde se produce.
-            </p>
-          </div>
-
-          {/* =================================================
-              RUTA DE IMAGEN
-          ================================================= */}
-
-          <div className="sm:col-span-2">
-            <label
-              htmlFor="product-image-path"
-              className="mb-1.5 block text-sm font-semibold text-[var(--foreground)]"
-            >
-              Ruta de imagen
-            </label>
-
-            <input
-              id="product-image-path"
-              value={form.imgPath}
-              onChange={(event) =>
-                set(
-                  "imgPath",
-                  event.target.value,
-                )
-              }
-              placeholder="Ej. products/tomate-chonto.jpg"
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/15"
-            />
-
-            <p className="mt-1 text-xs text-[var(--foreground)]/55">
-              Ruta del archivo almacenado en Firebase Storage.
-            </p>
-          </div>
-
-          {/* =================================================
-              NOMBRE IMAGEN
-          ================================================= */}
-
-          <div className="sm:col-span-2">
-            <label
-              htmlFor="product-image-name"
-              className="mb-1.5 block text-sm font-semibold text-[var(--foreground)]"
-            >
-              Nombre del archivo de imagen
-            </label>
-
-            <input
-              id="product-image-name"
-              value={form.imageName}
-              onChange={(event) =>
-                set(
-                  "imageName",
-                  event.target.value,
-                )
-              }
-              placeholder="Ej. tomate-chonto.jpg"
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/15"
-            />
-
-            <p className="mt-1 text-xs text-[var(--foreground)]/55">
-              Nombre exacto del archivo de imagen.
-            </p>
-          </div>
-
-          {/* =================================================
-              DESCRIPCIÓN
-          ================================================= */}
+          {/* Descripción */}
 
           <div className="sm:col-span-2 lg:col-span-4">
             <label
               htmlFor="product-description"
-              className="mb-1.5 block text-sm font-semibold text-[var(--foreground)]"
+              className="mb-1.5 block text-sm font-semibold"
             >
               Descripción
             </label>
 
             <textarea
               id="product-description"
-              value={
-                form.descripcion
-              }
+              rows={4}
+              value={form.descripcion}
               onChange={(event) =>
                 set(
                   "descripcion",
@@ -1173,89 +1811,66 @@ export default function DashboardProductosPage() {
                 )
               }
               placeholder="Describe brevemente el producto..."
-              className="min-h-28 w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/15"
+              className="w-full resize-y rounded-lg border border-[var(--border)] p-2.5 text-sm outline-none focus:border-[var(--primary)]"
+            />
+          </div>
+
+          {/* Activo */}
+
+          <label className="flex items-center gap-3 sm:col-span-2">
+            <input
+              type="checkbox"
+              checked={form.activo}
+              onChange={(event) =>
+                set(
+                  "activo",
+                  event.target.checked,
+                )
+              }
+              className="h-4 w-4"
             />
 
-            <p className="mt-1 text-xs text-[var(--foreground)]/55">
-              Información adicional que podrá mostrarse en la tienda.
-            </p>
-          </div>
+            <span className="text-sm font-semibold">
+              Producto activo y visible
+              en la tienda
+            </span>
+          </label>
+        </div>
 
-          {/* =================================================
-              ESTADO
-          ================================================= */}
+        {/* BOTONES */}
 
-          <div className="sm:col-span-2 lg:col-span-2">
-            <div className="h-full rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-              <label
-                htmlFor="product-active"
-                className="flex cursor-pointer items-start gap-3"
-              >
-                <input
-                  id="product-active"
-                  checked={form.activo}
-                  onChange={(event) =>
-                    set(
-                      "activo",
-                      event.target.checked,
-                    )
-                  }
-                  type="checkbox"
-                  className="mt-0.5 h-4 w-4 rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
-                />
+        <div className="mt-6 flex flex-wrap gap-3">
+          <button
+            type="submit"
+            disabled={busy}
+            className="rounded-lg bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-[var(--primary-foreground)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy
+              ? "Guardando..."
+              : editing
+                ? "Guardar cambios"
+                : "Crear producto"}
+          </button>
 
-                <span>
-                  <span className="block text-sm font-semibold text-[var(--foreground)]">
-                    Producto activo
-                  </span>
-
-                  <span className="mt-1 block text-xs text-[var(--foreground)]/55">
-                    Si está activo podrá mostrarse
-                    y venderse en la tienda.
-                  </span>
-                </span>
-              </label>
-            </div>
-          </div>
-
-          {/* =================================================
-              BOTONES
-          ================================================= */}
-
-          <div className="flex flex-wrap items-end gap-2 sm:col-span-2 lg:col-span-2">
+          {editing && (
             <button
-              type="submit"
+              type="button"
+              onClick={resetForm}
               disabled={busy}
-              className="rounded-lg bg-[var(--primary)] px-5 py-2.5 text-sm font-bold text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg border border-[var(--border)] px-5 py-2.5 text-sm font-medium disabled:opacity-50"
             >
-              {busy
-                ? "Guardando..."
-                : editing
-                  ? "Guardar cambios"
-                  : "Crear producto"}
+              Cancelar edición
             </button>
-
-            {editing && (
-              <button
-                type="button"
-                onClick={resetForm}
-                disabled={busy}
-                className="rounded-lg border border-[var(--border)] px-5 py-2.5 text-sm font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Cancelar edición
-              </button>
-            )}
-          </div>
+          )}
         </div>
       </form>
 
-      {/* =================================================
+      {/* ===================================================
           TABLA
-      ================================================= */}
+      =================================================== */}
 
       <div className="mt-8 overflow-x-auto rounded-2xl border border-[var(--border)]">
         <table className="w-full min-w-[760px] text-left text-sm">
-
           <thead className="bg-[var(--surface)]">
             <tr>
               <th className="px-4 py-3">
@@ -1285,7 +1900,6 @@ export default function DashboardProductosPage() {
           </thead>
 
           <tbody>
-
             {loadingProducts ? (
               <tr>
                 <td
@@ -1295,13 +1909,15 @@ export default function DashboardProductosPage() {
                   Cargando productos...
                 </td>
               </tr>
-            ) : products.length === 0 ? (
+            ) : products.length ===
+              0 ? (
               <tr>
                 <td
                   colSpan={6}
                   className="px-4 py-10 text-center text-[var(--foreground)]/60"
                 >
-                  No hay productos registrados.
+                  No hay productos
+                  registrados.
                 </td>
               </tr>
             ) : (
@@ -1311,14 +1927,9 @@ export default function DashboardProductosPage() {
                     key={product.id}
                     className="border-t border-[var(--border)]"
                   >
-
-                    {/* Código */}
-
                     <td className="px-4 py-3 font-medium">
                       {product.code}
                     </td>
-
-                    {/* Producto */}
 
                     <td className="px-4 py-3">
                       <p className="font-semibold">
@@ -1329,9 +1940,11 @@ export default function DashboardProductosPage() {
                         {product.categoria ||
                           "Sin categoría"}
                       </p>
-                    </td>
 
-                    {/* Precio */}
+                      <p className="text-xs text-[var(--foreground)]/50">
+                        {product.unidad}
+                      </p>
+                    </td>
 
                     <td className="px-4 py-3">
                       {formatPrice(
@@ -1339,13 +1952,9 @@ export default function DashboardProductosPage() {
                       )}
                     </td>
 
-                    {/* Stock */}
-
                     <td className="px-4 py-3">
                       {product.stock}
                     </td>
-
-                    {/* Estado */}
 
                     <td className="px-4 py-3">
                       <span
@@ -1361,16 +1970,15 @@ export default function DashboardProductosPage() {
                       </span>
                     </td>
 
-                    {/* Acciones */}
-
                     <td className="px-4 py-3">
                       <div className="flex gap-3">
-
                         <button
                           type="button"
                           disabled={busy}
                           onClick={() =>
-                            edit(product)
+                            edit(
+                              product,
+                            )
                           }
                           className="font-semibold text-[var(--primary)] disabled:opacity-50"
                         >
@@ -1381,26 +1989,24 @@ export default function DashboardProductosPage() {
                           type="button"
                           disabled={busy}
                           onClick={() =>
-                            void remove(
+                            remove(
                               product,
                             )
                           }
-                          className="font-semibold text-red-700 disabled:opacity-50"
+                          className="font-semibold text-red-600 disabled:opacity-50"
                         >
                           Eliminar
                         </button>
-
                       </div>
                     </td>
-
                   </tr>
                 ),
               )
             )}
-
           </tbody>
         </table>
       </div>
     </main>
   );
 }
+  

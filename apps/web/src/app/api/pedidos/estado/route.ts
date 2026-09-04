@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 
-import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { adminDb } from "@/lib/firebase-admin";
+import { requireAdmin } from "@/lib/require-admin";
 
 export const runtime = "nodejs";
 
@@ -15,41 +16,28 @@ const ESTADOS = [
 
 type Estado = (typeof ESTADOS)[number];
 
-const TRANSICIONES: Record<Estado, Estado[]> = {
-  pendiente: ["asignado", "cancelado"],
-  asignado: ["en_camino", "cancelado"],
-  en_camino: ["entregado"],
+const TRANSICIONES: Record<
+  Estado,
+  Estado[]
+> = {
+  pendiente: [
+    "asignado",
+    "cancelado",
+  ],
+
+  asignado: [
+    "en_camino",
+    "cancelado",
+  ],
+
+  en_camino: [
+    "entregado",
+  ],
+
   entregado: [],
+
   cancelado: [],
 };
-
-function tokenFrom(request: Request): string | null {
-  const value = request.headers.get("authorization");
-
-  if (!value?.startsWith("Bearer ")) {
-    return null;
-  }
-
-  const token = value.slice(7).trim();
-
-  return token || null;
-}
-
-async function requireAdmin(request: Request) {
-  const token = tokenFrom(request);
-
-  if (!token) {
-    throw new Error("NO_AUTH");
-  }
-
-  const decoded = await adminAuth.verifyIdToken(token);
-
-  if (decoded.role !== "admin") {
-    throw new Error("FORBIDDEN");
-  }
-
-  return decoded;
-}
 
 function errorResponse(error: unknown) {
   if (
@@ -99,7 +87,8 @@ function errorResponse(error: unknown) {
     return NextResponse.json(
       {
         success: false,
-        message: "El estado indicado no es válido.",
+        message:
+          "El estado indicado no es válido.",
       },
       { status: 400 },
     );
@@ -134,11 +123,15 @@ function errorResponse(error: unknown) {
   );
 }
 
-export async function POST(request: Request) {
+export async function POST(
+  request: Request,
+) {
   try {
+    // Verifica usuarios/{UID}.Rol
     await requireAdmin(request);
 
-    const body: unknown = await request.json();
+    const body: unknown =
+      await request.json();
 
     if (
       !body ||
@@ -168,7 +161,10 @@ export async function POST(request: Request) {
         ? input.estado.trim()
         : "";
 
-    if (!pedidoId || !nuevoEstado) {
+    if (
+      !pedidoId ||
+      !nuevoEstado
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -184,20 +180,26 @@ export async function POST(request: Request) {
         nuevoEstado as Estado,
       )
     ) {
-      throw new Error("ESTADO_INVALIDO");
+      throw new Error(
+        "ESTADO_INVALIDO",
+      );
     }
 
     const estado =
       nuevoEstado as Estado;
 
     const pedidoRef =
-      adminDb.collection("pedidos").doc(pedidoId);
+      adminDb
+        .collection("pedidos")
+        .doc(pedidoId);
 
     const result =
       await adminDb.runTransaction(
         async (transaction) => {
           const snapshot =
-            await transaction.get(pedidoRef);
+            await transaction.get(
+              pedidoRef,
+            );
 
           if (!snapshot.exists) {
             throw new Error(
@@ -205,7 +207,8 @@ export async function POST(request: Request) {
             );
           }
 
-          const data = snapshot.data();
+          const data =
+            snapshot.data();
 
           if (!data) {
             throw new Error(
@@ -220,6 +223,10 @@ export async function POST(request: Request) {
               ? (data.estado as Estado)
               : "pendiente";
 
+          /*
+           * Si ya está en ese estado,
+           * no hacemos ninguna modificación.
+           */
           if (
             estadoActual === estado
           ) {
@@ -229,6 +236,9 @@ export async function POST(request: Request) {
             };
           }
 
+          /*
+           * Validamos la transición.
+           */
           if (
             !TRANSICIONES[
               estadoActual
@@ -244,16 +254,21 @@ export async function POST(request: Request) {
             unknown
           > = {
             estado,
+
             ultimaActualizacion:
               FieldValue.serverTimestamp(),
           };
 
-          if (estado === "entregado") {
+          if (
+            estado === "entregado"
+          ) {
             update.fechaEntrega =
               FieldValue.serverTimestamp();
           }
 
-          if (estado === "cancelado") {
+          if (
+            estado === "cancelado"
+          ) {
             update.fechaCancelacion =
               FieldValue.serverTimestamp();
           }

@@ -48,14 +48,11 @@ function productToCartProduct(
     imageName: product.imageName,
     activo: product.activo,
     IdGranja: product.IdGranja,
-    IdMunicipalidad:
-      product.IdMunicipalidad,
-    fechaCreacion:
-      product.fechaCreacion,
+    IdMunicipalidad: product.IdMunicipalidad,
+    fechaCreacion: product.fechaCreacion,
     ultimaActualizacion:
       product.ultimaActualizacion,
-    fechaCierre:
-      product.fechaCierre,
+    fechaCierre: product.fechaCierre,
   };
 }
 
@@ -95,8 +92,7 @@ export default function TiendaPage() {
      Carrito
   ======================================================= */
 
-  const { openCart } =
-    useCart();
+  const { openCart } = useCart();
 
   /* =======================================================
      Cargar productos
@@ -127,16 +123,28 @@ export default function TiendaPage() {
           );
         }
 
-        const data = result.data as Product[];
+        const data =
+          result.data as Product[];
+
+        /*
+         * Los productos desactivados pertenecen al
+         * catálogo administrativo, pero NO a la tienda.
+         *
+         * Los productos activos con stock 0 sí se conservan
+         * para que ProductCard pueda mostrar "No stock".
+         */
+        const activeProducts =
+          data.filter(
+            (product) =>
+              product.activo === true,
+          );
 
         const cartProducts =
-          data.map(
+          activeProducts.map(
             productToCartProduct,
           );
 
-        setProducts(
-          cartProducts,
-        );
+        setProducts(cartProducts);
       } catch (err) {
         console.error(
           "Error cargando productos:",
@@ -164,15 +172,14 @@ export default function TiendaPage() {
   ======================================================= */
 
   useEffect(() => {
-    const handleVisibility =
-      () => {
-        if (
-          document.visibilityState ===
-          "visible"
-        ) {
-          void loadProducts();
-        }
-      };
+    const handleVisibility = () => {
+      if (
+        document.visibilityState ===
+        "visible"
+      ) {
+        void loadProducts();
+      }
+    };
 
     document.addEventListener(
       "visibilitychange",
@@ -189,10 +196,6 @@ export default function TiendaPage() {
 
   /* =======================================================
      Categorías
-
-     Actualmente se obtienen de los productos.
-     Posteriormente se reemplazará por la colección
-     "categorias" de Firebase.
   ======================================================= */
 
   const categories =
@@ -200,31 +203,22 @@ export default function TiendaPage() {
       const values =
         new Set<string>();
 
-      products.forEach(
-        (product) => {
-          if (
-            product.categoria
-          ) {
-            values.add(
-              product.categoria,
-            );
-          }
-        },
-      );
+      products.forEach((product) => {
+        if (product.categoria) {
+          values.add(
+            product.categoria,
+          );
+        }
+      });
 
-      return Array.from(
-        values,
-      ).sort((a, b) =>
-        a.localeCompare(b),
+      return Array.from(values).sort(
+        (a, b) =>
+          a.localeCompare(b),
       );
     }, [products]);
 
   /* =======================================================
      Municipalidades
-
-     Actualmente se obtienen de los productos.
-     Posteriormente se reemplazará por la colección
-     "municipalidades" de Firebase.
   ======================================================= */
 
   const municipalities =
@@ -232,22 +226,19 @@ export default function TiendaPage() {
       const values =
         new Set<string>();
 
-      products.forEach(
-        (product) => {
-          if (
-            product.IdMunicipalidad
-          ) {
-            values.add(
-              product.IdMunicipalidad,
-            );
-          }
-        },
-      );
+      products.forEach((product) => {
+        if (
+          product.IdMunicipalidad
+        ) {
+          values.add(
+            product.IdMunicipalidad,
+          );
+        }
+      });
 
-      return Array.from(
-        values,
-      ).sort((a, b) =>
-        a.localeCompare(b),
+      return Array.from(values).sort(
+        (a, b) =>
+          a.localeCompare(b),
       );
     }, [products]);
 
@@ -264,22 +255,24 @@ export default function TiendaPage() {
 
       return products.filter(
         (product) => {
-          /* ==============================================
+          /* ===============================================
+             Seguridad adicional:
+             nunca mostrar productos desactivados.
+          =============================================== */
+
+          if (
+            product.activo !== true
+          ) {
+            return false;
+          }
+
+          /* ===============================================
              Búsqueda
-          ============================================== */
+          =============================================== */
 
           if (
             normalizedSearch
           ) {
-            /*
-             * Declaramos explícitamente que todos
-             * estos valores son strings.
-             *
-             * Esto evita:
-             *
-             * "value is possibly undefined"
-             */
-
             const searchableFields: string[] =
               [
                 product.nombre,
@@ -306,35 +299,33 @@ export default function TiendaPage() {
             }
           }
 
-          /* ==============================================
+          /* ===============================================
              Categoría
-          ============================================== */
+          =============================================== */
 
           if (
-            category !==
-              "all" &&
+            category !== "all" &&
             product.categoria !==
               category
           ) {
             return false;
           }
 
-          /* ==============================================
+          /* ===============================================
              Municipalidad
-          ============================================== */
+          =============================================== */
 
           if (
-            municipality !==
-              "all" &&
+            municipality !== "all" &&
             product.IdMunicipalidad !==
               municipality
           ) {
             return false;
           }
 
-          /* ==============================================
+          /* ===============================================
              Stock disponible
-          ============================================== */
+          =============================================== */
 
           if (
             stockFilter ===
@@ -344,9 +335,9 @@ export default function TiendaPage() {
             return false;
           }
 
-          /* ==============================================
+          /* ===============================================
              Sin stock
-          ============================================== */
+          =============================================== */
 
           if (
             stockFilter ===
@@ -371,13 +362,12 @@ export default function TiendaPage() {
      Limpiar filtros
   ======================================================= */
 
-  const clearFilters =
-    () => {
-      setSearch("");
-      setCategory("all");
-      setMunicipality("all");
-      setStockFilter("all");
-    };
+  const clearFilters = () => {
+    setSearch("");
+    setCategory("all");
+    setMunicipality("all");
+    setStockFilter("all");
+  };
 
   /* =======================================================
      Comprobar filtros activos
@@ -428,13 +418,11 @@ export default function TiendaPage() {
       </section>
 
       {/* ==================================================
-          CONTENIDO TIENDA
+          CONTENIDO
       ================================================== */}
 
       <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        {/* =================================================
-            BUSCADOR
-        ================================================= */}
+        {/* Buscador */}
 
         <div className="flex flex-col gap-3 lg:flex-row">
           <div className="relative flex-1">
@@ -472,9 +460,7 @@ export default function TiendaPage() {
             />
           </div>
 
-          {/* =================================================
-              CESTA
-          ================================================= */}
+          {/* Cesta */}
 
           <button
             type="button"
@@ -511,13 +497,9 @@ export default function TiendaPage() {
           </button>
         </div>
 
-        {/* =================================================
-            FILTROS
-        ================================================= */}
+        {/* Filtros */}
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {/* Categoría */}
-
           <select
             value={category}
             onChange={(event) =>
@@ -542,8 +524,6 @@ export default function TiendaPage() {
               ),
             )}
           </select>
-
-          {/* Municipalidad */}
 
           <select
             value={municipality}
@@ -570,14 +550,11 @@ export default function TiendaPage() {
             )}
           </select>
 
-          {/* Stock */}
-
           <select
             value={stockFilter}
             onChange={(event) =>
               setStockFilter(
-                event.target
-                  .value as
+                event.target.value as
                   | "all"
                   | "available"
                   | "no-stock",
@@ -598,8 +575,6 @@ export default function TiendaPage() {
             </option>
           </select>
 
-          {/* Limpiar */}
-
           <button
             type="button"
             disabled={!hasFilters}
@@ -610,9 +585,7 @@ export default function TiendaPage() {
           </button>
         </div>
 
-        {/* =================================================
-            INFORMACIÓN DE RESULTADOS
-        ================================================= */}
+        {/* Información */}
 
         <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -631,8 +604,6 @@ export default function TiendaPage() {
             )}
           </div>
 
-          {/* Actualizar */}
-
           <button
             type="button"
             onClick={() =>
@@ -647,9 +618,7 @@ export default function TiendaPage() {
           </button>
         </div>
 
-        {/* =================================================
-            ERROR
-        ================================================= */}
+        {/* Error */}
 
         {error && (
           <div className="mt-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
@@ -669,15 +638,11 @@ export default function TiendaPage() {
           </div>
         )}
 
-        {/* =================================================
-            PRODUCTOS
-        ================================================= */}
+        {/* Productos */}
 
         <div className="mt-6">
           <ProductGrid
-            products={
-              filteredProducts
-            }
+            products={filteredProducts}
             loading={loading}
             emptyMessage={
               hasFilters

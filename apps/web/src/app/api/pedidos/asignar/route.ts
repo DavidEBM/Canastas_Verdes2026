@@ -1,36 +1,10 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
-import { adminAuth, adminDb } from "@/lib/firebase-admin";
+
+import { adminDb } from "@/lib/firebase-admin";
+import { requireAdmin } from "@/lib/require-admin";
 
 export const runtime = "nodejs";
-
-function tokenFrom(request: Request): string | null {
-  const value = request.headers.get("authorization");
-
-  if (!value?.startsWith("Bearer ")) {
-    return null;
-  }
-
-  const token = value.slice(7).trim();
-
-  return token || null;
-}
-
-async function requireAdmin(request: Request) {
-  const token = tokenFrom(request);
-
-  if (!token) {
-    throw new Error("NO_AUTH");
-  }
-
-  const decoded = await adminAuth.verifyIdToken(token);
-
-  if (decoded.role !== "admin") {
-    throw new Error("FORBIDDEN");
-  }
-
-  return decoded;
-}
 
 function errorResponse(error: unknown) {
   if (
@@ -118,6 +92,7 @@ function errorResponse(error: unknown) {
 
 export async function POST(request: Request) {
   try {
+    // Verifica el Bearer Token y usuarios/{UID}.Rol
     await requireAdmin(request);
 
     const body: unknown = await request.json();
@@ -161,25 +136,58 @@ export async function POST(request: Request) {
       );
     }
 
-    const repartidor =
-      await adminAuth.getUser(repartidorId);
+    /*
+     * El UID recibido corresponde al documento:
+     *
+     * usuarios/{UID}
+     *
+     * y el rol se encuentra en el campo Rol.
+     */
+    const repartidorRef = adminDb
+      .collection("usuarios")
+      .doc(repartidorId);
 
-    if (
-      repartidor.disabled ||
-      repartidor.customClaims?.role !==
-        "repartidor"
-    ) {
-      throw new Error("REPARTIDOR_INVALIDO");
+    const repartidorSnapshot =
+      await repartidorRef.get();
+
+    if (!repartidorSnapshot.exists) {
+      throw new Error(
+        "REPARTIDOR_INVALIDO",
+      );
+    }
+
+    const repartidorData =
+      repartidorSnapshot.data();
+
+    if (!repartidorData) {
+      throw new Error(
+        "REPARTIDOR_INVALIDO",
+      );
+    }
+
+    const rol =
+      typeof repartidorData.Rol === "string"
+        ? repartidorData.Rol.trim().toLowerCase()
+        : "";
+
+    if (rol !== "repartidor") {
+      throw new Error(
+        "REPARTIDOR_INVALIDO",
+      );
     }
 
     const pedidoRef =
-      adminDb.collection("pedidos").doc(pedidoId);
+      adminDb
+        .collection("pedidos")
+        .doc(pedidoId);
 
     const result =
       await adminDb.runTransaction(
         async (transaction) => {
           const pedido =
-            await transaction.get(pedidoRef);
+            await transaction.get(
+              pedidoRef,
+            );
 
           if (!pedido.exists) {
             throw new Error(
@@ -187,7 +195,8 @@ export async function POST(request: Request) {
             );
           }
 
-          const data = pedido.data();
+          const data =
+            pedido.data();
 
           if (!data) {
             throw new Error(
@@ -195,7 +204,10 @@ export async function POST(request: Request) {
             );
           }
 
-          const estado = data.estado;
+          const estado =
+            typeof data.estado === "string"
+              ? data.estado
+              : "pendiente";
 
           if (
             estado !== "pendiente" &&
@@ -210,9 +222,12 @@ export async function POST(request: Request) {
             pedidoRef,
             {
               repartidorId,
+
               estado: "asignado",
+
               fechaAsignacion:
                 FieldValue.serverTimestamp(),
+
               ultimaActualizacion:
                 FieldValue.serverTimestamp(),
             },

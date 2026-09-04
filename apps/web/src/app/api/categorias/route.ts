@@ -13,9 +13,11 @@ function text(value: unknown) {
 }
 
 /*
+ * =========================================================
  * GET
- * Público.
+ * =========================================================
  */
+
 export async function GET() {
   try {
     const snapshot =
@@ -25,10 +27,25 @@ export async function GET() {
         .get();
 
     const data = snapshot.docs.map(
-      (document) => ({
-        id: document.id,
-        ...document.data(),
-      }),
+      (document) => {
+        const item = document.data();
+
+        return {
+          id: document.id,
+          nombre:
+            typeof item.nombre === "string"
+              ? item.nombre
+              : "",
+          activo:
+            item.activo !== false,
+          fechaCreacion:
+            item.fechaCreacion ?? null,
+          fechaActualizacion:
+            item.fechaActualizacion ?? null,
+          fechaClausura:
+            item.fechaClausura ?? null,
+        };
+      },
     );
 
     return NextResponse.json({
@@ -53,9 +70,11 @@ export async function GET() {
 }
 
 /*
+ * =========================================================
  * POST
- * Solo administrador.
+ * =========================================================
  */
+
 export async function POST(
   request: Request,
 ) {
@@ -107,14 +126,28 @@ export async function POST(
       );
     }
 
-    const duplicate =
+    const snapshot =
       await adminDb
         .collection("categorias")
-        .where("nombre", "==", nombre)
-        .limit(1)
         .get();
 
-    if (!duplicate.empty) {
+    const duplicate =
+      snapshot.docs.some(
+        (document) => {
+          const data =
+            document.data();
+
+          const existing =
+            text(data.nombre);
+
+          return (
+            existing.toLowerCase() ===
+            nombre.toLowerCase()
+          );
+        },
+      );
+
+    if (duplicate) {
       return NextResponse.json(
         {
           success: false,
@@ -130,16 +163,19 @@ export async function POST(
         .collection("categorias")
         .doc();
 
-    const data = {
+    await ref.set({
       nombre,
+
+      activo: true,
+
       fechaCreacion:
         FieldValue.serverTimestamp(),
+
       fechaActualizacion:
         FieldValue.serverTimestamp(),
-      fechaClausura: null,
-    };
 
-    await ref.set(data);
+      fechaClausura: null,
+    });
 
     return NextResponse.json(
       {
@@ -147,6 +183,7 @@ export async function POST(
         data: {
           id: ref.id,
           nombre,
+          activo: true,
         },
       },
       { status: 201 },

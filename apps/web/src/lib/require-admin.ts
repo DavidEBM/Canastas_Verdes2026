@@ -1,59 +1,61 @@
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 
-export interface AdminUser {
-  uid: string;
-  email: string | null;
-  displayName: string;
-  role: string;
-}
-
-function tokenFrom(request: Request): string | null {
-  const value = request.headers.get("authorization");
-
-  if (!value?.startsWith("Bearer ")) {
-    return null;
-  }
-
-  const token = value.slice(7).trim();
-
-  return token || null;
-}
-
-/**
- * Verifica que la solicitud:
- *
- * 1. Tenga un token Firebase válido.
- * 2. El UID exista en Firestore.
- * 3. El documento usuarios/{UID} tenga Rol = "admin".
- *
- * Los roles se administran exclusivamente desde Firestore.
- */
 export async function requireAdmin(
   request: Request,
-): Promise<AdminUser> {
-  const token = tokenFrom(request);
+) {
+  const authorization =
+    request.headers.get("authorization");
+
+  if (
+    !authorization ||
+    !authorization.startsWith("Bearer ")
+  ) {
+    throw new Error("NO_AUTH");
+  }
+
+  const token =
+    authorization.substring(7);
 
   if (!token) {
-    throw new Error("AUTH_REQUIRED");
+    throw new Error("NO_AUTH");
   }
 
-  const decoded = await adminAuth.verifyIdToken(token);
+  let decoded;
 
-  const userRef = adminDb
-    .collection("usuarios")
-    .doc(decoded.uid);
+  try {
+    decoded =
+      await adminAuth.verifyIdToken(token);
+  } catch (error) {
+    console.error(
+      "Error verificando token:",
+      error,
+    );
 
-  const userSnapshot = await userRef.get();
+    throw new Error("NO_AUTH");
+  }
+
+  /*
+   * El rol NO se obtiene del custom claim.
+   * Se obtiene del documento:
+   *
+   * usuarios/{UID}
+   *
+   * campo:
+   * Rol
+   */
+
+  const userSnapshot =
+    await adminDb
+      .collection("usuarios")
+      .doc(decoded.uid)
+      .get();
 
   if (!userSnapshot.exists) {
-    throw new Error("USER_NOT_FOUND");
+    throw new Error("FORBIDDEN");
   }
 
-  const userData = userSnapshot.data();
-
-  if (!userData) {
-    throw new Error("USER_INVALID");
-  }
+  const userData =
+    userSnapshot.data();
 
   const role =
     typeof userData?.Rol === "string"
@@ -61,27 +63,11 @@ export async function requireAdmin(
       : "";
 
   if (role !== "admin") {
-    throw new Error("ADMIN_REQUIRED");
+    throw new Error("FORBIDDEN");
   }
 
-  const displayName = [
-    typeof userData.Nombres === "string"
-      ? userData.Nombres.trim()
-      : "",
-    typeof userData.Apellidos === "string"
-      ? userData.Apellidos.trim()
-      : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-
   return {
-    uid: decoded.uid,
-    email:
-      typeof userData.Correo === "string"
-        ? userData.Correo.trim()
-        : decoded.email ?? null,
-    displayName,
+    ...decoded,
     role,
   };
 }
