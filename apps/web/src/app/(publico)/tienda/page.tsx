@@ -390,32 +390,39 @@ export default function TiendaPage() {
       ================================================== */}
 
       <section className="relative overflow-hidden border-b border-[var(--border)]">
-        <div className="absolute inset-0 bg-[var(--surface)]" />
+  {/* Imagen de fondo */}
+  <div
+    className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+    style={{
+      backgroundImage: "url('/images/backgrounds/alimentos.webp')",
+    }}
+  />
 
-        <div className="relative mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8 lg:py-20">
-          <div className="max-w-3xl">
-            <span className="inline-flex rounded-full bg-[var(--secondary)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
-              Productos del campo
-            </span>
+  {/* Capa semitransparente */}
+  <div className="absolute inset-0 bg-[var(--surface)]/65" />
 
-            <h1 className="mt-4 text-4xl font-bold tracking-tight text-[var(--foreground)] sm:text-5xl">
-              Compra productos
-              <span className="text-[var(--primary)]">
-                {" "}
-                frescos
-              </span>
-            </h1>
+  {/* Contenido */}
+  <div className="relative mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8 lg:py-20">
+    <div className="max-w-3xl">
+      <span className="inline-flex rounded-full bg-[var(--secondary)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
+        Productos del campo
+      </span>
 
-            <p className="mt-4 max-w-2xl text-base leading-7 text-[var(--muted)] sm:text-lg">
-              Encuentra frutas,
-              verduras y productos
-              provenientes del campo
-              directamente en nuestra
-              tienda.
-            </p>
-          </div>
-        </div>
-      </section>
+      <h1 className="mt-4 text-4xl font-bold tracking-tight text-[var(--foreground)] sm:text-5xl">
+        Compra productos
+        <span className="text-[var(--primary)]">
+          {" "}
+          frescos
+        </span>
+      </h1>
+
+      <p className="mt-4 max-w-2xl text-base leading-7 text-[var(--muted)] sm:text-lg">
+        Encuentra frutas, verduras y productos provenientes del campo
+        directamente en nuestra tienda.
+      </p>
+    </div>
+  </div>
+</section>
 
       {/* ==================================================
           CONTENIDO

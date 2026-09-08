@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
-import { requireAdmin } from "@/lib/require-admin";
+import { requireAuthRole } from "@/lib/require-auth-role";
 
 export const runtime = "nodejs";
 
@@ -160,7 +160,20 @@ export async function GET(
   request: Request,
 ) {
   try {
-    await requireAdmin(request);
+    /*
+     * ============================================================
+     * AUTENTICACIÓN Y ROL
+     * ============================================================
+     */
+
+    const authenticatedUser =
+      await requireAuthRole(request);
+
+    const uid =
+      authenticatedUser.uid;
+
+    const role =
+      authenticatedUser.role;
 
     const url = new URL(
       request.url,
@@ -188,12 +201,44 @@ export async function GET(
     }
 
     /*
-     * Obtener pedidos
+     * ============================================================
+     * OBTENER PEDIDOS SEGÚN EL ROL
+     * ============================================================
+     *
+     * admin:
+     *   puede consultar todos.
+     *
+     * usuario:
+     *   solamente pedidos creados por ese usuario.
+     *
+     * repartidor:
+     *   solamente pedidos asignados a ese repartidor.
      */
+
+    let pedidosQuery:
+      FirebaseFirestore.Query =
+      adminDb.collection("pedidos");
+
+    if (role === "usuario") {
+      pedidosQuery =
+        pedidosQuery.where(
+          "usuarioId",
+          "==",
+          uid,
+        );
+    }
+
+    if (role === "repartidor") {
+      pedidosQuery =
+        pedidosQuery.where(
+          "repartidorId",
+          "==",
+          uid,
+        );
+    }
+
     const pedidosSnapshot =
-      await adminDb
-        .collection("pedidos")
-        .get();
+      await pedidosQuery.get();
 
     const pedidosBase =
       pedidosSnapshot.docs.map(
@@ -201,12 +246,15 @@ export async function GET(
       );
 
     /*
-     * Obtener todos los usuarios
-     * necesarios para resolver los nombres.
+     * ============================================================
+     * OBTENER USUARIOS NECESARIOS
+     * ============================================================
      *
-     * Usamos getAll() para evitar
-     * una consulta por cada pedido.
+     * Como la consulta ya está restringida
+     * por rol, solamente resolvemos los
+     * usuarios pertenecientes a esos pedidos.
      */
+
     const usuarioIds = [
       ...new Set(
         pedidosBase
@@ -286,8 +334,11 @@ export async function GET(
     }
 
     /*
-     * Agregar nombre del cliente
+     * ============================================================
+     * AGREGAR NOMBRE DEL CLIENTE
+     * ============================================================
      */
+
     let pedidos =
       pedidosBase.map(
         (pedido) => ({
@@ -302,8 +353,11 @@ export async function GET(
       );
 
     /*
-     * Filtro por estado
+     * ============================================================
+     * FILTRO POR ESTADO
+     * ============================================================
      */
+
     if (estado) {
       pedidos =
         pedidos.filter(
@@ -314,8 +368,11 @@ export async function GET(
     }
 
     /*
-     * Más recientes primero
+     * ============================================================
+     * MÁS RECIENTES PRIMERO
+     * ============================================================
      */
+
     pedidos.sort(
       (a, b) => {
         if (
@@ -368,7 +425,7 @@ export async function GET(
         "FORBIDDEN"
     ) {
       return errorResponse(
-        "Solo un administrador puede consultar los pedidos.",
+        "No tienes permisos para consultar pedidos.",
         403,
       );
     }
