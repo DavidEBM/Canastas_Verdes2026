@@ -391,7 +391,6 @@ export default function DashboardProductosPage() {
   const [farms, setFarms] =
     useState<CatalogOption[]>([]);
 
-  /* NUEVO: catálogo de presentaciones */
   const [presentations, setPresentations] =
     useState<CatalogOption[]>([]);
 
@@ -427,8 +426,34 @@ export default function DashboardProductosPage() {
   const [imageFile, setImageFile] =
     useState<File | null>(null);
 
+  /* =======================================================
+     PREVIEW DE IMAGEN
+  ======================================================= */
+
+  const [imagePreviewUrl, setImagePreviewUrl] =
+    useState<string | null>(null);
+
   const [originalImagePath, setOriginalImagePath] =
     useState<string | null>(null);
+
+  /* =======================================================
+     CREAR PREVIEW DEL ARCHIVO LOCAL
+  ======================================================= */
+
+  useEffect(() => {
+    if (!imageFile) {
+      return;
+    }
+
+    const previewUrl =
+      URL.createObjectURL(imageFile);
+
+    setImagePreviewUrl(previewUrl);
+
+    return () => {
+      URL.revokeObjectURL(previewUrl);
+    };
+  }, [imageFile]);
 
   /* =======================================================
      API
@@ -481,7 +506,8 @@ export default function DashboardProductosPage() {
       if (!response.ok) {
         const message =
           result &&
-          typeof result === "object" &&
+          typeof result ===
+            "object" &&
           "message" in result &&
           typeof result.message ===
             "string"
@@ -575,8 +601,6 @@ export default function DashboardProductosPage() {
               "/api/municipalidades",
             ),
             api("/api/granjas"),
-
-            /* NUEVO */
             api("/api/presentaciones"),
           ]);
 
@@ -621,7 +645,6 @@ export default function DashboardProductosPage() {
             );
           }
 
-          /* NUEVO */
           if (
             presentationsResult &&
             typeof presentationsResult ===
@@ -693,6 +716,7 @@ export default function DashboardProductosPage() {
     setCantidad("");
     setPresentacion("");
     setImageFile(null);
+    setImagePreviewUrl(null);
     setOriginalImagePath(null);
     setError(null);
   };
@@ -755,8 +779,19 @@ export default function DashboardProductosPage() {
     }
   };
 
+  /* =======================================================
+     CANCELAR NUEVA IMAGEN
+  ======================================================= */
+
   const clearSelectedImage = () => {
     setImageFile(null);
+
+    setImagePreviewUrl(
+      editing && form.imgPath
+        ? form.imgPath
+        : null,
+    );
+
     setError(null);
   };
 
@@ -933,15 +968,6 @@ export default function DashboardProductosPage() {
       const wasEditing =
         Boolean(editing);
 
-      /*
-       * La presentación seleccionada
-       * se mantiene en el campo unidad.
-       *
-       * Ejemplo:
-       * cantidad = 2
-       * presentación = Kg
-       * unidad = "2 x Kg"
-       */
       const unidad =
         `${cantidad.trim()} x ${presentacion.trim()}`;
 
@@ -958,26 +984,19 @@ export default function DashboardProductosPage() {
         editing ? "PUT" : "POST",
         {
           ...form,
-
           code: form.code.trim(),
           nombre: form.nombre.trim(),
           descripcion:
             form.descripcion.trim(),
-
           categoria:
             form.categoria.trim(),
-
           unidad,
-
           IdGranja:
             form.IdGranja.trim(),
-
           IdMunicipalidad:
             form.IdMunicipalidad.trim(),
-
           imgPath:
             image.imgPath,
-
           imageName:
             image.imageName,
         },
@@ -1071,6 +1090,14 @@ export default function DashboardProductosPage() {
     );
 
     setImageFile(null);
+
+    /*
+     * Al editar se utiliza directamente
+     * la URL almacenada en Firebase.
+     */
+    setImagePreviewUrl(
+      product.imgPath || null,
+    );
 
     setOriginalImagePath(
       product.imageName
@@ -1388,6 +1415,7 @@ export default function DashboardProductosPage() {
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
         <div>
           <h1 className="text-3xl font-bold text-[var(--foreground)]">
@@ -1472,6 +1500,7 @@ export default function DashboardProductosPage() {
         </div>
 
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+
           {/* Código */}
 
           <div>
@@ -1623,9 +1652,7 @@ export default function DashboardProductosPage() {
             </p>
           </div>
 
-          {/* =================================================
-              PRESENTACIÓN - AHORA ES SELECTOR
-          ================================================= */}
+          {/* Presentación */}
 
           <CatalogCombobox
             label="Presentación"
@@ -1680,50 +1707,138 @@ export default function DashboardProductosPage() {
           ================================================= */}
 
           <div className="sm:col-span-2 lg:col-span-4">
+
             <label className="mb-1.5 block text-sm font-semibold">
               Imagen del producto
             </label>
 
             <div className="grid gap-4 sm:grid-cols-[220px_1fr]">
-              <label
-                htmlFor="product-image"
-                className={`flex min-h-[90px] cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-[var(--primary)] bg-[var(--secondary)]/40 px-4 text-center transition hover:bg-[var(--secondary)] ${
-                  busy
-                    ? "pointer-events-none opacity-60"
-                    : ""
-                }`}
-              >
-                <div>
-                  <div className="mb-1 text-sm font-bold text-[var(--primary)]">
-                    {imageFile
-                      ? "Cambiar imagen"
-                      : editing &&
-                          form.imgPath
-                        ? "Reemplazar imagen"
-                        : "Seleccionar imagen"}
-                  </div>
 
-                  <div className="text-xs text-[var(--foreground)]/60">
-                    JPG, PNG o WEBP · Máx. 5 MB
-                  </div>
-                </div>
+              {/* PREVIEW */}
 
-                <input
-                  id="product-image"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={
-                    selectImage
-                  }
-                  disabled={busy}
-                  className="sr-only"
-                />
-              </label>
+              <div className="relative flex min-h-[220px] items-center justify-center overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+
+                {imagePreviewUrl ? (
+                  <img
+                    src={imagePreviewUrl}
+                    alt={
+                      form.nombre
+                        ? `Imagen de ${form.nombre}`
+                        : "Vista previa del producto"
+                    }
+                    className="h-full max-h-[220px] w-full object-contain p-3"
+                    onError={() => {
+                      setImagePreviewUrl(
+                        null,
+                      );
+
+                      setError(
+                        "No fue posible cargar la imagen del producto.",
+                      );
+                    }}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center px-4 text-center">
+
+                    <svg
+                      width="48"
+                      height="48"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="mb-3 text-[var(--foreground)]/30"
+                    >
+                      <rect
+                        x="3"
+                        y="3"
+                        width="18"
+                        height="18"
+                        rx="2"
+                        ry="2"
+                      />
+
+                      <circle
+                        cx="8.5"
+                        cy="8.5"
+                        r="1.5"
+                      />
+
+                      <path d="m21 15-5-5L5 21" />
+                    </svg>
+
+                    <p className="text-sm font-semibold text-[var(--foreground)]/60">
+                      Sin imagen
+                    </p>
+
+                    <p className="mt-1 text-xs text-[var(--foreground)]/40">
+                      Selecciona una imagen
+                      para verla aquí
+                    </p>
+                  </div>
+                )}
+
+                {/* INDICADOR */}
+
+                {imageFile && (
+                  <div className="absolute left-2 top-2 rounded-full bg-[var(--primary)] px-2.5 py-1 text-[10px] font-bold text-white shadow">
+                    NUEVA IMAGEN
+                  </div>
+                )}
+
+                {!imageFile &&
+                  editing &&
+                  form.imgPath && (
+                    <div className="absolute left-2 top-2 rounded-full bg-green-600 px-2.5 py-1 text-[10px] font-bold text-white shadow">
+                      IMAGEN ACTUAL
+                    </div>
+                  )}
+              </div>
+
+              {/* CONTROLES */}
 
               <div>
+
+                <label
+                  htmlFor="product-image"
+                  className={`flex min-h-[90px] cursor-pointer items-center justify-center rounded-xl border-2 border-dashed border-[var(--primary)] bg-[var(--secondary)]/40 px-4 text-center transition hover:bg-[var(--secondary)] ${
+                    busy
+                      ? "pointer-events-none opacity-60"
+                      : ""
+                  }`}
+                >
+                  <div>
+
+                    <div className="mb-1 text-sm font-bold text-[var(--primary)]">
+                      {imageFile
+                        ? "Cambiar imagen"
+                        : editing &&
+                            form.imgPath
+                          ? "Reemplazar imagen"
+                          : "Seleccionar imagen"}
+                    </div>
+
+                    <div className="text-xs text-[var(--foreground)]/60">
+                      JPG, PNG o WEBP · Máx. 5 MB
+                    </div>
+
+                  </div>
+
+                  <input
+                    id="product-image"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={selectImage}
+                    disabled={busy}
+                    className="sr-only"
+                  />
+                </label>
+
                 <label
                   htmlFor="image-name"
-                  className="mb-1.5 block text-xs font-semibold text-[var(--foreground)]/70"
+                  className="mb-1.5 mt-4 block text-xs font-semibold text-[var(--foreground)]/70"
                 >
                   Nombre del archivo
                 </label>
@@ -1756,36 +1871,38 @@ export default function DashboardProductosPage() {
                 </p>
 
                 {imageFile && (
-                  <button
-                    type="button"
-                    onClick={
-                      clearSelectedImage
-                    }
-                    disabled={busy}
-                    className="mt-2 text-xs font-semibold text-red-600 hover:underline"
-                  >
-                    Cancelar nueva imagen
-                  </button>
+                  <>
+                    <p className="mt-2 text-xs font-medium text-[var(--primary)]">
+                      Nueva imagen seleccionada:
+                    </p>
+
+                    <p className="mt-0.5 truncate text-xs text-[var(--foreground)]/60">
+                      {imageFile.name}
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={
+                        clearSelectedImage
+                      }
+                      disabled={busy}
+                      className="mt-2 text-xs font-semibold text-red-600 hover:underline"
+                    >
+                      Cancelar nueva imagen
+                    </button>
+                  </>
                 )}
 
-                {editing &&
-                  form.imgPath &&
-                  !imageFile && (
+                {!imageFile &&
+                  editing &&
+                  form.imgPath && (
                     <p className="mt-2 text-xs text-green-700">
-                      Imagen actual:
-                      {" "}
+                      Imagen actual:{" "}
                       {form.imageName ||
                         "registrada"}
                     </p>
                   )}
 
-                {imageFile && (
-                  <p className="mt-2 text-xs text-[var(--primary)]">
-                    Nueva imagen
-                    seleccionada. Se
-                    subirá al guardar.
-                  </p>
-                )}
               </div>
             </div>
           </div>
@@ -1803,7 +1920,9 @@ export default function DashboardProductosPage() {
             <textarea
               id="product-description"
               rows={4}
-              value={form.descripcion}
+              value={
+                form.descripcion
+              }
               onChange={(event) =>
                 set(
                   "descripcion",
@@ -1840,6 +1959,7 @@ export default function DashboardProductosPage() {
         {/* BOTONES */}
 
         <div className="mt-6 flex flex-wrap gap-3">
+
           <button
             type="submit"
             disabled={busy}
@@ -1870,7 +1990,9 @@ export default function DashboardProductosPage() {
       =================================================== */}
 
       <div className="mt-8 overflow-x-auto rounded-2xl border border-[var(--border)]">
+
         <table className="w-full min-w-[760px] text-left text-sm">
+
           <thead className="bg-[var(--surface)]">
             <tr>
               <th className="px-4 py-3">
@@ -1972,6 +2094,7 @@ export default function DashboardProductosPage() {
 
                     <td className="px-4 py-3">
                       <div className="flex gap-3">
+
                         <button
                           type="button"
                           disabled={busy}
@@ -1997,6 +2120,7 @@ export default function DashboardProductosPage() {
                         >
                           Eliminar
                         </button>
+
                       </div>
                     </td>
                   </tr>
@@ -2009,4 +2133,4 @@ export default function DashboardProductosPage() {
     </main>
   );
 }
-  
+

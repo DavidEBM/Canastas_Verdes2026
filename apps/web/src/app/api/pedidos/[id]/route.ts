@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 
-import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import {
+  adminAuth,
+  adminDb,
+} from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 
@@ -15,22 +18,49 @@ const ESTADOS = [
 
 type Estado = (typeof ESTADOS)[number];
 
-function tokenFrom(request: Request): string | null {
-  const value = request.headers.get("authorization");
+type Rol =
+  | "usuario"
+  | "repartidor"
+  | "admin";
 
-  if (!value?.startsWith("Bearer ")) {
+/*
+ * ====================================================
+ * UTILIDADES
+ * ====================================================
+ */
+
+function tokenFrom(
+  request: Request,
+): string | null {
+  const value =
+    request.headers.get(
+      "authorization",
+    );
+
+  if (
+    !value?.startsWith(
+      "Bearer ",
+    )
+  ) {
     return null;
   }
 
-  const token = value.slice(7).trim();
+  const token =
+    value
+      .slice(7)
+      .trim();
 
   return token || null;
 }
 
-function normalizeEstado(value: unknown): Estado | null {
+function normalizeEstado(
+  value: unknown,
+): Estado | null {
   if (
     typeof value !== "string" ||
-    !ESTADOS.includes(value as Estado)
+    !ESTADOS.includes(
+      value as Estado,
+    )
   ) {
     return null;
   }
@@ -38,28 +68,139 @@ function normalizeEstado(value: unknown): Estado | null {
   return value as Estado;
 }
 
-function roleOf(
-  claims: Record<string, unknown>,
-): "usuario" | "repartidor" | "admin" {
-  if (claims.role === "admin") {
+/*
+ * ====================================================
+ * ROLES
+ * ====================================================
+ */
+
+function normalizeRole(
+  value: unknown,
+): Rol {
+  if (
+    typeof value !== "string"
+  ) {
+    return "usuario";
+  }
+
+  const role =
+    value
+      .trim()
+      .toLowerCase();
+
+  if (role === "admin") {
     return "admin";
   }
 
-  if (claims.role === "repartidor") {
+  if (
+    role === "repartidor"
+  ) {
     return "repartidor";
   }
 
   return "usuario";
 }
 
-async function authenticate(request: Request) {
-  const token = tokenFrom(request);
+function roleFromClaims(
+  claims: Record<
+    string,
+    unknown
+  >,
+): Rol | null {
+  const role =
+    claims.role ??
+    claims.Rol ??
+    claims.rol;
 
-  if (!token) {
-    throw new Error("NO_AUTH");
+  if (
+    role === "admin" ||
+    role === "repartidor"
+  ) {
+    return normalizeRole(
+      role,
+    );
   }
 
-  return adminAuth.verifyIdToken(token);
+  return null;
+}
+
+/*
+ * ====================================================
+ * AUTENTICACIÓN
+ * ====================================================
+ *
+ * Primero se revisan Custom Claims.
+ *
+ * Si no existe el rol allí, se consulta:
+ *
+ * usuarios/{uid}.Rol
+ *
+ * Esto permite trabajar con el esquema actual
+ * de Canastas Verdes.
+ */
+
+async function authenticate(
+  request: Request,
+) {
+  const token =
+    tokenFrom(request);
+
+  if (!token) {
+    throw new Error(
+      "NO_AUTH",
+    );
+  }
+
+  const user =
+    await adminAuth.verifyIdToken(
+      token,
+    );
+
+  let role =
+    roleFromClaims(
+      user as Record<
+        string,
+        unknown
+      >,
+    );
+
+  /*
+   * Si Firebase Auth no tiene el rol como
+   * Custom Claim, buscamos el documento del usuario.
+   */
+
+  if (!role) {
+    const usuarioSnap =
+      await adminDb
+        .collection("usuarios")
+        .doc(user.uid)
+        .get();
+
+    if (
+      usuarioSnap.exists
+    ) {
+      const usuarioData =
+        usuarioSnap.data() as Record<
+          string,
+          unknown
+        >;
+
+      role =
+        normalizeRole(
+          usuarioData.Rol ??
+            usuarioData.rol ??
+            usuarioData.Role ??
+            usuarioData.role,
+        );
+    } else {
+      role = "usuario";
+    }
+  }
+
+  return {
+    user,
+    role,
+  };
 }
 
 function errorResponse(
@@ -71,7 +212,9 @@ function errorResponse(
       success: false,
       message,
     },
-    { status },
+    {
+      status,
+    },
   );
 }
 
@@ -97,15 +240,25 @@ export async function GET(
   {
     params,
   }: {
-    params: Promise<{ id: string }>;
+    params: Promise<{
+      id: string;
+    }>;
   },
 ) {
   try {
-    const user =
-      await authenticate(request);
+    const {
+      user,
+      role,
+    } =
+      await authenticate(
+        request,
+      );
 
-    const { id } = await params;
-    const pedidoId = id.trim();
+    const { id } =
+      await params;
+
+    const pedidoId =
+      id.trim();
 
     if (!pedidoId) {
       return errorResponse(
@@ -114,10 +267,11 @@ export async function GET(
       );
     }
 
-    const snapshot = await adminDb
-      .collection("pedidos")
-      .doc(pedidoId)
-      .get();
+    const snapshot =
+      await adminDb
+        .collection("pedidos")
+        .doc(pedidoId)
+        .get();
 
     if (!snapshot.exists) {
       return errorResponse(
@@ -126,7 +280,8 @@ export async function GET(
       );
     }
 
-    const data = snapshot.data();
+    const data =
+      snapshot.data();
 
     if (!data) {
       return errorResponse(
@@ -135,13 +290,13 @@ export async function GET(
       );
     }
 
-    const role = roleOf(user);
-
     const isOwner =
-      data.usuarioId === user.uid;
+      data.usuarioId ===
+      user.uid;
 
     const isAssignedDeliverer =
-      data.repartidorId === user.uid;
+      data.repartidorId ===
+      user.uid;
 
     if (
       role !== "admin" &&
@@ -169,7 +324,8 @@ export async function GET(
 
     if (
       error instanceof Error &&
-      error.message === "NO_AUTH"
+      error.message ===
+        "NO_AUTH"
     ) {
       return errorResponse(
         "Debes iniciar sesión.",
@@ -189,15 +345,19 @@ export async function GET(
  * PATCH
  * ====================================================
  *
- * Actualiza datos administrativos del pedido.
+ * ADMIN:
+ *   - puede cambiar estados
+ *   - puede asignar repartidores
+ *   - puede retirar repartidores
  *
- * Actualmente permite:
+ * REPARTIDOR:
+ *   - solamente puede cambiar su propio pedido
+ *   - solamente puede pasar:
  *
- * - cambiar estado
- * - asignar repartidor
- * - retirar repartidor
+ *       asignado -> en_camino
  *
- * Solamente ADMIN puede realizar estas operaciones.
+ * USUARIO:
+ *   - no puede modificar pedidos
  */
 
 export async function PATCH(
@@ -205,22 +365,25 @@ export async function PATCH(
   {
     params,
   }: {
-    params: Promise<{ id: string }>;
+    params: Promise<{
+      id: string;
+    }>;
   },
 ) {
   try {
-    const user =
-      await authenticate(request);
-
-    if (roleOf(user) !== "admin") {
-      return errorResponse(
-        "Solo un administrador puede modificar pedidos.",
-        403,
+    const {
+      user,
+      role,
+    } =
+      await authenticate(
+        request,
       );
-    }
 
-    const { id } = await params;
-    const pedidoId = id.trim();
+    const { id } =
+      await params;
+
+    const pedidoId =
+      id.trim();
 
     if (!pedidoId) {
       return errorResponse(
@@ -234,7 +397,8 @@ export async function PATCH(
 
     if (
       !body ||
-      typeof body !== "object"
+      typeof body !==
+        "object"
     ) {
       return errorResponse(
         "Solicitud inválida.",
@@ -243,21 +407,90 @@ export async function PATCH(
     }
 
     const input =
-      body as Record<string, unknown>;
+      body as Record<
+        string,
+        unknown
+      >;
 
-    const pedidoRef = adminDb
-      .collection("pedidos")
-      .doc(pedidoId);
+    /*
+     * ==================================================
+     * REGLAS PREVIAS DE AUTORIZACIÓN
+     * ==================================================
+     *
+     * Un repartidor solamente puede solicitar:
+     *
+     * {
+     *   estado: "en_camino"
+     * }
+     *
+     * No puede asignarse pedidos,
+     * cambiar repartidores,
+     * cancelar pedidos,
+     * ni modificar otros estados.
+     */
+
+    if (
+      role === "usuario"
+    ) {
+      return errorResponse(
+        "No tienes permiso para modificar pedidos.",
+        403,
+      );
+    }
+
+    if (
+      role ===
+      "repartidor"
+    ) {
+      const keys =
+        Object.keys(input);
+
+      const soloEstado =
+        keys.length === 1 &&
+        keys[0] ===
+          "estado";
+
+      const estadoSolicitado =
+        normalizeEstado(
+          input.estado,
+        );
+
+      if (
+        !soloEstado ||
+        estadoSolicitado !==
+          "en_camino"
+      ) {
+        return errorResponse(
+          "Un repartidor solamente puede marcar en camino sus pedidos asignados.",
+          403,
+        );
+      }
+    }
+
+    /*
+     * ==================================================
+     * REFERENCIA DEL PEDIDO
+     * ==================================================
+     */
+
+    const pedidoRef =
+      adminDb
+        .collection("pedidos")
+        .doc(pedidoId);
 
     const result =
       await adminDb.runTransaction(
-        async (transaction) => {
+        async (
+          transaction,
+        ) => {
           const pedido =
             await transaction.get(
               pedidoRef,
             );
 
-          if (!pedido.exists) {
+          if (
+            !pedido.exists
+          ) {
             throw new Error(
               "NOT_FOUND",
             );
@@ -272,6 +505,23 @@ export async function PATCH(
             );
           }
 
+          /*
+           * ==================================================
+           * SEGURIDAD DEL REPARTIDOR
+           * ==================================================
+           */
+
+          if (
+            role ===
+            "repartidor" &&
+            current.repartidorId !==
+              user.uid
+          ) {
+            throw new Error(
+              "NOT_ASSIGNED",
+            );
+          }
+
           const updates: Record<
             string,
             unknown
@@ -281,12 +531,14 @@ export async function PATCH(
           };
 
           /*
-           * ==========================================
-           * Cambio de estado
-           * ==========================================
+           * ==================================================
+           * CAMBIO DE ESTADO
+           * ==================================================
            */
 
-          if ("estado" in input) {
+          if (
+            "estado" in input
+          ) {
             const estado =
               normalizeEstado(
                 input.estado,
@@ -303,15 +555,16 @@ export async function PATCH(
                 current.estado,
               );
 
-            if (!currentStatus) {
+            if (
+              !currentStatus
+            ) {
               throw new Error(
                 "INVALID_CURRENT_STATUS",
               );
             }
 
             /*
-             * No permitimos modificar un pedido
-             * que ya fue cancelado o entregado.
+             * Pedidos finales.
              */
 
             if (
@@ -326,7 +579,7 @@ export async function PATCH(
             }
 
             /*
-             * Reglas básicas de transición.
+             * Reglas de transición.
              */
 
             const validTransitions:
@@ -338,14 +591,18 @@ export async function PATCH(
                 "asignado",
                 "cancelado",
               ],
+
               asignado: [
                 "en_camino",
                 "cancelado",
               ],
+
               en_camino: [
                 "entregado",
               ],
+
               entregado: [],
+
               cancelado: [],
             };
 
@@ -354,10 +611,33 @@ export async function PATCH(
                 estado &&
               !validTransitions[
                 currentStatus
-              ].includes(estado)
+              ].includes(
+                estado,
+              )
             ) {
               throw new Error(
                 "INVALID_TRANSITION",
+              );
+            }
+
+            /*
+             * Repartidor solamente puede:
+             *
+             * asignado -> en_camino
+             */
+
+            if (
+              role ===
+                "repartidor" &&
+              !(
+                currentStatus ===
+                  "asignado" &&
+                estado ===
+                  "en_camino"
+              )
+            ) {
+              throw new Error(
+                "DELIVERER_STATUS_FORBIDDEN",
               );
             }
 
@@ -374,14 +654,25 @@ export async function PATCH(
           }
 
           /*
-           * ==========================================
-           * Asignación de repartidor
-           * ==========================================
+           * ==================================================
+           * ASIGNACIÓN DE REPARTIDOR
+           * ==================================================
+           *
+           * Solamente ADMIN puede realizar esto.
            */
 
           if (
-            "repartidorId" in input
+            "repartidorId" in
+            input
           ) {
+            if (
+              role !== "admin"
+            ) {
+              throw new Error(
+                "DELIVERER_ASSIGN_FORBIDDEN",
+              );
+            }
+
             const value =
               input.repartidorId;
 
@@ -408,12 +699,52 @@ export async function PATCH(
                   delivererId,
                 );
 
-              const delivererRole =
-                roleOf(
-                  deliverer
-                    .customClaims ??
+              /*
+               * Primero intentamos Custom Claims.
+               */
+
+              let delivererRole =
+                roleFromClaims(
+                  deliverer.customClaims ??
                     {},
                 );
+
+              /*
+               * Si no existe el claim,
+               * buscamos usuarios/{uid}.Rol
+               */
+
+              if (
+                !delivererRole
+              ) {
+                const delivererSnap =
+                  await adminDb
+                    .collection(
+                      "usuarios",
+                    )
+                    .doc(
+                      deliverer.uid,
+                    )
+                    .get();
+
+                if (
+                  delivererSnap.exists
+                ) {
+                  const data =
+                    delivererSnap.data() as Record<
+                      string,
+                      unknown
+                    >;
+
+                  delivererRole =
+                    normalizeRole(
+                      data.Rol ??
+                        data.rol ??
+                        data.Role ??
+                        data.role,
+                    );
+                }
+              }
 
               if (
                 delivererRole !==
@@ -448,8 +779,11 @@ export async function PATCH(
 
               if (
                 currentStatus ===
-                "pendiente" &&
-                !("estado" in input)
+                  "pendiente" &&
+                !(
+                  "estado" in
+                  input
+                )
               ) {
                 updates.estado =
                   "asignado";
@@ -459,6 +793,12 @@ export async function PATCH(
                 null;
             }
           }
+
+          /*
+           * ==================================================
+           * ACTUALIZAR
+           * ==================================================
+           */
 
           transaction.update(
             pedidoRef,
@@ -485,7 +825,9 @@ export async function PATCH(
     if (
       error instanceof Error
     ) {
-      switch (error.message) {
+      switch (
+        error.message
+      ) {
         case "NO_AUTH":
           return errorResponse(
             "Debes iniciar sesión.",
@@ -502,6 +844,24 @@ export async function PATCH(
           return errorResponse(
             "El pedido contiene información inválida.",
             409,
+          );
+
+        case "NOT_ASSIGNED":
+          return errorResponse(
+            "Este pedido no está asignado a este repartidor.",
+            403,
+          );
+
+        case "DELIVERER_STATUS_FORBIDDEN":
+          return errorResponse(
+            "Un repartidor solamente puede marcar en camino un pedido asignado a él.",
+            403,
+          );
+
+        case "DELIVERER_ASSIGN_FORBIDDEN":
+          return errorResponse(
+            "Solo un administrador puede asignar repartidores.",
+            403,
           );
 
         case "INVALID_STATUS":
