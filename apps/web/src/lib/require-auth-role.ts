@@ -1,7 +1,7 @@
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 
 export type UserRole =
-  | "usuario"
+  | "consumidor"
   | "repartidor"
   | "admin";
 
@@ -58,7 +58,7 @@ export async function requireAuthRole(
       : "";
 
   if (
-    roleValue !== "usuario" &&
+    roleValue !== "consumidor" &&
     roleValue !== "repartidor" &&
     roleValue !== "admin"
   ) {

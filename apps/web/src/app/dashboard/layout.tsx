@@ -23,6 +23,10 @@ const adminNavigation: NavigationItem[] = [
     href: "/dashboard/productos",
   },
   {
+    label: "Productores",
+    href: "/dashboard/productores",
+  },
+  {
     label: "Categorías",
     href: "/dashboard/categorias",
   },
@@ -276,4 +280,3 @@ export default function DashboardLayout({
     </div>
   );
 }
-

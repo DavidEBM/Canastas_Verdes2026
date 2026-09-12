@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 
-import {
-  adminAuth,
-  adminDb,
-} from "@/lib/firebase-admin";
+import { adminDb } from "@/lib/firebase-admin";
+import { requireAdmin } from "@/lib/require-admin";
 
 export const runtime = "nodejs";
 
 const COLLECTION = "productos";
+const PRODUCTORES_COLLECTION = "productores";
+
 const MAX_ROWS = 400;
 
 const MAX_CODE_LENGTH = 50;
@@ -22,6 +22,36 @@ type Action =
 
 type ProductRow = Record<string, unknown>;
 
+type CanastaComponent = {
+  productoId: string;
+  cantidad: number;
+};
+
+type NormalizedProduct = {
+  code: string;
+  nombre: string;
+  descripcion: string;
+  precio: number;
+  stock: number;
+
+  costoPcc: number;
+  porcentajeLogistica: number;
+  porcentajeTransporte: number;
+  precioSugerido: number;
+  precioVenta: number;
+
+  categoria: string;
+  unidad: string;
+  imgPath: string;
+  imageName: string;
+  activo: boolean;
+
+  IdProductor?: string;
+  IdMunicipalidad: string;
+
+  componentes: CanastaComponent[];
+};
+
 function text(
   value: unknown,
   maxLength = MAX_TEXT_LENGTH,
@@ -33,45 +63,63 @@ function text(
   return value.trim().slice(0, maxLength);
 }
 
-function tokenFrom(
-  request: Request,
-): string | null {
-  const authorization =
-    request.headers.get("authorization");
-
-  if (!authorization) {
-    return null;
-  }
-
-  const match =
-    authorization.match(/^Bearer\s+(.+)$/i);
-
-  return match?.[1]?.trim() || null;
+function normalizeCode(
+  value: unknown,
+): string {
+  return text(
+    value,
+    MAX_CODE_LENGTH,
+  ).toUpperCase();
 }
 
-async function requireAdmin(
-  request: Request,
-) {
-  const token = tokenFrom(request);
-
-  if (!token) {
-    throw new Error("NO_AUTH");
+function numberValue(
+  value: unknown,
+  defaultValue = 0,
+): number {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return defaultValue;
   }
 
-  const decoded =
-    await adminAuth.verifyIdToken(token);
+  const parsed =
+    typeof value === "number"
+      ? value
+      : Number(value);
 
-  if (decoded.role !== "admin") {
-    throw new Error("FORBIDDEN");
+  return Number.isFinite(parsed)
+    ? parsed
+    : defaultValue;
+}
+
+function percentageValue(
+  value: unknown,
+  fieldName: string,
+  rowNumber: number,
+): number {
+  const parsed =
+    numberValue(value, 0);
+
+  if (
+    !Number.isFinite(parsed) ||
+    parsed < 0 ||
+    parsed > 100
+  ) {
+    throw new Error(
+      `Fila ${rowNumber}: ${fieldName} debe ser un porcentaje entre 0 y 100.`,
+    );
   }
 
-  return decoded;
+  return parsed;
 }
 
 function getAction(
   value: unknown,
 ): Action {
-  const normalized = text(value).toUpperCase();
+  const normalized =
+    text(value).toUpperCase();
 
   if (
     normalized === "CREAR" ||
@@ -82,33 +130,130 @@ function getAction(
   }
 
   throw new Error(
-    `Acción inválida: "${text(value) || "vacía"}". Usa CREAR, ACTUALIZAR o ELIMINAR.`,
+    `Acción inválida: "${
+      text(value) || "vacía"
+    }". Usa CREAR, ACTUALIZAR o ELIMINAR.`,
+  );
+}
+
+function normalizeComponents(
+  value: unknown,
+  rowNumber: number,
+): CanastaComponent[] {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return [];
+  }
+
+  let parsed = value;
+
+  /*
+   * Permite importar componentes como JSON
+   * desde Excel.
+   *
+   * Ejemplo:
+   *
+   * [
+   *   {"productoId":"abc","cantidad":2},
+   *   {"productoId":"def","cantidad":1}
+   * ]
+   */
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new Error(
+        `Fila ${rowNumber}: el campo componentes debe contener un JSON válido.`,
+      );
+    }
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new Error(
+      `Fila ${rowNumber}: los componentes de la canasta no son válidos.`,
+    );
+  }
+
+  return parsed.map(
+    (component, index) => {
+      if (
+        !component ||
+        typeof component !== "object" ||
+        Array.isArray(component)
+      ) {
+        throw new Error(
+          `Fila ${rowNumber}: el componente ${
+            index + 1
+          } no es válido.`,
+        );
+      }
+
+      const item =
+        component as Record<
+          string,
+          unknown
+        >;
+
+      const productoId =
+        text(
+          item.productoId,
+          200,
+        );
+
+      const cantidad =
+        numberValue(
+          item.cantidad,
+          0,
+        );
+
+      if (!productoId) {
+        throw new Error(
+          `Fila ${rowNumber}: el componente ${
+            index + 1
+          } requiere productoId.`,
+        );
+      }
+
+      if (
+        !Number.isInteger(cantidad) ||
+        cantidad <= 0
+      ) {
+        throw new Error(
+          `Fila ${rowNumber}: la cantidad del componente ${
+            index + 1
+          } debe ser un entero mayor que 0.`,
+        );
+      }
+
+      return {
+        productoId,
+        cantidad,
+      };
+    },
   );
 }
 
 function normalizeProduct(
   row: ProductRow,
   rowNumber: number,
-) {
-  const code = text(
-    row.code,
-    MAX_CODE_LENGTH,
-  );
+): NormalizedProduct {
+  const code =
+    normalizeCode(row.code);
 
-  const nombre = text(
-    row.nombre,
-    MAX_NAME_LENGTH,
-  );
+  const nombre =
+    text(
+      row.nombre,
+      MAX_NAME_LENGTH,
+    );
 
   const precio =
-    typeof row.precio === "number"
-      ? row.precio
-      : Number(row.precio);
+    numberValue(row.precio);
 
   const stock =
-    typeof row.stock === "number"
-      ? row.stock
-      : Number(row.stock);
+    numberValue(row.stock);
 
   if (
     !code ||
@@ -123,26 +268,156 @@ function normalizeProduct(
     );
   }
 
+  const costoPcc =
+    numberValue(
+      row.costoPcc,
+    );
+
+  if (
+    !Number.isFinite(costoPcc) ||
+    costoPcc < 0
+  ) {
+    throw new Error(
+      `Fila ${rowNumber}: el costo PCC no es válido.`,
+    );
+  }
+
+  const porcentajeLogistica =
+    percentageValue(
+      row.porcentajeLogistica,
+      "el porcentaje de logística",
+      rowNumber,
+    );
+
+  const porcentajeTransporte =
+    percentageValue(
+      row.porcentajeTransporte,
+      "el porcentaje de transporte",
+      rowNumber,
+    );
+
+  const precioSugerido =
+    numberValue(
+      row.precioSugerido,
+    );
+
+  if (
+    !Number.isFinite(precioSugerido) ||
+    precioSugerido < 0
+  ) {
+    throw new Error(
+      `Fila ${rowNumber}: el precio sugerido no es válido.`,
+    );
+  }
+
+  const precioVenta =
+    numberValue(
+      row.precioVenta,
+    );
+
+  if (
+    !Number.isFinite(precioVenta) ||
+    precioVenta < 0
+  ) {
+    throw new Error(
+      `Fila ${rowNumber}: el precio de venta no es válido.`,
+    );
+  }
+
+  const categoria =
+    text(
+      row.categoria,
+      200,
+    );
+
+  const unidad =
+    text(
+      row.unidad,
+      100,
+    );
+
+  const componentes =
+    normalizeComponents(
+      row.componentes,
+      rowNumber,
+    );
+
+  /*
+   * Una canasta debe tener componentes.
+   */
+  if (
+    categoria.toLowerCase() ===
+      "canasta" &&
+    componentes.length === 0
+  ) {
+    throw new Error(
+      `Fila ${rowNumber}: una canasta debe contener al menos un producto.`,
+    );
+  }
+
   return {
     code,
     nombre,
-    descripcion: text(row.descripcion),
+
+    descripcion:
+      text(row.descripcion),
+
     precio,
     stock,
-    categoria: text(row.categoria),
-    unidad: text(row.unidad),
-    imgPath: text(row.imgPath),
-    imageName: text(row.imageName),
+
+    costoPcc,
+    porcentajeLogistica,
+    porcentajeTransporte,
+    precioSugerido,
+    precioVenta,
+
+    categoria,
+
+    unidad:
+      categoria.toLowerCase() ===
+      "canasta"
+        ? unidad
+        : unidad,
+
+    imgPath:
+      text(
+        row.imgPath,
+        500,
+      ),
+
+    imageName:
+      text(
+        row.imageName,
+        255,
+      ),
+
     activo:
       row.activo !== false &&
       row.activo !== "false" &&
       row.activo !== "FALSE" &&
       row.activo !== 0 &&
       row.activo !== "0",
-    IdGranja: text(row.IdGranja),
-    IdMunicipalidad: text(
-      row.IdMunicipalidad,
-    ),
+
+    ...(text(
+      row.IdProductor,
+      200,
+    )
+      ? {
+          IdProductor:
+            text(
+              row.IdProductor,
+              200,
+            ),
+        }
+      : {}),
+
+    IdMunicipalidad:
+      text(
+        row.IdMunicipalidad,
+        200,
+      ),
+
+    componentes,
   };
 }
 
@@ -151,12 +426,14 @@ function errorResponse(
 ) {
   if (
     error instanceof Error &&
-    error.message === "NO_AUTH"
+    error.message ===
+      "AUTH_REQUIRED"
   ) {
     return NextResponse.json(
       {
         success: false,
-        message: "No autenticado.",
+        message:
+          "No autenticado.",
       },
       { status: 401 },
     );
@@ -164,7 +441,14 @@ function errorResponse(
 
   if (
     error instanceof Error &&
-    error.message === "FORBIDDEN"
+    (
+      error.message ===
+        "USER_NOT_FOUND" ||
+      error.message ===
+        "USER_INVALID" ||
+      error.message ===
+        "ADMIN_REQUIRED"
+    )
   ) {
     return NextResponse.json(
       {
@@ -182,7 +466,8 @@ function errorResponse(
     return NextResponse.json(
       {
         success: false,
-        message: error.message,
+        message:
+          error.message,
       },
       { status: 400 },
     );
@@ -203,6 +488,83 @@ function errorResponse(
   );
 }
 
+async function validateProductor(
+  productorId: string,
+  rowNumber: number,
+) {
+  if (!productorId) {
+    throw new Error(
+      `Fila ${rowNumber}: debes indicar un IdProductor.`,
+    );
+  }
+
+  const productorRef =
+    adminDb
+      .collection(
+        PRODUCTORES_COLLECTION,
+      )
+      .doc(productorId);
+
+  const productorSnapshot =
+    await productorRef.get();
+
+  if (
+    !productorSnapshot.exists
+  ) {
+    throw new Error(
+      `Fila ${rowNumber}: el productor con ID "${productorId}" no existe.`,
+    );
+  }
+
+  const productorData =
+    productorSnapshot.data();
+
+  if (
+    productorData?.activo === false
+  ) {
+    throw new Error(
+      `Fila ${rowNumber}: el productor indicado está inactivo.`,
+    );
+  }
+}
+
+async function validateComponents(
+  componentes: CanastaComponent[],
+  rowNumber: number,
+) {
+  if (
+    componentes.length === 0
+  ) {
+    return;
+  }
+
+  const uniqueIds =
+    Array.from(
+      new Set(
+        componentes.map(
+          (item) =>
+            item.productoId,
+        ),
+      ),
+    );
+
+  for (
+    const productoId of uniqueIds
+  ) {
+    const snapshot =
+      await adminDb
+        .collection(COLLECTION)
+        .doc(productoId)
+        .get();
+
+    if (!snapshot.exists) {
+      throw new Error(
+        `Fila ${rowNumber}: el producto "${productoId}" utilizado como componente no existe.`,
+      );
+    }
+  }
+}
+
 export async function POST(
   request: Request,
 ) {
@@ -215,6 +577,7 @@ export async function POST(
     if (
       !body ||
       typeof body !== "object" ||
+      Array.isArray(body) ||
       !("rows" in body)
     ) {
       return NextResponse.json(
@@ -228,7 +591,11 @@ export async function POST(
     }
 
     const rows =
-      (body as { rows?: unknown }).rows;
+      (
+        body as {
+          rows?: unknown;
+        }
+      ).rows;
 
     if (!Array.isArray(rows)) {
       return NextResponse.json(
@@ -252,7 +619,9 @@ export async function POST(
       );
     }
 
-    if (rows.length > MAX_ROWS) {
+    if (
+      rows.length > MAX_ROWS
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -264,13 +633,18 @@ export async function POST(
     }
 
     const collection =
-      adminDb.collection(COLLECTION);
+      adminDb.collection(
+        COLLECTION,
+      );
 
     const snapshot =
       await collection.get();
 
     const existingById =
-      new Map(
+      new Map<
+        string,
+        FirebaseFirestore.QueryDocumentSnapshot
+      >(
         snapshot.docs.map(
           (document) => [
             document.id,
@@ -280,13 +654,18 @@ export async function POST(
       );
 
     const existingCodes =
-      new Map<string, string>();
+      new Map<
+        string,
+        string
+      >();
 
-    for (const document of snapshot.docs) {
-      const code = text(
-        document.data().code,
-        MAX_CODE_LENGTH,
-      ).toLowerCase();
+    for (
+      const document of snapshot.docs
+    ) {
+      const code =
+        normalizeCode(
+          document.data().code,
+        );
 
       if (code) {
         existingCodes.set(
@@ -296,20 +675,22 @@ export async function POST(
       }
     }
 
-    /*
-     * También controlamos códigos repetidos
-     * dentro del mismo Excel antes de ejecutar
-     * cualquier operación.
-     */
     const importedCodes =
-      new Map<string, number>();
+      new Map<
+        string,
+        number
+      >();
+
+    const productorRows =
+      new Map<
+        string,
+        number
+      >();
 
     const operations: Array<{
       action: Action;
       id?: string;
-      data?: ReturnType<
-        typeof normalizeProduct
-      >;
+      data?: NormalizedProduct;
       rowNumber: number;
     }> = [];
 
@@ -322,9 +703,11 @@ export async function POST(
       index < rows.length;
       index += 1
     ) {
-      const raw = rows[index];
+      const raw =
+        rows[index];
 
-      const rowNumber = index + 2;
+      const rowNumber =
+        index + 2;
 
       if (
         !raw ||
@@ -339,16 +722,34 @@ export async function POST(
       const row =
         raw as ProductRow;
 
-      const operation =
-        getAction(row.accion);
+      const action =
+        getAction(
+          row.accion,
+        );
 
-      const id = text(row.id);
+      const id =
+        text(
+          row.id,
+          200,
+        );
+
+      /*
+       * ======================================================
+       * ELIMINAR
+       * ======================================================
+       */
 
       if (
-        operation === "ELIMINAR"
+        action ===
+        "ELIMINAR"
       ) {
+        if (!id) {
+          throw new Error(
+            `Fila ${rowNumber}: ELIMINAR requiere un ID.`,
+          );
+        }
+
         if (
-          !id ||
           !existingById.has(id)
         ) {
           throw new Error(
@@ -357,14 +758,21 @@ export async function POST(
         }
 
         operations.push({
-          action: operation,
+          action,
           id,
           rowNumber,
         });
 
         deleted += 1;
+
         continue;
       }
+
+      /*
+       * ======================================================
+       * CREAR / ACTUALIZAR
+       * ======================================================
+       */
 
       const data =
         normalizeProduct(
@@ -372,19 +780,40 @@ export async function POST(
           rowNumber,
         );
 
-      const normalizedCode =
-        data.code.toLowerCase();
+      if (
+        data.IdProductor
+      ) {
+        productorRows.set(
+          data.IdProductor,
+          rowNumber,
+        );
+      }
 
-      const importedRow =
+      /*
+       * Validar componentes antes
+       * de ejecutar el Batch.
+       */
+      await validateComponents(
+        data.componentes,
+        rowNumber,
+      );
+
+      const normalizedCode =
+        normalizeCode(
+          data.code,
+        );
+
+      const previousRow =
         importedCodes.get(
           normalizedCode,
         );
 
       if (
-        importedRow !== undefined
+        previousRow !==
+        undefined
       ) {
         throw new Error(
-          `El código ${data.code} aparece repetido en las filas ${importedRow} y ${rowNumber}.`,
+          `El código ${data.code} aparece repetido en las filas ${previousRow} y ${rowNumber}.`,
         );
       }
 
@@ -398,9 +827,24 @@ export async function POST(
           normalizedCode,
         );
 
+      /*
+       * ======================================================
+       * CREAR
+       * ======================================================
+       */
+
       if (
-        operation === "CREAR"
+        action ===
+        "CREAR"
       ) {
+        if (
+          !data.IdProductor
+        ) {
+          throw new Error(
+            `Fila ${rowNumber}: CREAR requiere IdProductor.`,
+          );
+        }
+
         if (existingId) {
           throw new Error(
             `Fila ${rowNumber}: ya existe el código ${data.code}.`,
@@ -408,14 +852,21 @@ export async function POST(
         }
 
         operations.push({
-          action: operation,
+          action,
           data,
           rowNumber,
         });
 
         created += 1;
+
         continue;
       }
+
+      /*
+       * ======================================================
+       * ACTUALIZAR
+       * ======================================================
+       */
 
       if (!id) {
         throw new Error(
@@ -441,7 +892,7 @@ export async function POST(
       }
 
       operations.push({
-        action: operation,
+        action,
         id,
         data,
         rowNumber,
@@ -451,15 +902,43 @@ export async function POST(
     }
 
     /*
-     * Firestore Batch permite hasta 500 operaciones.
-     * MAX_ROWS está limitado a 400, por lo que
-     * todas las operaciones pueden ejecutarse
-     * de forma atómica en un único batch.
+     * ========================================================
+     * VALIDAR PRODUCTORES
+     * ========================================================
      */
+
+    for (
+      const [
+        productorId,
+        rowNumber,
+      ] of productorRows
+    ) {
+      await validateProductor(
+        productorId,
+        rowNumber,
+      );
+    }
+
+    /*
+     * ========================================================
+     * FIRESTORE BATCH
+     * ========================================================
+     */
+
     const batch =
       adminDb.batch();
 
-    for (const operation of operations) {
+    for (
+      const operation of operations
+    ) {
+      /*
+       * ======================================================
+       * ELIMINAR
+       * ======================================================
+       *
+       * Se mantiene como eliminación lógica.
+       */
+
       if (
         operation.action ===
         "ELIMINAR"
@@ -469,51 +948,267 @@ export async function POST(
             operation.id!,
           );
 
-        batch.update(ref, {
-          activo: false,
-          fechaCierre:
-            FieldValue.serverTimestamp(),
-          ultimaActualizacion:
-            FieldValue.serverTimestamp(),
-        });
+        batch.update(
+          ref,
+          {
+            activo: false,
+
+            /*
+             * Se mantiene el nombre
+             * existente utilizado por
+             * esta API.
+             */
+            fechaCierre:
+              FieldValue.serverTimestamp(),
+
+            ultimaActualizacion:
+              FieldValue.serverTimestamp(),
+          },
+        );
 
         continue;
       }
 
+      /*
+       * ======================================================
+       * CREAR
+       * ======================================================
+       */
+
       if (
-        operation.action === "CREAR"
+        operation.action ===
+        "CREAR"
       ) {
         const ref =
           collection.doc();
 
-        batch.set(ref, {
-          ...operation.data,
+        const data =
+          operation.data!;
+
+        const createData:
+          Record<
+            string,
+            unknown
+          > = {
+          code:
+            data.code,
+
+          nombre:
+            data.nombre,
+
+          descripcion:
+            data.descripcion,
+
+          precio:
+            data.precio,
+
+          stock:
+            data.stock,
+
+          costoPcc:
+            data.costoPcc,
+
+          porcentajeLogistica:
+            data.porcentajeLogistica,
+
+          porcentajeTransporte:
+            data.porcentajeTransporte,
+
+          precioSugerido:
+            data.precioSugerido,
+
+          precioVenta:
+            data.precioVenta,
+
+          categoria:
+            data.categoria,
+
+          unidad:
+            data.unidad,
+
+          imgPath:
+            data.imgPath,
+
+          imageName:
+            data.imageName,
+
+          activo:
+            data.activo,
+
+          IdProductor:
+            data.IdProductor,
+
+          IdMunicipalidad:
+            data.IdMunicipalidad,
+
+          componentes:
+            data.componentes,
+
           fechaCreacion:
             FieldValue.serverTimestamp(),
+
           ultimaActualizacion:
             FieldValue.serverTimestamp(),
-          fechaCierre: null,
-        });
+
+          fechaCierre:
+            null,
+        };
+
+        batch.set(
+          ref,
+          createData,
+        );
 
         continue;
       }
+
+      /*
+       * ======================================================
+       * ACTUALIZAR
+       * ======================================================
+       */
 
       const ref =
         collection.doc(
           operation.id!,
         );
 
-      batch.update(ref, {
-        ...operation.data,
+      const data =
+        operation.data!;
+
+      const updateData:
+        Record<
+          string,
+          unknown
+        > = {
+        code:
+          data.code,
+
+        nombre:
+          data.nombre,
+
+        descripcion:
+          data.descripcion,
+
+        precio:
+          data.precio,
+
+        stock:
+          data.stock,
+
+        costoPcc:
+          data.costoPcc,
+
+        porcentajeLogistica:
+          data.porcentajeLogistica,
+
+        porcentajeTransporte:
+          data.porcentajeTransporte,
+
+        precioSugerido:
+          data.precioSugerido,
+
+        precioVenta:
+          data.precioVenta,
+
+        categoria:
+          data.categoria,
+
+        unidad:
+          data.unidad,
+
+        imgPath:
+          data.imgPath,
+
+        imageName:
+          data.imageName,
+
+        activo:
+          data.activo,
+
+        IdMunicipalidad:
+          data.IdMunicipalidad,
+
+        componentes:
+          data.componentes,
+
         ultimaActualizacion:
           FieldValue.serverTimestamp(),
-      });
+      };
+
+      /*
+       * Si el Excel trae productor,
+       * se actualiza.
+       *
+       * Si no lo trae, se conserva
+       * el productor existente.
+       */
+      if (
+        data.IdProductor
+      ) {
+        updateData.IdProductor =
+          data.IdProductor;
+      } else {
+        const currentProduct =
+          existingById.get(
+            operation.id!,
+          );
+
+        const currentData =
+          currentProduct?.data() ??
+          {};
+
+        if (
+          currentData.IdProductor
+        ) {
+          updateData.IdProductor =
+            currentData.IdProductor;
+        }
+      }
+
+      /*
+       * Control de FechaCierre.
+       *
+       * Se conserva la misma lógica
+       * utilizada por el endpoint individual.
+       */
+      const currentProduct =
+        existingById.get(
+          operation.id!,
+        );
+
+      const currentData =
+        currentProduct?.data() ??
+        {};
+
+      const previousActivo =
+        currentData.activo !== false;
+
+      if (
+        previousActivo === true &&
+        data.activo === false
+      ) {
+        updateData.FechaCierre =
+          FieldValue.serverTimestamp();
+      } else if (
+        previousActivo === false &&
+        data.activo === true
+      ) {
+        updateData.FechaCierre =
+          null;
+      }
+
+      batch.update(
+        ref,
+        updateData,
+      );
     }
 
     await batch.commit();
 
     return NextResponse.json({
       success: true,
+
       data: {
         created,
         updated,
@@ -521,7 +1216,8 @@ export async function POST(
       },
     });
   } catch (error) {
-    return errorResponse(error);
+    return errorResponse(
+      error,
+    );
   }
 }
-

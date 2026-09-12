@@ -7,14 +7,16 @@ import {
 import {
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from "react";
+
 import { auth } from "@/lib/firebase";
 
 type Tab =
   | "resumen"
   | "productos"
-  | "granjas"
+  | "productores"
   | "municipios"
   | "repartidores"
   | "finanzas";
@@ -22,42 +24,51 @@ type Tab =
 type CatalogoOpcion = {
   id: string;
   nombre: string;
+  departamento?: string;
+  activo?: boolean;
 };
 
-type EstadisticaProducto = {
-  productoId: string;
+type ProductoEstadistica = {
+  id: string;
   code: string;
   nombre: string;
-  unidad: string;
   categoria: string;
-  IdGranja: string;
+  unidad: string;
+  IdProductor: string;
+  productor: string;
   IdMunicipalidad: string;
-  unidadesVendidas: number;
+  municipalidad: string;
+  cantidadVendida: number;
   ventas: number;
+  costo: number;
+  utilidad: number;
+  stock: number;
 };
 
-type EstadisticaGrupo = {
+type ProductorEstadistica = {
   id: string;
   nombre: string;
-  unidadesVendidas: number;
   ventas: number;
-  productos: number;
+  costo: number;
+  utilidad: number;
+  productosVendidos: number;
   pedidos: number;
 };
 
-type EstadisticaRepartidor = {
+type MunicipioEstadistica = {
   id: string;
   nombre: string;
-  pedidosEntregados: number;
-  ventasGeneradas: number;
+  departamento: string;
+  ventas: number;
+  pedidos: number;
 };
 
-type FinanzasItem = {
-  disponible: boolean;
-  ventas: number;
-  costo: number | null;
-  ganancia: number;
-  mensaje: string;
+type RepartidorEstadistica = {
+  id: string;
+  nombre: string;
+  correo: string;
+  ventasGeneradas: number;
+  pedidosEntregados: number;
 };
 
 type EstadisticasResponse = {
@@ -65,134 +76,80 @@ type EstadisticasResponse = {
   message?: string;
 
   filtros: {
-    fechaDesde: string | null;
-    fechaHasta: string | null;
-    categoria: string | null;
-    producto: string | null;
-    granja: string | null;
-    municipio: string | null;
-    repartidor: string | null;
+    categoria: string;
+    producto: string;
+    productor: string;
+    municipio: string;
+    repartidor: string;
+    desde: string;
+    hasta: string;
   };
 
   resumen: {
-    pedidos: number;
-    unidadesVendidas: number;
-    gananciasProductos: number;
-    gananciasLogistica: number;
-    gananciasAlmacenamiento: number;
-    gananciasEntrega: number;
-    gananciasTotales: number;
-    ingresosTotales: number;
+    ventasTotales: number;
+    costosTotales: number;
+    utilidadTotal: number;
+    margen: number;
+    pedidosEntregados: number;
+    productosVendidos: number;
+    consumidores: number;
+    productosActivos: number;
+    stockActual: number;
   };
 
-  finanzas: {
-    productos: FinanzasItem;
-    logistica: FinanzasItem;
-    almacenamiento: FinanzasItem;
-    entrega: FinanzasItem;
-  };
+  productos: ProductoEstadistica[];
 
-  productosMasVendidos: EstadisticaProducto[];
-  productosPorIngresos: EstadisticaProducto[];
-
-  granjas: EstadisticaGrupo[];
+  productores: ProductorEstadistica[];
 
   municipios: {
-    productores: EstadisticaGrupo[];
-    entrega: EstadisticaGrupo[];
+    productores: MunicipioEstadistica[];
+    entrega: MunicipioEstadistica[];
   };
 
-  repartidores: EstadisticaRepartidor[];
+  repartidores: RepartidorEstadistica[];
+
+  finanzas: {
+    ventas: number;
+    costos: number;
+    utilidad: number;
+    margen: number;
+  };
 
   catalogos: {
     productos: CatalogoOpcion[];
+    productores: CatalogoOpcion[];
+    municipalidades: CatalogoOpcion[];
     categorias: CatalogoOpcion[];
-    granjas: CatalogoOpcion[];
-    municipios: CatalogoOpcion[];
-    repartidores: CatalogoOpcion[];
-  };
-
-  catalogo: {
-    productosActivos: number;
-    stockActual: number;
-    ofertaHistoricaDisponible: boolean;
-    mensaje: string;
-  };
-
-  metadata: {
-    estadosContabilizados: string[];
-    estadosExcluidos: string[];
-    totalPedidosEncontrados: number;
-    totalProductosCatalogo: number;
-    totalRepartidores: number;
   };
 };
 
-const EMPTY_RESPONSE: EstadisticasResponse = {
+const EMPTY_DATA: EstadisticasResponse = {
   success: true,
 
   filtros: {
-    fechaDesde: null,
-    fechaHasta: null,
-    categoria: null,
-    producto: null,
-    granja: null,
-    municipio: null,
-    repartidor: null,
+    categoria: "",
+    producto: "",
+    productor: "",
+    municipio: "",
+    repartidor: "",
+    desde: "",
+    hasta: "",
   },
 
   resumen: {
-    pedidos: 0,
-    unidadesVendidas: 0,
-    gananciasProductos: 0,
-    gananciasLogistica: 0,
-    gananciasAlmacenamiento: 0,
-    gananciasEntrega: 0,
-    gananciasTotales: 0,
-    ingresosTotales: 0,
+    ventasTotales: 0,
+    costosTotales: 0,
+    utilidadTotal: 0,
+    margen: 0,
+    pedidosEntregados: 0,
+    productosVendidos: 0,
+    consumidores: 0,
+    productosActivos: 0,
+    stockActual: 0,
   },
 
-  finanzas: {
-    productos: {
-      disponible: true,
-      ventas: 0,
-      costo: null,
-      ganancia: 0,
-      mensaje: "",
-    },
-
-    logistica: {
-      disponible: false,
-      ventas: 0,
-      costo: null,
-      ganancia: 0,
-      mensaje:
-        "El sistema actual no almacena costos ni ingresos independientes de logística.",
-    },
-
-    almacenamiento: {
-      disponible: false,
-      ventas: 0,
-      costo: null,
-      ganancia: 0,
-      mensaje:
-        "El sistema actual no almacena costos ni ingresos independientes de almacenamiento.",
-    },
-
-    entrega: {
-      disponible: false,
-      ventas: 0,
-      costo: null,
-      ganancia: 0,
-      mensaje:
-        "El sistema actual no almacena costos ni ingresos independientes de entrega.",
-    },
-  },
-
-  productosMasVendidos: [],
-  productosPorIngresos: [],
-
-  granjas: [],
+  productos: [],
+  productores: [],
 
   municipios: {
     productores: [],
@@ -201,97 +158,47 @@ const EMPTY_RESPONSE: EstadisticasResponse = {
 
   repartidores: [],
 
+  finanzas: {
+    ventas: 0,
+    costos: 0,
+    utilidad: 0,
+    margen: 0,
+  },
+
   catalogos: {
     productos: [],
+    productores: [],
+    municipalidades: [],
     categorias: [],
-    granjas: [],
-    municipios: [],
-    repartidores: [],
-  },
-
-  catalogo: {
-    productosActivos: 0,
-    stockActual: 0,
-    ofertaHistoricaDisponible: false,
-    mensaje:
-      "El sistema actualmente no conserva una fotografía histórica de la cantidad inicialmente ofrecida.",
-  },
-
-  metadata: {
-    estadosContabilizados: ["entregado"],
-    estadosExcluidos: [
-      "pendiente",
-      "asignado",
-      "en_camino",
-      "cancelado",
-    ],
-    totalPedidosEncontrados: 0,
-    totalProductosCatalogo: 0,
-    totalRepartidores: 0,
   },
 };
 
-function displayName(value: unknown): string {
-  if (
-    value === null ||
-    value === undefined
-  ) {
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat("es-CO", {
+    style: "currency",
+    currency: "COP",
+    maximumFractionDigits: 0,
+  }).format(Number.isFinite(value) ? value : 0);
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("es-CO").format(
+    Number.isFinite(value) ? value : 0,
+  );
+}
+
+function formatPercent(value: number): string {
+  return `${Number.isFinite(value) ? value.toFixed(2) : "0.00"}%`;
+}
+
+function safeText(value: unknown): string {
+  if (value === null || value === undefined) {
     return "No disponible";
   }
 
   const text = String(value).trim();
 
-  if (!text) {
-    return "No disponible";
-  }
-
-  return text.replace(/_/g, " ");
-}
-
-function formatCurrency(
-  value: number,
-): string {
-  return new Intl.NumberFormat("es-CO", {
-    style: "currency",
-    currency: "COP",
-    maximumFractionDigits: 0,
-  }).format(
-    Number.isFinite(value)
-      ? value
-      : 0,
-  );
-}
-
-function formatNumber(
-  value: number,
-): string {
-  return new Intl.NumberFormat(
-    "es-CO",
-  ).format(
-    Number.isFinite(value)
-      ? value
-      : 0,
-  );
-}
-
-function formatDate(
-  value: string | null,
-): string {
-  if (!value) {
-    return "Sin filtro";
-  }
-
-  const date = new Date(
-    `${value}T00:00:00`,
-  );
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleDateString(
-    "es-CO",
-  );
+  return text || "No disponible";
 }
 
 function SelectField({
@@ -299,25 +206,21 @@ function SelectField({
   label,
   value,
   options,
-  onChange,
   placeholder,
-  disabled = false,
+  onChange,
 }: {
   id: string;
   label: string;
   value: string;
   options: CatalogoOpcion[];
-  onChange: (
-    value: string,
-  ) => void;
   placeholder: string;
-  disabled?: boolean;
+  onChange: (value: string) => void;
 }) {
   return (
     <div>
       <label
         htmlFor={id}
-        className="mb-1.5 block text-xs font-semibold text-[var(--foreground)]/75"
+        className="mb-1.5 block text-xs font-semibold text-[var(--foreground)]/70"
       >
         {label}
       </label>
@@ -328,28 +231,59 @@ function SelectField({
         onChange={(event) =>
           onChange(event.target.value)
         }
-        disabled={disabled}
-        className="w-full rounded-xl border border-[var(--secondary)] bg-white px-3 py-2.5 text-sm outline-none transition focus:border-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--primary)]"
       >
-        <option value="">
-          {placeholder}
-        </option>
+        <option value="">{placeholder}</option>
 
         {options.map((option) => (
           <option
             key={option.id}
             value={option.id}
           >
-            {displayName(
-              option.nombre,
-            )}
+            {safeText(option.nombre)}
           </option>
         ))}
       </select>
+    </div>
+  );
+}
 
-      <p className="mt-1 text-[10px] text-[var(--foreground)]/40">
-        {options.length} opciones disponibles
+function StatCard({
+  title,
+  value,
+  description,
+}: {
+  title: string;
+  value: string;
+  description?: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-[var(--border)] bg-white p-5 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+        {title}
       </p>
+
+      <p className="mt-2 text-2xl font-bold text-[var(--foreground)]">
+        {value}
+      </p>
+
+      {description ? (
+        <p className="mt-1 text-xs text-[var(--muted)]">
+          {description}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function TableEmpty({
+  message = "No hay datos para mostrar.",
+}: {
+  message?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-dashed border-[var(--border)] p-8 text-center text-sm text-[var(--muted)]">
+      {message}
     </div>
   );
 }
@@ -358,74 +292,46 @@ export default function EstadisticasPage() {
   const [user, setUser] =
     useState<User | null>(null);
 
-  const [
-    authLoading,
-    setAuthLoading,
-  ] = useState(true);
+  const [authLoading, setAuthLoading] =
+    useState(true);
 
-  const [
-    data,
-    setData,
-  ] =
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
+
+  const [data, setData] =
     useState<EstadisticasResponse>(
-      EMPTY_RESPONSE,
+      EMPTY_DATA,
     );
 
-  const [
-    loading,
-    setLoading,
-  ] = useState(true);
-
-  const [
-    error,
-    setError,
-  ] = useState("");
-
-  const [
-    activeTab,
-    setActiveTab,
-  ] =
+  const [activeTab, setActiveTab] =
     useState<Tab>("resumen");
 
-  const [
-    fechaDesde,
-    setFechaDesde,
-  ] = useState("");
+  const [desde, setDesde] =
+    useState("");
 
-  const [
-    fechaHasta,
-    setFechaHasta,
-  ] = useState("");
+  const [hasta, setHasta] =
+    useState("");
 
-  const [
-    categoria,
-    setCategoria,
-  ] = useState("");
+  const [categoria, setCategoria] =
+    useState("");
 
-  const [
-    producto,
-    setProducto,
-  ] = useState("");
+  const [producto, setProducto] =
+    useState("");
 
-  const [
-    granja,
-    setGranja,
-  ] = useState("");
+  const [productor, setProductor] =
+    useState("");
 
-  const [
-    municipio,
-    setMunicipio,
-  ] = useState("");
+  const [municipio, setMunicipio] =
+    useState("");
 
-  const [
-    repartidor,
-    setRepartidor,
-  ] = useState("");
+  const [repartidor, setRepartidor] =
+    useState("");
 
-  const [
-    showFilters,
-    setShowFilters,
-  ] = useState(true);
+  const [showFilters, setShowFilters] =
+    useState(true);
 
   useEffect(() => {
     const unsubscribe =
@@ -441,7 +347,7 @@ export default function EstadisticasPage() {
         },
       );
 
-    return () => unsubscribe();
+    return unsubscribe;
   }, []);
 
   const loadStatistics =
@@ -460,18 +366,17 @@ export default function EstadisticasPage() {
         const params =
           new URLSearchParams();
 
-        if (fechaDesde) {
-          params.set(
-            "fechaDesde",
-            fechaDesde,
-          );
+        /*
+         * IMPORTANTE:
+         * Estos nombres coinciden exactamente
+         * con /api/dashboard/estadisticas.
+         */
+        if (desde) {
+          params.set("desde", desde);
         }
 
-        if (fechaHasta) {
-          params.set(
-            "fechaHasta",
-            fechaHasta,
-          );
+        if (hasta) {
+          params.set("hasta", hasta);
         }
 
         if (categoria) {
@@ -488,10 +393,10 @@ export default function EstadisticasPage() {
           );
         }
 
-        if (granja) {
+        if (productor) {
           params.set(
-            "granja",
-            granja,
+            "productor",
+            productor,
           );
         }
 
@@ -515,14 +420,13 @@ export default function EstadisticasPage() {
         const response =
           await fetch(
             `/api/dashboard/estadisticas${
-              query
-                ? `?${query}`
-                : ""
+              query ? `?${query}` : ""
             }`,
             {
               method: "GET",
               headers: {
-                Authorization: `Bearer ${token}`,
+                Authorization:
+                  `Bearer ${token}`,
               },
               cache: "no-store",
             },
@@ -538,9 +442,7 @@ export default function EstadisticasPage() {
           );
         }
 
-        if (
-          !result?.success
-        ) {
+        if (!result?.success) {
           throw new Error(
             result?.message ||
               "La API no pudo generar las estadísticas.",
@@ -566,53 +468,71 @@ export default function EstadisticasPage() {
       }
     }, [
       user,
-      fechaDesde,
-      fechaHasta,
+      desde,
+      hasta,
       categoria,
       producto,
-      granja,
+      productor,
       municipio,
       repartidor,
     ]);
 
   useEffect(() => {
-    if (
-      !authLoading &&
-      user
-    ) {
-      void loadStatistics();
+    if (authLoading) {
+      return;
     }
 
-    if (
-      !authLoading &&
-      !user
-    ) {
+    if (!user) {
       setLoading(false);
+      return;
     }
+
+    void loadStatistics();
   }, [
     authLoading,
     user,
     loadStatistics,
   ]);
 
-  function clearFilters() {
-    setFechaDesde("");
-    setFechaHasta("");
+  const clearFilters = () => {
+    setDesde("");
+    setHasta("");
     setCategoria("");
     setProducto("");
-    setGranja("");
+    setProductor("");
     setMunicipio("");
     setRepartidor("");
-  }
+  };
 
   const hasFilters =
-    Boolean(fechaDesde) ||
-    Boolean(fechaHasta) ||
+    Boolean(desde) ||
+    Boolean(hasta) ||
     Boolean(categoria) ||
     Boolean(producto) ||
-    Boolean(granja) ||
+    Boolean(productor) ||
     Boolean(municipio) ||
     Boolean(repartidor);
+
+  const productosOrdenados =
+    useMemo(
+      () =>
+        [...data.productos].sort(
+          (a, b) =>
+            b.cantidadVendida -
+            a.cantidadVendida,
+        ),
+      [data.productos],
+    );
+
+  const productosPorVentas =
+    useMemo(
+      () =>
+        [...data.productos].sort(
+          (a, b) =>
+            b.ventas - a.ventas,
+        ),
+      [data.productos],
+    );
 
   const tabs: {
     id: Tab;
@@ -627,8 +547,8 @@ export default function EstadisticasPage() {
       label: "Productos",
     },
     {
-      id: "granjas",
-      label: "Granjas",
+      id: "productores",
+      label: "Productores",
     },
     {
       id: "municipios",
@@ -646,12 +566,12 @@ export default function EstadisticasPage() {
 
   if (authLoading) {
     return (
-      <main className="min-h-screen bg-[var(--background)] p-6">
+      <main className="min-h-screen bg-[var(--surface)] p-6">
         <div className="mx-auto flex min-h-[60vh] max-w-7xl items-center justify-center">
           <div className="text-center">
             <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-[var(--secondary)] border-t-[var(--primary)]" />
 
-            <p className="mt-4 text-sm text-[var(--foreground)]/60">
+            <p className="mt-4 text-sm text-[var(--muted)]">
               Verificando sesión...
             </p>
           </div>
@@ -662,17 +582,16 @@ export default function EstadisticasPage() {
 
   if (!user) {
     return (
-      <main className="min-h-screen bg-[var(--background)] p-6">
+      <main className="min-h-screen bg-[var(--surface)] p-6">
         <div className="mx-auto flex min-h-[60vh] max-w-3xl items-center justify-center">
           <div className="w-full rounded-3xl border border-red-200 bg-red-50 p-8 text-center">
-            <h1 className="text-xl font-bold text-red-900">
+            <h1 className="text-xl font-bold text-red-800">
               Sesión requerida
             </h1>
 
-            <p className="mt-2 text-sm text-red-800">
-              Debes iniciar sesión
-              para consultar las
-              estadísticas.
+            <p className="mt-2 text-sm text-red-700">
+              Debes iniciar sesión para
+              consultar las estadísticas.
             </p>
           </div>
         </div>
@@ -681,1337 +600,980 @@ export default function EstadisticasPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[var(--background)] p-4 sm:p-6">
+    <main className="min-h-screen bg-[var(--surface)] p-4 md:p-6">
       <div className="mx-auto max-w-7xl">
         {/* HEADER */}
-        <header className="mb-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--primary)]">
-                Dashboard administrativo
-              </p>
+        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-[var(--primary)]">
+              Dashboard administrativo
+            </p>
 
-              <h1 className="mt-1 text-3xl font-bold tracking-tight text-[var(--foreground)]">
-                Estadísticas
-              </h1>
+            <h1 className="text-3xl font-bold text-[var(--foreground)]">
+              Estadísticas
+            </h1>
 
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--foreground)]/65">
-                Analiza las ventas,
-                productos,
-                granjas,
-                municipios y
-                repartidores.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() =>
-                void loadStatistics()
-              }
-              disabled={loading}
-              className="rounded-xl bg-[var(--primary)] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading
-                ? "Actualizando..."
-                : "Actualizar estadísticas"}
-            </button>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Análisis histórico de pedidos
+              entregados.
+            </p>
           </div>
-        </header>
+
+          <button
+            type="button"
+            onClick={() =>
+              void loadStatistics()
+            }
+            disabled={loading}
+            className="rounded-xl bg-[var(--primary)] px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loading
+              ? "Actualizando..."
+              : "Actualizar"}
+          </button>
+        </div>
+
+        {/* ERROR */}
+        {error ? (
+          <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            <strong>Error:</strong>{" "}
+            {error}
+          </div>
+        ) : null}
 
         {/* FILTROS */}
-        <section className="mb-6 overflow-hidden rounded-3xl border border-[var(--secondary)] bg-[var(--surface)]">
-          <div className="flex flex-col gap-3 border-b border-[var(--secondary)] p-5 sm:flex-row sm:items-center sm:justify-between">
+        <section className="mb-6 rounded-2xl border border-[var(--border)] bg-white shadow-sm">
+          <button
+            type="button"
+            onClick={() =>
+              setShowFilters(
+                (current) => !current,
+              )
+            }
+            className="flex w-full items-center justify-between px-5 py-4 text-left"
+          >
             <div>
               <h2 className="font-bold text-[var(--foreground)]">
-                Filtros de estadísticas
+                Filtros
               </h2>
 
-              <p className="mt-1 text-xs text-[var(--foreground)]/60">
-                Selecciona las
-                opciones existentes
-                en el sistema.
+              <p className="text-xs text-[var(--muted)]">
+                Solo se contabilizan pedidos
+                en estado entregado.
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() =>
-                setShowFilters(
-                  (value) =>
-                    !value,
-                )
-              }
-              className="rounded-xl border border-[var(--primary)] px-4 py-2 text-xs font-bold text-[var(--primary)] transition hover:bg-[var(--secondary)]"
-            >
+            <span className="text-sm text-[var(--primary)]">
               {showFilters
-                ? "Ocultar filtros"
-                : "Mostrar filtros"}
-            </button>
-          </div>
+                ? "Ocultar"
+                : "Mostrar"}
+            </span>
+          </button>
 
-          {showFilters && (
-            <div className="p-5">
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                {/* FECHA DESDE */}
+          {showFilters ? (
+            <div className="border-t border-[var(--border)] p-5">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <div>
                   <label
-                    htmlFor="fechaDesde"
-                    className="mb-1.5 block text-xs font-semibold text-[var(--foreground)]/75"
+                    htmlFor="desde"
+                    className="mb-1.5 block text-xs font-semibold text-[var(--foreground)]/70"
                   >
-                    Fecha desde
+                    Desde
                   </label>
 
                   <input
-                    id="fechaDesde"
+                    id="desde"
                     type="date"
-                    value={
-                      fechaDesde
-                    }
-                    onChange={(
-                      event,
-                    ) =>
-                      setFechaDesde(
-                        event.target
-                          .value,
+                    value={desde}
+                    onChange={(event) =>
+                      setDesde(
+                        event.target.value,
                       )
                     }
-                    className="w-full rounded-xl border border-[var(--secondary)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
+                    className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
                   />
                 </div>
 
-                {/* FECHA HASTA */}
                 <div>
                   <label
-                    htmlFor="fechaHasta"
-                    className="mb-1.5 block text-xs font-semibold text-[var(--foreground)]/75"
+                    htmlFor="hasta"
+                    className="mb-1.5 block text-xs font-semibold text-[var(--foreground)]/70"
                   >
-                    Fecha hasta
+                    Hasta
                   </label>
 
                   <input
-                    id="fechaHasta"
+                    id="hasta"
                     type="date"
-                    value={
-                      fechaHasta
-                    }
-                    onChange={(
-                      event,
-                    ) =>
-                      setFechaHasta(
-                        event.target
-                          .value,
+                    value={hasta}
+                    onChange={(event) =>
+                      setHasta(
+                        event.target.value,
                       )
                     }
-                    className="w-full rounded-xl border border-[var(--secondary)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
+                    className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
                   />
                 </div>
 
-                {/* CATEGORIA */}
                 <SelectField
                   id="categoria"
                   label="Categoría"
-                  value={
-                    categoria
-                  }
+                  value={categoria}
                   options={
                     data.catalogos
                       .categorias
                   }
+                  placeholder="Todas las categorías"
                   onChange={
                     setCategoria
                   }
-                  placeholder="Todas las categorías"
                 />
 
-                {/* PRODUCTO */}
                 <SelectField
                   id="producto"
                   label="Producto"
-                  value={
-                    producto
-                  }
+                  value={producto}
                   options={
                     data.catalogos
                       .productos
                   }
+                  placeholder="Todos los productos"
                   onChange={
                     setProducto
                   }
-                  placeholder="Todos los productos"
                 />
 
-                {/* GRANJA */}
                 <SelectField
-                  id="granja"
-                  label="Granja"
-                  value={
-                    granja
-                  }
+                  id="productor"
+                  label="Productor"
+                  value={productor}
                   options={
                     data.catalogos
-                      .granjas
+                      .productores
                   }
+                  placeholder="Todos los productores"
                   onChange={
-                    setGranja
+                    setProductor
                   }
-                  placeholder="Todas las granjas"
                 />
 
-                {/* MUNICIPIO */}
                 <SelectField
                   id="municipio"
-                  label="Municipio"
-                  value={
-                    municipio
-                  }
+                  label="Municipalidad"
+                  value={municipio}
                   options={
                     data.catalogos
-                      .municipios
+                      .municipalidades
                   }
+                  placeholder="Todas las municipalidades"
                   onChange={
                     setMunicipio
                   }
-                  placeholder="Todos los municipios"
                 />
 
-                {/* REPARTIDOR */}
-                <SelectField
-                  id="repartidor"
-                  label="Repartidor"
-                  value={
-                    repartidor
-                  }
-                  options={
-                    data.catalogos
-                      .repartidores
-                  }
-                  onChange={
-                    setRepartidor
-                  }
-                  placeholder="Todos los repartidores"
-                />
-
-                {/* BOTONES */}
-                <div className="flex items-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void loadStatistics()
-                    }
-                    disabled={
-                      loading
-                    }
-                    className="flex-1 rounded-xl bg-[var(--primary)] px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+                <div>
+                  <label
+                    htmlFor="repartidor"
+                    className="mb-1.5 block text-xs font-semibold text-[var(--foreground)]/70"
                   >
-                    Aplicar
-                  </button>
+                    Repartidor
+                  </label>
 
-                  <button
-                    type="button"
-                    onClick={
-                      clearFilters
+                  <select
+                    id="repartidor"
+                    value={repartidor}
+                    onChange={(event) =>
+                      setRepartidor(
+                        event.target.value,
+                      )
                     }
-                    className="rounded-xl border border-[var(--secondary)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--foreground)] transition hover:bg-[var(--secondary)]"
+                    className="w-full rounded-xl border border-[var(--border)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
                   >
-                    Limpiar
-                  </button>
+                    <option value="">
+                      Todos los repartidores
+                    </option>
+
+                    {data.repartidores.map(
+                      (item) => (
+                        <option
+                          key={item.id}
+                          value={item.id}
+                        >
+                          {safeText(
+                            item.nombre,
+                          )}
+                        </option>
+                      ),
+                    )}
+                  </select>
                 </div>
               </div>
 
-              {hasFilters && (
-                <div className="mt-4 rounded-2xl border border-[var(--secondary)] bg-white p-4">
-                  <p className="text-xs font-semibold text-[var(--foreground)]/60">
-                    Filtros activos
-                  </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  disabled={!hasFilters}
+                  className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Limpiar filtros
+                </button>
 
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {fechaDesde && (
-                      <span className="rounded-full bg-[var(--secondary)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
-                        Desde:{" "}
-                        {formatDate(
-                          fechaDesde,
-                        )}
-                      </span>
-                    )}
-
-                    {fechaHasta && (
-                      <span className="rounded-full bg-[var(--secondary)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
-                        Hasta:{" "}
-                        {formatDate(
-                          fechaHasta,
-                        )}
-                      </span>
-                    )}
-
-                    {categoria && (
-                      <span className="rounded-full bg-[var(--secondary)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
-                        Categoría:{" "}
-                        {displayName(
-                          data.catalogos.categorias.find(
-                            (item) =>
-                              item.id ===
-                              categoria,
-                          )?.nombre ||
-                            categoria,
-                        )}
-                      </span>
-                    )}
-
-                    {producto && (
-                      <span className="rounded-full bg-[var(--secondary)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
-                        Producto:{" "}
-                        {displayName(
-                          data.catalogos.productos.find(
-                            (item) =>
-                              item.id ===
-                              producto,
-                          )?.nombre ||
-                            producto,
-                        )}
-                      </span>
-                    )}
-
-                    {granja && (
-                      <span className="rounded-full bg-[var(--secondary)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
-                        Granja:{" "}
-                        {displayName(
-                          data.catalogos.granjas.find(
-                            (item) =>
-                              item.id ===
-                              granja,
-                          )?.nombre ||
-                            granja,
-                        )}
-                      </span>
-                    )}
-
-                    {municipio && (
-                      <span className="rounded-full bg-[var(--secondary)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
-                        Municipio:{" "}
-                        {displayName(
-                          data.catalogos.municipios.find(
-                            (item) =>
-                              item.id ===
-                              municipio,
-                          )?.nombre ||
-                            municipio,
-                        )}
-                      </span>
-                    )}
-
-                    {repartidor && (
-                      <span className="rounded-full bg-[var(--secondary)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
-                        Repartidor:{" "}
-                        {displayName(
-                          data.catalogos.repartidores.find(
-                            (item) =>
-                              item.id ===
-                              repartidor,
-                          )?.nombre ||
-                            repartidor,
-                        )}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
+                <span className="self-center text-xs text-[var(--muted)]">
+                  Los filtros se aplican
+                  automáticamente.
+                </span>
+              </div>
             </div>
-          )}
+          ) : null}
         </section>
 
-        {/* ERROR */}
-        {error && (
-          <section className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="font-bold text-red-900">
-                  Error al cargar
-                  estadísticas
-                </h2>
-
-                <p className="mt-1 text-sm text-red-800">
-                  {error}
-                </p>
-              </div>
-
+        {/* TABS */}
+        <div className="mb-6 overflow-x-auto rounded-2xl border border-[var(--border)] bg-white p-1.5 shadow-sm">
+          <div className="flex min-w-max gap-1">
+            {tabs.map((tab) => (
               <button
+                key={tab.id}
                 type="button"
                 onClick={() =>
-                  void loadStatistics()
+                  setActiveTab(tab.id)
                 }
-                className="rounded-xl bg-red-700 px-4 py-2 text-sm font-semibold text-white"
+                className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+                  activeTab === tab.id
+                    ? "bg-[var(--primary)] text-white"
+                    : "text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+                }`}
               >
-                Reintentar
+                {tab.label}
               </button>
-            </div>
-          </section>
-        )}
-
-        {/* TABS */}
-        <nav className="mb-6 overflow-x-auto rounded-2xl border border-[var(--secondary)] bg-white p-1.5">
-          <div className="flex min-w-max gap-1">
-            {tabs.map(
-              (tab) => (
-                <button
-                  key={
-                    tab.id
-                  }
-                  type="button"
-                  onClick={() =>
-                    setActiveTab(
-                      tab.id,
-                    )
-                  }
-                  className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
-                    activeTab ===
-                    tab.id
-                      ? "bg-[var(--primary)] text-white shadow-sm"
-                      : "text-[var(--foreground)]/65 hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
-                  }`}
-                >
-                  {
-                    tab.label
-                  }
-                </button>
-              ),
-            )}
+            ))}
           </div>
-        </nav>
+        </div>
 
-        {loading && (
-          <div className="mb-6 rounded-2xl border border-[var(--secondary)] bg-[var(--surface)] p-4 text-center text-sm text-[var(--foreground)]/65">
-            Actualizando
-            información...
+        {/* LOADING */}
+        {loading ? (
+          <div className="mb-6 rounded-2xl border border-[var(--border)] bg-white p-8 text-center shadow-sm">
+            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-[var(--secondary)] border-t-[var(--primary)]" />
+
+            <p className="mt-3 text-sm text-[var(--muted)]">
+              Calculando estadísticas...
+            </p>
           </div>
-        )}
+        ) : null}
 
-        {/* ========================= */}
         {/* RESUMEN */}
-        {/* ========================= */}
-
-        {activeTab ===
-          "resumen" && (
-          <section className="space-y-6">
+        {activeTab === "resumen" ? (
+          <div className="space-y-6">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-3xl border border-[var(--secondary)] bg-[var(--surface)] p-5">
-                <p className="text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/55">
-                  Ingresos por productos
-                </p>
+              <StatCard
+                title="Ventas"
+                value={formatCurrency(
+                  data.resumen
+                    .ventasTotales,
+                )}
+                description="Valor histórico de pedidos entregados"
+              />
 
-                <p className="mt-3 text-2xl font-bold text-[var(--primary)]">
-                  {formatCurrency(
-                    data.resumen
-                      .gananciasProductos,
-                  )}
-                </p>
-              </div>
+              <StatCard
+                title="Costos"
+                value={formatCurrency(
+                  data.resumen
+                    .costosTotales,
+                )}
+                description="Costos congelados al recibir"
+              />
 
-              <div className="rounded-3xl border border-[var(--secondary)] bg-[var(--surface)] p-5">
-                <p className="text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/55">
-                  Pedidos entregados
-                </p>
+              <StatCard
+                title="Utilidad"
+                value={formatCurrency(
+                  data.resumen
+                    .utilidadTotal,
+                )}
+                description={`Margen ${formatPercent(
+                  data.resumen.margen,
+                )}`}
+              />
 
-                <p className="mt-3 text-2xl font-bold text-[var(--foreground)]">
-                  {formatNumber(
-                    data.resumen
-                      .pedidos,
-                  )}
-                </p>
-              </div>
+              <StatCard
+                title="Pedidos entregados"
+                value={formatNumber(
+                  data.resumen
+                    .pedidosEntregados,
+                )}
+                description="Pedidos contabilizados"
+              />
+            </div>
 
-              <div className="rounded-3xl border border-[var(--secondary)] bg-[var(--surface)] p-5">
-                <p className="text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/55">
-                  Unidades vendidas
-                </p>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <StatCard
+                title="Productos vendidos"
+                value={formatNumber(
+                  data.resumen
+                    .productosVendidos,
+                )}
+                description="Unidades"
+              />
 
-                <p className="mt-3 text-2xl font-bold text-[var(--foreground)]">
-                  {formatNumber(
-                    data.resumen
-                      .unidadesVendidas,
-                  )}
-                </p>
-              </div>
+              <StatCard
+                title="Consumidores"
+                value={formatNumber(
+                  data.resumen
+                    .consumidores,
+                )}
+                description="Consumidores únicos"
+              />
 
-              <div className="rounded-3xl border border-[var(--secondary)] bg-[var(--surface)] p-5">
-                <p className="text-xs font-bold uppercase tracking-wide text-[var(--foreground)]/55">
-                  Ingresos totales
-                </p>
+              <StatCard
+                title="Productos activos"
+                value={formatNumber(
+                  data.resumen
+                    .productosActivos,
+                )}
+                description="Catálogo actual"
+              />
 
-                <p className="mt-3 text-2xl font-bold text-[var(--primary)]">
-                  {formatCurrency(
-                    data.resumen
-                      .ingresosTotales,
-                  )}
-                </p>
-              </div>
+              <StatCard
+                title="Stock actual"
+                value={formatNumber(
+                  data.resumen
+                    .stockActual,
+                )}
+                description="Unidades disponibles"
+              />
             </div>
 
             <div className="grid gap-6 lg:grid-cols-2">
-              <div className="rounded-3xl border border-[var(--secondary)] bg-white p-6">
-                <h2 className="text-lg font-bold text-[var(--foreground)]">
-                  Catálogo actual
+              <section className="rounded-2xl border border-[var(--border)] bg-white p-5 shadow-sm">
+                <h2 className="font-bold text-[var(--foreground)]">
+                  Resultado financiero
                 </h2>
 
-                <p className="mt-1 text-sm text-[var(--foreground)]/60">
-                  Información actual
-                  del catálogo de
-                  productos.
+                <div className="mt-5 space-y-4">
+                  <div className="flex justify-between border-b border-[var(--border)] pb-3">
+                    <span className="text-sm text-[var(--muted)]">
+                      Ventas
+                    </span>
+
+                    <strong>
+                      {formatCurrency(
+                        data.finanzas
+                          .ventas,
+                      )}
+                    </strong>
+                  </div>
+
+                  <div className="flex justify-between border-b border-[var(--border)] pb-3">
+                    <span className="text-sm text-[var(--muted)]">
+                      Costos
+                    </span>
+
+                    <strong>
+                      {formatCurrency(
+                        data.finanzas
+                          .costos,
+                      )}
+                    </strong>
+                  </div>
+
+                  <div className="flex justify-between border-b border-[var(--border)] pb-3">
+                    <span className="text-sm text-[var(--muted)]">
+                      Utilidad
+                    </span>
+
+                    <strong className="text-[var(--primary)]">
+                      {formatCurrency(
+                        data.finanzas
+                          .utilidad,
+                      )}
+                    </strong>
+                  </div>
+
+                  <div className="flex justify-between">
+                    <span className="text-sm text-[var(--muted)]">
+                      Margen
+                    </span>
+
+                    <strong>
+                      {formatPercent(
+                        data.finanzas
+                          .margen,
+                      )}
+                    </strong>
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-[var(--border)] bg-white p-5 shadow-sm">
+                <h2 className="font-bold text-[var(--foreground)]">
+                  Criterio de cálculo
+                </h2>
+
+                <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
+                  Las ventas y costos de los
+                  pedidos entregados se toman
+                  de los valores históricos
+                  congelados en el pedido al
+                  momento de registrar la
+                  entrega.
                 </p>
 
-                <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl bg-[var(--surface)] p-4">
-                    <p className="text-xs text-[var(--foreground)]/55">
-                      Productos activos
-                    </p>
-
-                    <p className="mt-1 text-xl font-bold">
-                      {formatNumber(
-                        data.catalogo
-                          .productosActivos,
-                      )}
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl bg-[var(--surface)] p-4">
-                    <p className="text-xs text-[var(--foreground)]/55">
-                      Stock actual
-                    </p>
-
-                    <p className="mt-1 text-xl font-bold">
-                      {formatNumber(
-                        data.catalogo
-                          .stockActual,
-                      )}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                  <p className="text-xs font-bold text-amber-900">
-                    Oferta histórica
-                  </p>
-
-                  <p className="mt-1 text-xs leading-5 text-amber-800">
-                    {
-                      data
-                        .catalogo
-                        .mensaje
-                    }
-                  </p>
-                </div>
-              </div>
-
-              <div className="rounded-3xl border border-[var(--secondary)] bg-white p-6">
-                <h2 className="text-lg font-bold text-[var(--foreground)]">
-                  Criterios contables
-                </h2>
-
-                <div className="mt-5 space-y-3">
-                  <div className="rounded-2xl bg-[var(--surface)] p-4">
-                    <p className="text-xs font-bold text-[var(--primary)]">
-                      Estados contabilizados
-                    </p>
-
-                    <p className="mt-1 text-sm">
-                      {data.metadata.estadosContabilizados.join(
-                        ", ",
-                      )}
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl bg-[var(--surface)] p-4">
-                    <p className="text-xs font-bold text-[var(--primary)]">
-                      Estados excluidos
-                    </p>
-
-                    <p className="mt-1 text-sm">
-                      {data.metadata.estadosExcluidos.join(
-                        ", ",
-                      )}
-                    </p>
-                  </div>
-
-                  <p className="text-xs leading-5 text-[var(--foreground)]/55">
-                    Las ventas
-                    realizadas se
-                    contabilizan
-                    únicamente cuando
-                    el pedido está en
-                    estado{" "}
-                    <strong>
-                      entregado
-                    </strong>
-                    .
-                  </p>
-                </div>
-              </div>
+                <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
+                  Los cambios posteriores en el
+                  catálogo de productos no
+                  modifican las estadísticas
+                  históricas.
+                </p>
+              </section>
             </div>
-          </section>
-        )}
+          </div>
+        ) : null}
 
-        {/* ========================= */}
         {/* PRODUCTOS */}
-        {/* ========================= */}
-
-        {activeTab ===
-          "productos" && (
-          <section className="space-y-6">
-            <div className="rounded-3xl border border-[var(--secondary)] bg-white p-6">
-              <h2 className="text-xl font-bold text-[var(--foreground)]">
+        {activeTab === "productos" ? (
+          <div className="space-y-6">
+            <section className="rounded-2xl border border-[var(--border)] bg-white p-5 shadow-sm">
+              <h2 className="mb-4 font-bold text-[var(--foreground)]">
                 Productos más vendidos
               </h2>
 
-              <p className="mt-1 text-sm text-[var(--foreground)]/60">
-                Ranking por unidades
-                vendidas.
-              </p>
+              {productosOrdenados.length ===
+              0 ? (
+                <TableEmpty />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[900px] text-sm">
+                    <thead>
+                      <tr className="border-b border-[var(--border)] text-left">
+                        <th className="px-3 py-3">
+                          Producto
+                        </th>
+                        <th className="px-3 py-3">
+                          Categoría
+                        </th>
+                        <th className="px-3 py-3">
+                          Productor
+                        </th>
+                        <th className="px-3 py-3">
+                          Vendido
+                        </th>
+                        <th className="px-3 py-3">
+                          Ventas
+                        </th>
+                        <th className="px-3 py-3">
+                          Costo
+                        </th>
+                        <th className="px-3 py-3">
+                          Utilidad
+                        </th>
+                      </tr>
+                    </thead>
 
-              <div className="mt-5 overflow-x-auto">
-                <table className="w-full min-w-[800px] text-left text-sm">
+                    <tbody>
+                      {productosOrdenados.map(
+                        (item) => (
+                          <tr
+                            key={item.id}
+                            className="border-b border-[var(--border)] last:border-0"
+                          >
+                            <td className="px-3 py-3">
+                              <strong>
+                                {safeText(
+                                  item.nombre,
+                                )}
+                              </strong>
+
+                              <div className="text-xs text-[var(--muted)]">
+                                {safeText(
+                                  item.code,
+                                )}
+                              </div>
+                            </td>
+
+                            <td className="px-3 py-3">
+                              {safeText(
+                                item.categoria,
+                              )}
+                            </td>
+
+                            <td className="px-3 py-3">
+                              {safeText(
+                                item.productor,
+                              )}
+                            </td>
+
+                            <td className="px-3 py-3">
+                              {formatNumber(
+                                item.cantidadVendida,
+                              )}{" "}
+                              {safeText(
+                                item.unidad,
+                              )}
+                            </td>
+
+                            <td className="px-3 py-3 font-semibold">
+                              {formatCurrency(
+                                item.ventas,
+                              )}
+                            </td>
+
+                            <td className="px-3 py-3">
+                              {formatCurrency(
+                                item.costo,
+                              )}
+                            </td>
+
+                            <td className="px-3 py-3 font-semibold text-[var(--primary)]">
+                              {formatCurrency(
+                                item.utilidad,
+                              )}
+                            </td>
+                          </tr>
+                        ),
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-2xl border border-[var(--border)] bg-white p-5 shadow-sm">
+              <h2 className="mb-4 font-bold text-[var(--foreground)]">
+                Productos por ingresos
+              </h2>
+
+              {productosPorVentas.length ===
+              0 ? (
+                <TableEmpty />
+              ) : (
+                <div className="space-y-3">
+                  {productosPorVentas
+                    .slice(0, 10)
+                    .map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex flex-col gap-2 rounded-xl bg-[var(--surface)] p-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div>
+                          <p className="font-semibold">
+                            {safeText(
+                              item.nombre,
+                            )}
+                          </p>
+
+                          <p className="text-xs text-[var(--muted)]">
+                            {safeText(
+                              item.productor,
+                            )}{" "}
+                            ·{" "}
+                            {formatNumber(
+                              item.cantidadVendida,
+                            )}{" "}
+                            unidades
+                          </p>
+                        </div>
+
+                        <strong className="text-[var(--primary)]">
+                          {formatCurrency(
+                            item.ventas,
+                          )}
+                        </strong>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </section>
+          </div>
+        ) : null}
+
+        {/* PRODUCTORES */}
+        {activeTab === "productores" ? (
+          <section className="rounded-2xl border border-[var(--border)] bg-white p-5 shadow-sm">
+            <h2 className="mb-4 font-bold text-[var(--foreground)]">
+              Estadísticas por productor
+            </h2>
+
+            {data.productores.length ===
+            0 ? (
+              <TableEmpty />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[850px] text-sm">
                   <thead>
-                    <tr className="border-b border-[var(--secondary)] text-xs uppercase tracking-wide text-[var(--foreground)]/50">
+                    <tr className="border-b border-[var(--border)] text-left">
                       <th className="px-3 py-3">
-                        #
+                        Productor
                       </th>
-
                       <th className="px-3 py-3">
-                        Producto
+                        Pedidos
                       </th>
-
                       <th className="px-3 py-3">
-                        Categoría
+                        Productos vendidos
                       </th>
-
                       <th className="px-3 py-3">
-                        Granja
-                      </th>
-
-                      <th className="px-3 py-3">
-                        Municipio
-                      </th>
-
-                      <th className="px-3 py-3 text-right">
-                        Unidades
-                      </th>
-
-                      <th className="px-3 py-3 text-right">
                         Ventas
+                      </th>
+                      <th className="px-3 py-3">
+                        Costos
+                      </th>
+                      <th className="px-3 py-3">
+                        Utilidad
                       </th>
                     </tr>
                   </thead>
 
                   <tbody>
-                    {data.productosMasVendidos.map(
-                      (
-                        item,
-                        index,
-                      ) => (
+                    {data.productores.map(
+                      (item) => (
                         <tr
-                          key={`${item.productoId}-${index}`}
-                          className="border-b border-[var(--secondary)]/70 last:border-0"
+                          key={item.id}
+                          className="border-b border-[var(--border)] last:border-0"
                         >
-                          <td className="px-3 py-4 font-bold text-[var(--primary)]">
-                            {index +
-                              1}
-                          </td>
-
-                          <td className="px-3 py-4">
-                            <div className="font-semibold">
-                              {displayName(
-                                item.nombre,
-                              )}
-                            </div>
-
-                            <div className="text-xs text-[var(--foreground)]/50">
-                              {displayName(
-                                item.code,
-                              )}
-                            </div>
-                          </td>
-
-                          <td className="px-3 py-4">
-                            {displayName(
-                              item.categoria,
+                          <td className="px-3 py-3 font-semibold">
+                            {safeText(
+                              item.nombre,
                             )}
                           </td>
 
-                          <td className="px-3 py-4">
-                            {displayName(
-                              item.IdGranja,
-                            )}
-                          </td>
-
-                          <td className="px-3 py-4">
-                            {displayName(
-                              item.IdMunicipalidad,
-                            )}
-                          </td>
-
-                          <td className="px-3 py-4 text-right font-semibold">
+                          <td className="px-3 py-3">
                             {formatNumber(
-                              item.unidadesVendidas,
-                            )}{" "}
-                            {
-                              item.unidad
-                            }
+                              item.pedidos,
+                            )}
                           </td>
 
-                          <td className="px-3 py-4 text-right font-bold text-[var(--primary)]">
+                          <td className="px-3 py-3">
+                            {formatNumber(
+                              item.productosVendidos,
+                            )}
+                          </td>
+
+                          <td className="px-3 py-3">
                             {formatCurrency(
                               item.ventas,
+                            )}
+                          </td>
+
+                          <td className="px-3 py-3">
+                            {formatCurrency(
+                              item.costo,
+                            )}
+                          </td>
+
+                          <td className="px-3 py-3 font-semibold text-[var(--primary)]">
+                            {formatCurrency(
+                              item.utilidad,
                             )}
                           </td>
                         </tr>
                       ),
                     )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        ) : null}
 
-                    {data
-                      .productosMasVendidos
-                      .length ===
-                      0 && (
-                      <tr>
-                        <td
-                          colSpan={
-                            7
-                          }
-                          className="px-3 py-10 text-center text-sm text-[var(--foreground)]/50"
+        {/* MUNICIPIOS */}
+        {activeTab === "municipios" ? (
+          <div className="grid gap-6 lg:grid-cols-2">
+            <section className="rounded-2xl border border-[var(--border)] bg-white p-5 shadow-sm">
+              <h2 className="mb-4 font-bold">
+                Municipios de productores
+              </h2>
+
+              {data.municipios
+                .productores.length ===
+              0 ? (
+                <TableEmpty />
+              ) : (
+                <div className="space-y-3">
+                  {data.municipios.productores.map(
+                    (item) => (
+                      <div
+                        key={item.id}
+                        className="rounded-xl bg-[var(--surface)] p-4"
+                      >
+                        <div className="flex justify-between gap-4">
+                          <div>
+                            <p className="font-semibold">
+                              {safeText(
+                                item.nombre,
+                              )}
+                            </p>
+
+                            <p className="text-xs text-[var(--muted)]">
+                              {safeText(
+                                item.departamento,
+                              )}
+                            </p>
+                          </div>
+
+                          <strong>
+                            {formatCurrency(
+                              item.ventas,
+                            )}
+                          </strong>
+                        </div>
+                      </div>
+                    ),
+                  )}
+                </div>
+              )}
+            </section>
+
+            <section className="rounded-2xl border border-[var(--border)] bg-white p-5 shadow-sm">
+              <h2 className="mb-4 font-bold">
+                Municipios de entrega
+              </h2>
+
+              {data.municipios.entrega
+                .length === 0 ? (
+                <TableEmpty />
+              ) : (
+                <div className="space-y-3">
+                  {data.municipios.entrega.map(
+                    (item) => (
+                      <div
+                        key={item.id}
+                        className="rounded-xl bg-[var(--surface)] p-4"
+                      >
+                        <div className="flex justify-between gap-4">
+                          <div>
+                            <p className="font-semibold">
+                              {safeText(
+                                item.nombre,
+                              )}
+                            </p>
+
+                            <p className="text-xs text-[var(--muted)]">
+                              {safeText(
+                                item.departamento,
+                              )}{" "}
+                              ·{" "}
+                              {formatNumber(
+                                item.pedidos,
+                              )}{" "}
+                              pedidos
+                            </p>
+                          </div>
+
+                          <strong>
+                            {formatCurrency(
+                              item.ventas,
+                            )}
+                          </strong>
+                        </div>
+                      </div>
+                    ),
+                  )}
+                </div>
+              )}
+            </section>
+          </div>
+        ) : null}
+
+        {/* REPARTIDORES */}
+        {activeTab === "repartidores" ? (
+          <section className="rounded-2xl border border-[var(--border)] bg-white p-5 shadow-sm">
+            <h2 className="mb-4 font-bold text-[var(--foreground)]">
+              Rendimiento de repartidores
+            </h2>
+
+            {data.repartidores.length ===
+            0 ? (
+              <TableEmpty />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[700px] text-sm">
+                  <thead>
+                    <tr className="border-b border-[var(--border)] text-left">
+                      <th className="px-3 py-3">
+                        Repartidor
+                      </th>
+                      <th className="px-3 py-3">
+                        Correo
+                      </th>
+                      <th className="px-3 py-3">
+                        Pedidos entregados
+                      </th>
+                      <th className="px-3 py-3">
+                        Ventas generadas
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {data.repartidores.map(
+                      (item) => (
+                        <tr
+                          key={item.id}
+                          className="border-b border-[var(--border)] last:border-0"
                         >
-                          No hay
-                          productos
-                          que
-                          coincidan
-                          con los
-                          filtros.
-                        </td>
-                      </tr>
+                          <td className="px-3 py-3 font-semibold">
+                            {safeText(
+                              item.nombre,
+                            )}
+                          </td>
+
+                          <td className="px-3 py-3">
+                            {safeText(
+                              item.correo,
+                            )}
+                          </td>
+
+                          <td className="px-3 py-3">
+                            {formatNumber(
+                              item.pedidosEntregados,
+                            )}
+                          </td>
+
+                          <td className="px-3 py-3 font-semibold text-[var(--primary)]">
+                            {formatCurrency(
+                              item.ventasGeneradas,
+                            )}
+                          </td>
+                        </tr>
+                      ),
                     )}
                   </tbody>
                 </table>
               </div>
-            </div>
-
-            <div className="rounded-3xl border border-[var(--secondary)] bg-white p-6">
-              <h2 className="text-xl font-bold">
-                Productos por ingresos
-              </h2>
-
-              <p className="mt-1 text-sm text-[var(--foreground)]/60">
-                Ranking económico
-                de productos.
-              </p>
-
-              <div className="mt-5 space-y-3">
-                {data.productosPorIngresos.map(
-                  (
-                    item,
-                    index,
-                  ) => (
-                    <div
-                      key={`${item.productoId}-${index}`}
-                      className="flex flex-col gap-3 rounded-2xl bg-[var(--surface)] p-4 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--primary)] text-sm font-bold text-white">
-                          {index +
-                            1}
-                        </div>
-
-                        <div>
-                          <p className="font-semibold">
-                            {displayName(
-                              item.nombre,
-                            )}
-                          </p>
-
-                          <p className="text-xs text-[var(--foreground)]/50">
-                            {formatNumber(
-                              item.unidadesVendidas,
-                            )}{" "}
-                            unidades
-                          </p>
-                        </div>
-                      </div>
-
-                      <p className="font-bold text-[var(--primary)]">
-                        {formatCurrency(
-                          item.ventas,
-                        )}
-                      </p>
-                    </div>
-                  ),
-                )}
-
-                {data
-                  .productosPorIngresos
-                  .length ===
-                  0 && (
-                  <p className="py-8 text-center text-sm text-[var(--foreground)]/50">
-                    No hay
-                    información
-                    disponible.
-                  </p>
-                )}
-              </div>
-            </div>
+            )}
           </section>
-        )}
+        ) : null}
 
-        {/* ========================= */}
-        {/* GRANJAS */}
-        {/* ========================= */}
-
-        {activeTab ===
-          "granjas" && (
-          <section className="rounded-3xl border border-[var(--secondary)] bg-white p-6">
-            <h2 className="text-xl font-bold">
-              Granjas
-            </h2>
-
-            <p className="mt-1 text-sm text-[var(--foreground)]/60">
-              Productos vendidos e
-              ingresos generados
-              por granja.
-            </p>
-
-            <div className="mt-5 overflow-x-auto">
-              <table className="w-full min-w-[700px] text-left text-sm">
-                <thead>
-                  <tr className="border-b border-[var(--secondary)] text-xs uppercase tracking-wide text-[var(--foreground)]/50">
-                    <th className="px-3 py-3">
-                      Granja
-                    </th>
-
-                    <th className="px-3 py-3 text-right">
-                      Productos
-                    </th>
-
-                    <th className="px-3 py-3 text-right">
-                      Unidades
-                    </th>
-
-                    <th className="px-3 py-3 text-right">
-                      Pedidos
-                    </th>
-
-                    <th className="px-3 py-3 text-right">
-                      Ventas
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {data.granjas.map(
-                    (item) => (
-                      <tr
-                        key={
-                          item.id
-                        }
-                        className="border-b border-[var(--secondary)]/70 last:border-0"
-                      >
-                        <td className="px-3 py-4 font-semibold">
-                          {displayName(
-                            item.nombre,
-                          )}
-                        </td>
-
-                        <td className="px-3 py-4 text-right">
-                          {formatNumber(
-                            item.productos,
-                          )}
-                        </td>
-
-                        <td className="px-3 py-4 text-right font-semibold">
-                          {formatNumber(
-                            item.unidadesVendidas,
-                          )}
-                        </td>
-
-                        <td className="px-3 py-4 text-right">
-                          {formatNumber(
-                            item.pedidos,
-                          )}
-                        </td>
-
-                        <td className="px-3 py-4 text-right font-bold text-[var(--primary)]">
-                          {formatCurrency(
-                            item.ventas,
-                          )}
-                        </td>
-                      </tr>
-                    ),
-                  )}
-
-                  {data.granjas
-                    .length ===
-                    0 && (
-                    <tr>
-                      <td
-                        colSpan={
-                          5
-                        }
-                        className="px-3 py-10 text-center text-sm text-[var(--foreground)]/50"
-                      >
-                        No hay
-                        información
-                        de
-                        granjas.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
-
-        {/* ========================= */}
-        {/* MUNICIPIOS */}
-        {/* ========================= */}
-
-        {activeTab ===
-          "municipios" && (
-          <section className="grid gap-6 lg:grid-cols-2">
-            <div className="rounded-3xl border border-[var(--secondary)] bg-white p-6">
-              <h2 className="text-xl font-bold">
-                Municipios productores
-              </h2>
-
-              <p className="mt-1 text-sm text-[var(--foreground)]/60">
-                Ventas asociadas al
-                municipio productor.
-              </p>
-
-              <div className="mt-5 space-y-3">
-                {data.municipios.productores.map(
-                  (
-                    item,
-                    index,
-                  ) => (
-                    <div
-                      key={
-                        item.id
-                      }
-                      className="rounded-2xl bg-[var(--surface)] p-4"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-semibold">
-                            {index +
-                              1}
-                            .{" "}
-                            {displayName(
-                              item.nombre,
-                            )}
-                          </p>
-
-                          <p className="mt-1 text-xs text-[var(--foreground)]/50">
-                            {formatNumber(
-                              item.unidadesVendidas,
-                            )}{" "}
-                            unidades ·{" "}
-                            {formatNumber(
-                              item.pedidos,
-                            )}{" "}
-                            pedidos
-                          </p>
-                        </div>
-
-                        <p className="font-bold text-[var(--primary)]">
-                          {formatCurrency(
-                            item.ventas,
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                  ),
-                )}
-
-                {data.municipios
-                  .productores
-                  .length ===
-                  0 && (
-                  <p className="py-8 text-center text-sm text-[var(--foreground)]/50">
-                    No hay
-                    información
-                    disponible.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-3xl border border-[var(--secondary)] bg-white p-6">
-              <h2 className="text-xl font-bold">
-                Municipios de entrega
-              </h2>
-
-              <p className="mt-1 text-sm text-[var(--foreground)]/60">
-                Pedidos entregados
-                según municipio de
-                destino.
-              </p>
-
-              <div className="mt-5 space-y-3">
-                {data.municipios.entrega.map(
-                  (
-                    item,
-                    index,
-                  ) => (
-                    <div
-                      key={
-                        item.id
-                      }
-                      className="rounded-2xl bg-[var(--surface)] p-4"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-semibold">
-                            {index +
-                              1}
-                            .{" "}
-                            {displayName(
-                              item.nombre,
-                            )}
-                          </p>
-
-                          <p className="mt-1 text-xs text-[var(--foreground)]/50">
-                            {formatNumber(
-                              item.pedidos,
-                            )}{" "}
-                            pedidos
-                          </p>
-                        </div>
-
-                        <p className="font-bold text-[var(--primary)]">
-                          {formatCurrency(
-                            item.ventas,
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                  ),
-                )}
-
-                {data.municipios
-                  .entrega
-                  .length ===
-                  0 && (
-                  <p className="py-8 text-center text-sm text-[var(--foreground)]/50">
-                    No hay
-                    información
-                    disponible.
-                  </p>
-                )}
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* ========================= */}
-        {/* REPARTIDORES */}
-        {/* ========================= */}
-
-        {activeTab ===
-          "repartidores" && (
-          <section className="rounded-3xl border border-[var(--secondary)] bg-white p-6">
-            <h2 className="text-xl font-bold">
-              Rendimiento de repartidores
-            </h2>
-
-            <p className="mt-1 text-sm text-[var(--foreground)]/60">
-              Pedidos entregados y
-              ventas asociadas.
-            </p>
-
-            <div className="mt-5 overflow-x-auto">
-              <table className="w-full min-w-[650px] text-left text-sm">
-                <thead>
-                  <tr className="border-b border-[var(--secondary)] text-xs uppercase tracking-wide text-[var(--foreground)]/50">
-                    <th className="px-3 py-3">
-                      Repartidor
-                    </th>
-
-                    <th className="px-3 py-3 text-right">
-                      Pedidos entregados
-                    </th>
-
-                    <th className="px-3 py-3 text-right">
-                      Ventas generadas
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {data.repartidores.map(
-                    (
-                      item,
-                    ) => (
-                      <tr
-                        key={
-                          item.id
-                        }
-                        className="border-b border-[var(--secondary)]/70 last:border-0"
-                      >
-                        <td className="px-3 py-4 font-semibold">
-                          {displayName(
-                            item.nombre,
-                          )}
-                        </td>
-
-                        <td className="px-3 py-4 text-right font-semibold">
-                          {formatNumber(
-                            item.pedidosEntregados,
-                          )}
-                        </td>
-
-                        <td className="px-3 py-4 text-right font-bold text-[var(--primary)]">
-                          {formatCurrency(
-                            item.ventasGeneradas,
-                          )}
-                        </td>
-                      </tr>
-                    ),
-                  )}
-
-                  {data.repartidores
-                    .length ===
-                    0 && (
-                    <tr>
-                      <td
-                        colSpan={
-                          3
-                        }
-                        className="px-3 py-10 text-center text-sm text-[var(--foreground)]/50"
-                      >
-                        No hay
-                        información
-                        de
-                        repartidores.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4">
-              <p className="text-xs font-bold text-blue-900">
-                Importante
-              </p>
-
-              <p className="mt-1 text-xs leading-5 text-blue-800">
-                Las ventas
-                generadas por
-                repartidor
-                representan el
-                valor de los
-                pedidos
-                entregados que
-                fueron
-                asignados a ese
-                repartidor. No
-                representan su
-                comisión o pago.
-              </p>
-            </div>
-          </section>
-        )}
-
-        {/* ========================= */}
         {/* FINANZAS */}
-        {/* ========================= */}
+        {activeTab === "finanzas" ? (
+          <div className="space-y-6">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <StatCard
+                title="Ventas"
+                value={formatCurrency(
+                  data.finanzas.ventas,
+                )}
+              />
 
-        {activeTab ===
-          "finanzas" && (
-          <section className="space-y-6">
-            <div className="rounded-3xl border border-[var(--secondary)] bg-white p-6">
-              <h2 className="text-xl font-bold">
-                Finanzas de productos
+              <StatCard
+                title="Costos"
+                value={formatCurrency(
+                  data.finanzas.costos,
+                )}
+              />
+
+              <StatCard
+                title="Utilidad"
+                value={formatCurrency(
+                  data.finanzas.utilidad,
+                )}
+              />
+
+              <StatCard
+                title="Margen"
+                value={formatPercent(
+                  data.finanzas.margen,
+                )}
+              />
+            </div>
+
+            <section className="rounded-2xl border border-[var(--border)] bg-white p-5 shadow-sm">
+              <h2 className="font-bold text-[var(--foreground)]">
+                Desglose financiero
               </h2>
 
-              <p className="mt-1 text-sm text-[var(--foreground)]/60">
-                Ingresos provenientes
-                de las ventas de
-                productos.
+              <div className="mt-5 overflow-x-auto">
+                <table className="w-full min-w-[600px] text-sm">
+                  <thead>
+                    <tr className="border-b border-[var(--border)] text-left">
+                      <th className="px-3 py-3">
+                        Concepto
+                      </th>
+                      <th className="px-3 py-3">
+                        Valor
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    <tr className="border-b border-[var(--border)]">
+                      <td className="px-3 py-3">
+                        Ventas históricas
+                      </td>
+
+                      <td className="px-3 py-3 font-semibold">
+                        {formatCurrency(
+                          data.finanzas
+                            .ventas,
+                        )}
+                      </td>
+                    </tr>
+
+                    <tr className="border-b border-[var(--border)]">
+                      <td className="px-3 py-3">
+                        Costos históricos
+                      </td>
+
+                      <td className="px-3 py-3">
+                        {formatCurrency(
+                          data.finanzas
+                            .costos,
+                        )}
+                      </td>
+                    </tr>
+
+                    <tr className="border-b border-[var(--border)]">
+                      <td className="px-3 py-3">
+                        Utilidad
+                      </td>
+
+                      <td className="px-3 py-3 font-semibold text-[var(--primary)]">
+                        {formatCurrency(
+                          data.finanzas
+                            .utilidad,
+                        )}
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td className="px-3 py-3">
+                        Margen
+                      </td>
+
+                      <td className="px-3 py-3 font-semibold">
+                        {formatPercent(
+                          data.finanzas
+                            .margen,
+                        )}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5">
+              <h3 className="font-bold text-[var(--foreground)]">
+                Nota sobre trazabilidad
+              </h3>
+
+              <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                Las estadísticas financieras
+                utilizan los valores congelados
+                en cada pedido cuando fue
+                registrado como entregado:
+                precio final, costo PCC,
+                logística, transporte, otros
+                costos, costo total y utilidad.
               </p>
 
-              <div className="mt-5 grid gap-4 sm:grid-cols-3">
-                <div className="rounded-2xl bg-[var(--surface)] p-5">
-                  <p className="text-xs text-[var(--foreground)]/55">
-                    Ventas
-                  </p>
-
-                  <p className="mt-2 text-xl font-bold text-[var(--primary)]">
-                    {formatCurrency(
-                      data.finanzas
-                        .productos
-                        .ventas,
-                    )}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl bg-[var(--surface)] p-5">
-                  <p className="text-xs text-[var(--foreground)]/55">
-                    Costo
-                  </p>
-
-                  <p className="mt-2 text-xl font-bold">
-                    {data.finanzas
-                      .productos
-                      .costo ===
-                    null
-                      ? "No disponible"
-                      : formatCurrency(
-                          data
-                            .finanzas
-                            .productos
-                            .costo,
-                        )}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl bg-[var(--surface)] p-5">
-                  <p className="text-xs text-[var(--foreground)]/55">
-                    Ganancia
-                  </p>
-
-                  <p className="mt-2 text-xl font-bold text-[var(--primary)]">
-                    {data.finanzas
-                      .productos
-                      .costo ===
-                    null
-                      ? "No disponible"
-                      : formatCurrency(
-                          data
-                            .finanzas
-                            .productos
-                            .ganancia,
-                        )}
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                <p className="text-xs leading-5 text-amber-800">
-                  Actualmente se
-                  registra el precio
-                  de venta, pero no
-                  el costo de
-                  adquisición. Por
-                  eso este valor
-                  representa ingresos
-                  por productos y no
-                  utilidad neta.
-                </p>
-              </div>
+              <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                Por tanto, modificar posteriormente
+                el precio o costo de un producto no
+                altera las estadísticas de pedidos
+                históricos.
+              </p>
             </div>
-
-            <div>
-              <h2 className="mb-4 text-xl font-bold">
-                Otros conceptos
-              </h2>
-
-              <div className="grid gap-4 lg:grid-cols-3">
-                {(
-                  [
-                    {
-                      nombre:
-                        "Logística",
-                      item:
-                        data
-                          .finanzas
-                          .logistica,
-                    },
-                    {
-                      nombre:
-                        "Almacenamiento",
-                      item:
-                        data
-                          .finanzas
-                          .almacenamiento,
-                    },
-                    {
-                      nombre:
-                        "Entrega",
-                      item:
-                        data
-                          .finanzas
-                          .entrega,
-                    },
-                  ] as {
-                    nombre: string;
-                    item: FinanzasItem;
-                  }[]
-                ).map(
-                  ({
-                    nombre,
-                    item,
-                  }) => (
-                    <div
-                      key={
-                        nombre
-                      }
-                      className="rounded-3xl border border-amber-200 bg-amber-50 p-5"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <h3 className="font-bold text-amber-900">
-                          {
-                            nombre
-                          }
-                        </h3>
-
-                        <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-700">
-                          No disponible
-                        </span>
-                      </div>
-
-                      <p className="mt-4 text-sm leading-6 text-amber-800/80">
-                        {
-                          item.mensaje
-                        }
-                      </p>
-                    </div>
-                  ),
-                )}
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* FOOTER */}
-        <footer className="mt-8 rounded-2xl border border-[var(--secondary)] bg-[var(--surface)] p-4">
-          <div className="flex flex-col gap-2 text-xs text-[var(--foreground)]/55 sm:flex-row sm:items-center sm:justify-between">
-            <p>
-              Pedidos encontrados:{" "}
-              <strong>
-                {formatNumber(
-                  data.metadata
-                    .totalPedidosEncontrados,
-                )}
-              </strong>
-            </p>
-
-            <p>
-              Productos:{" "}
-              <strong>
-                {formatNumber(
-                  data.metadata
-                    .totalProductosCatalogo,
-                )}
-              </strong>
-            </p>
-
-            <p>
-              Repartidores:{" "}
-              <strong>
-                {formatNumber(
-                  data.metadata
-                    .totalRepartidores,
-                )}
-              </strong>
-            </p>
           </div>
-        </footer>
+        ) : null}
       </div>
     </main>
   );

@@ -4,6 +4,7 @@ import "./globals.css";
 
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
+import AlliesCarousel from "@/components/layout/AlliesCarousel";
 import Cart from "@/components/tienda/Cart";
 import { CartProvider } from "@/hooks/useCart";
 
@@ -37,8 +38,13 @@ export default function RootLayout({
               {children}
             </main>
 
+            {/* Aliados y comunidades */}
+            <AlliesCarousel />
+
             {/* Pie de página */}
             <Footer />
+
+            {/* Carrito */}
             <Cart />
           </div>
         </CartProvider>

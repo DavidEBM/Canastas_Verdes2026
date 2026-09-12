@@ -18,7 +18,7 @@ import {
 import { auth, db } from "@/lib/firebase";
 
 export type UserRole =
-  | "usuario"
+  | "consumidor"
   | "repartidor"
   | "admin";
 
@@ -64,7 +64,7 @@ function normalizeRole(
     .toLowerCase();
 
   if (
-    role === "usuario" ||
+    role === "consumidor" ||
     role === "repartidor" ||
     role === "admin"
   ) {

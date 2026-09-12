@@ -14,59 +14,23 @@ import {
   type CartProduct,
 } from "@/hooks/useCart";
 
-/* =========================================================
-   Tipos
-========================================================= */
-
-interface Category {
-  id: string;
-  nombre: string;
-}
-
 interface Municipality {
   id: string;
   nombre: string;
 }
 
-/* =========================================================
-   Conversión Product → CartProduct
-========================================================= */
-
 function productToCartProduct(
   product: Product,
 ): CartProduct {
   return {
-    id: product.id,
-    code: product.code,
-    nombre: product.nombre,
-    descripcion: product.descripcion,
-    precio: product.precio,
-    stock: product.stock,
-    categoria: product.categoria,
-    unidad: product.unidad,
-    imgPath: product.imgPath,
-    imageName: product.imageName,
-    activo: product.activo,
-    IdGranja: product.IdGranja,
-    IdMunicipalidad: product.IdMunicipalidad,
-    fechaCreacion: product.fechaCreacion,
-    ultimaActualizacion:
-      product.ultimaActualizacion,
-    fechaCierre: product.fechaCierre,
+    ...product,
   };
 }
 
-/* =========================================================
-   Página Tienda
-========================================================= */
-
 export default function TiendaPage() {
-  /* =======================================================
-     Estado
-  ======================================================= */
-
-  const [products, setProducts] =
-    useState<CartProduct[]>([]);
+  const [products, setProducts] = useState<
+    CartProduct[]
+  >([]);
 
   const [loading, setLoading] =
     useState(true);
@@ -83,23 +47,21 @@ export default function TiendaPage() {
   const [municipality, setMunicipality] =
     useState("all");
 
-  const [stockFilter, setStockFilter] =
-    useState<
-      "all" | "available" | "no-stock"
-    >("all");
+  // Activado por defecto.
+  const [hideOutOfStock, setHideOutOfStock] =
+    useState(true);
 
-  /* =======================================================
-     Carrito
-  ======================================================= */
+  const [municipalities, setMunicipalities] =
+    useState<Municipality[]>([]);
 
   const { openCart } = useCart();
 
-  /* =======================================================
-     Cargar productos
-  ======================================================= */
+  /* =========================================================
+     Productos
+  ========================================================= */
 
-  const loadProducts =
-    useCallback(async () => {
+  const loadProducts = useCallback(
+    async () => {
       try {
         setLoading(true);
         setError(null);
@@ -126,25 +88,17 @@ export default function TiendaPage() {
         const data =
           result.data as Product[];
 
-        /*
-         * Los productos desactivados pertenecen al
-         * catálogo administrativo, pero NO a la tienda.
-         *
-         * Los productos activos con stock 0 sí se conservan
-         * para que ProductCard pueda mostrar "No stock".
-         */
         const activeProducts =
           data.filter(
             (product) =>
               product.activo === true,
           );
 
-        const cartProducts =
+        setProducts(
           activeProducts.map(
             productToCartProduct,
-          );
-
-        setProducts(cartProducts);
+          ),
+        );
       } catch (err) {
         console.error(
           "Error cargando productos:",
@@ -157,19 +111,138 @@ export default function TiendaPage() {
       } finally {
         setLoading(false);
       }
+    },
+    [],
+  );
+
+  /* =========================================================
+     Municipalidades
+  ========================================================= */
+
+  const loadMunicipalities =
+    useCallback(async () => {
+      try {
+        const response = await fetch(
+          "/api/municipalidades/disponibles",
+        );
+
+        const result: unknown =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            "No fue posible obtener las ubicaciones.",
+          );
+        }
+
+        let data: unknown[] = [];
+
+        if (
+          result &&
+          typeof result === "object"
+        ) {
+          const object =
+            result as Record<
+              string,
+              unknown
+            >;
+
+          if (
+            Array.isArray(object.data)
+          ) {
+            data = object.data;
+          } else if (
+            Array.isArray(
+              object.municipalidades,
+            )
+          ) {
+            data =
+              object.municipalidades;
+          }
+        }
+
+        const parsed =
+          data
+            .map((item) => {
+              if (
+                !item ||
+                typeof item !==
+                  "object"
+              ) {
+                return null;
+              }
+
+              const value =
+                item as Record<
+                  string,
+                  unknown
+                >;
+
+              const id =
+                typeof value.id ===
+                "string"
+                  ? value.id
+                  : typeof value.Id ===
+                      "string"
+                    ? value.Id
+                    : "";
+
+              const nombre =
+                typeof value.nombre ===
+                "string"
+                  ? value.nombre
+                  : typeof value.Nombre ===
+                      "string"
+                    ? value.Nombre
+                    : "";
+
+              if (!id || !nombre) {
+                return null;
+              }
+
+              return {
+                id,
+                nombre,
+              };
+            })
+            .filter(
+              (
+                item,
+              ): item is Municipality =>
+                item !== null,
+            )
+            .sort((a, b) =>
+              a.nombre.localeCompare(
+                b.nombre,
+              ),
+            );
+
+        setMunicipalities(parsed);
+      } catch (err) {
+        console.error(
+          "Error cargando municipalidades:",
+          err,
+        );
+
+        setMunicipalities([]);
+      }
     }, []);
 
-  /* =======================================================
-     Cargar al entrar
-  ======================================================= */
+  /* =========================================================
+     Carga inicial
+  ========================================================= */
 
   useEffect(() => {
     void loadProducts();
-  }, [loadProducts]);
+    void loadMunicipalities();
+  }, [
+    loadProducts,
+    loadMunicipalities,
+  ]);
 
-  /* =======================================================
-     Actualizar cuando vuelve a la pestaña
-  ======================================================= */
+  /* =========================================================
+     Actualizar al volver a la pestaña
+  ========================================================= */
 
   useEffect(() => {
     const handleVisibility = () => {
@@ -178,6 +251,7 @@ export default function TiendaPage() {
         "visible"
       ) {
         void loadProducts();
+        void loadMunicipalities();
       }
     };
 
@@ -192,59 +266,36 @@ export default function TiendaPage() {
         handleVisibility,
       );
     };
-  }, [loadProducts]);
+  }, [
+    loadProducts,
+    loadMunicipalities,
+  ]);
 
-  /* =======================================================
+  /* =========================================================
      Categorías
-  ======================================================= */
+  ========================================================= */
 
-  const categories =
-    useMemo(() => {
-      const values =
-        new Set<string>();
+  const categories = useMemo(() => {
+    const values =
+      new Set<string>();
 
-      products.forEach((product) => {
-        if (product.categoria) {
-          values.add(
-            product.categoria,
-          );
-        }
-      });
+    products.forEach((product) => {
+      if (product.categoria) {
+        values.add(
+          product.categoria,
+        );
+      }
+    });
 
-      return Array.from(values).sort(
-        (a, b) =>
-          a.localeCompare(b),
-      );
-    }, [products]);
+    return Array.from(values).sort(
+      (a, b) =>
+        a.localeCompare(b),
+    );
+  }, [products]);
 
-  /* =======================================================
-     Municipalidades
-  ======================================================= */
-
-  const municipalities =
-    useMemo(() => {
-      const values =
-        new Set<string>();
-
-      products.forEach((product) => {
-        if (
-          product.IdMunicipalidad
-        ) {
-          values.add(
-            product.IdMunicipalidad,
-          );
-        }
-      });
-
-      return Array.from(values).sort(
-        (a, b) =>
-          a.localeCompare(b),
-      );
-    }, [products]);
-
-  /* =======================================================
-     Filtrar productos
-  ======================================================= */
+  /* =========================================================
+     Filtrado
+  ========================================================= */
 
   const filteredProducts =
     useMemo(() => {
@@ -255,53 +306,43 @@ export default function TiendaPage() {
 
       return products.filter(
         (product) => {
-          /* ===============================================
-             Seguridad adicional:
-             nunca mostrar productos desactivados.
-          =============================================== */
-
           if (
             product.activo !== true
           ) {
             return false;
           }
 
-          /* ===============================================
-             Búsqueda
-          =============================================== */
+          if (
+            hideOutOfStock &&
+            product.stock <= 0
+          ) {
+            return false;
+          }
 
           if (
             normalizedSearch
           ) {
-            const searchableFields: string[] =
-              [
-                product.nombre,
-                product.descripcion,
-                product.code,
-                product.categoria,
-                product.unidad,
-              ];
+            const fields = [
+              product.nombre,
+              product.descripcion,
+              product.code,
+              product.categoria,
+              product.unidad,
+            ];
 
-            const matchesSearch =
-              searchableFields.some(
-                (value) =>
-                  value
-                    .toLowerCase()
-                    .includes(
-                      normalizedSearch,
-                    ),
+            const matches =
+              fields.some((value) =>
+                value
+                  .toLowerCase()
+                  .includes(
+                    normalizedSearch,
+                  ),
               );
 
-            if (
-              !matchesSearch
-            ) {
+            if (!matches) {
               return false;
             }
           }
-
-          /* ===============================================
-             Categoría
-          =============================================== */
 
           if (
             category !== "all" &&
@@ -311,38 +352,10 @@ export default function TiendaPage() {
             return false;
           }
 
-          /* ===============================================
-             Municipalidad
-          =============================================== */
-
           if (
             municipality !== "all" &&
             product.IdMunicipalidad !==
               municipality
-          ) {
-            return false;
-          }
-
-          /* ===============================================
-             Stock disponible
-          =============================================== */
-
-          if (
-            stockFilter ===
-              "available" &&
-            product.stock <= 0
-          ) {
-            return false;
-          }
-
-          /* ===============================================
-             Sin stock
-          =============================================== */
-
-          if (
-            stockFilter ===
-              "no-stock" &&
-            product.stock > 0
           ) {
             return false;
           }
@@ -355,81 +368,73 @@ export default function TiendaPage() {
       search,
       category,
       municipality,
-      stockFilter,
+      hideOutOfStock,
     ]);
 
-  /* =======================================================
-     Limpiar filtros
-  ======================================================= */
+  /* =========================================================
+     Filtros
+  ========================================================= */
+
+  const hasFilters =
+    search.trim() !== "" ||
+    category !== "all" ||
+    municipality !== "all";
 
   const clearFilters = () => {
     setSearch("");
     setCategory("all");
     setMunicipality("all");
-    setStockFilter("all");
+
+    // Siempre vuelve al comportamiento predeterminado.
+    setHideOutOfStock(true);
   };
 
-  /* =======================================================
-     Comprobar filtros activos
-  ======================================================= */
-
-  const hasFilters =
-    search.trim() !== "" ||
-    category !== "all" ||
-    municipality !== "all" ||
-    stockFilter !== "all";
-
-  /* =======================================================
+  /* =========================================================
      Render
-  ======================================================= */
+  ========================================================= */
 
   return (
     <main className="min-h-dvh bg-[var(--background)]">
-      {/* ==================================================
-          HERO
-      ================================================== */}
+      {/* HERO */}
 
       <section className="relative overflow-hidden border-b border-[var(--border)]">
-  {/* Imagen de fondo */}
-  <div
-    className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-    style={{
-      backgroundImage: "url('/images/backgrounds/alimentos.webp')",
-    }}
-  />
+        <div
+          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+          style={{
+            backgroundImage:
+              "url('/images/backgrounds/alimentos.webp')",
+          }}
+        />
 
-  {/* Capa semitransparente */}
-  <div className="absolute inset-0 bg-[var(--surface)]/65" />
+        <div className="absolute inset-0 bg-[var(--surface)]/65" />
 
-  {/* Contenido */}
-  <div className="relative mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8 lg:py-20">
-    <div className="max-w-3xl">
-      <span className="inline-flex rounded-full bg-[var(--secondary)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
-        Productos del campo
-      </span>
+        <div className="relative mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8 lg:py-20">
+          <div className="max-w-3xl">
+            <span className="inline-flex rounded-full bg-[var(--secondary)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
+              Productos del campo
+            </span>
 
-      <h1 className="mt-4 text-4xl font-bold tracking-tight text-[var(--foreground)] sm:text-5xl">
-        Compra productos
-        <span className="text-[var(--primary)]">
-          {" "}
-          frescos
-        </span>
-      </h1>
+            <h1 className="mt-4 text-4xl font-bold tracking-tight text-[var(--foreground)] sm:text-5xl">
+              Compra productos
+              <span className="text-[var(--primary)]">
+                {" "}
+                frescos
+              </span>
+            </h1>
 
-      <p className="mt-4 max-w-2xl text-base leading-7 text-[var(--muted)] sm:text-lg">
-        Encuentra frutas, verduras y productos provenientes del campo
-        directamente en nuestra tienda.
-      </p>
-    </div>
-  </div>
-</section>
+            <p className="mt-4 max-w-2xl text-base leading-7 text-[var(--muted)] sm:text-lg">
+              Encuentra frutas, verduras y
+              productos provenientes del campo
+              directamente en nuestra tienda.
+            </p>
+          </div>
+        </div>
+      </section>
 
-      {/* ==================================================
-          CONTENIDO
-      ================================================== */}
+      {/* CONTENIDO */}
 
       <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        {/* Buscador */}
+        {/* BUSCADOR */}
 
         <div className="flex flex-col gap-3 lg:flex-row">
           <div className="relative flex-1">
@@ -450,7 +455,6 @@ export default function TiendaPage() {
                 cy="11"
                 r="8"
               />
-
               <path d="m21 21-4.3-4.3" />
             </svg>
 
@@ -466,8 +470,6 @@ export default function TiendaPage() {
               className="h-12 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] pl-11 pr-4 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/15"
             />
           </div>
-
-          {/* Cesta */}
 
           <button
             type="button"
@@ -490,13 +492,11 @@ export default function TiendaPage() {
                 cy="20"
                 r="1"
               />
-
               <circle
                 cx="19"
                 cy="20"
                 r="1"
               />
-
               <path d="M3 4h2l2.4 11.4a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 2-1.6L21 8H6" />
             </svg>
 
@@ -504,9 +504,11 @@ export default function TiendaPage() {
           </button>
         </div>
 
-        {/* Filtros */}
+        {/* FILTROS */}
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Categoría */}
+
           <select
             value={category}
             onChange={(event) =>
@@ -532,6 +534,8 @@ export default function TiendaPage() {
             )}
           </select>
 
+          {/* Ubicación */}
+
           <select
             value={municipality}
             onChange={(event) =>
@@ -548,39 +552,51 @@ export default function TiendaPage() {
             {municipalities.map(
               (item) => (
                 <option
-                  key={item}
-                  value={item}
+                  key={item.id}
+                  value={item.id}
                 >
-                  {item}
+                  {item.nombre}
                 </option>
               ),
             )}
           </select>
 
-          <select
-            value={stockFilter}
-            onChange={(event) =>
-              setStockFilter(
-                event.target.value as
-                  | "all"
-                  | "available"
-                  | "no-stock",
-              )
-            }
-            className="h-11 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
-          >
-            <option value="all">
-              Todos
-            </option>
+          {/* Stock */}
 
-            <option value="available">
-              Disponibles
-            </option>
+          <label className="flex h-11 cursor-pointer items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]">
+            <input
+              type="checkbox"
+              checked={hideOutOfStock}
+              onChange={(event) =>
+                setHideOutOfStock(
+                  event.target.checked,
+                )
+              }
+              className="peer sr-only"
+            />
 
-            <option value="no-stock">
-              Sin stock
-            </option>
-          </select>
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-transparent transition-all peer-checked:border-[var(--primary)] peer-checked:bg-[var(--primary)] peer-checked:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--primary)]/25">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m5 12 4 4L19 6" />
+              </svg>
+            </span>
+
+            <span className="font-medium">
+              Ocultar sin stock
+            </span>
+          </label>
+
+          {/* Limpiar */}
 
           <button
             type="button"
@@ -592,7 +608,7 @@ export default function TiendaPage() {
           </button>
         </div>
 
-        {/* Información */}
+        {/* INFORMACIÓN */}
 
         <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -613,9 +629,10 @@ export default function TiendaPage() {
 
           <button
             type="button"
-            onClick={() =>
-              void loadProducts()
-            }
+            onClick={() => {
+              void loadProducts();
+              void loadMunicipalities();
+            }}
             disabled={loading}
             className="self-start rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)] disabled:opacity-50 sm:self-auto"
           >
@@ -625,7 +642,7 @@ export default function TiendaPage() {
           </button>
         </div>
 
-        {/* Error */}
+        {/* ERROR */}
 
         {error && (
           <div className="mt-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
@@ -634,9 +651,10 @@ export default function TiendaPage() {
 
               <button
                 type="button"
-                onClick={() =>
-                  void loadProducts()
-                }
+                onClick={() => {
+                  void loadProducts();
+                  void loadMunicipalities();
+                }}
                 className="self-start rounded-md bg-white px-3 py-2 text-xs font-semibold text-red-700 shadow-sm sm:self-auto"
               >
                 Reintentar
@@ -645,7 +663,7 @@ export default function TiendaPage() {
           </div>
         )}
 
-        {/* Productos */}
+        {/* PRODUCTOS */}
 
         <div className="mt-6">
           <ProductGrid
@@ -654,7 +672,9 @@ export default function TiendaPage() {
             emptyMessage={
               hasFilters
                 ? "No encontramos productos que coincidan con los filtros seleccionados."
-                : "Actualmente no hay productos disponibles en la tienda."
+                : hideOutOfStock
+                  ? "Actualmente no hay productos con stock disponibles."
+                  : "Actualmente no hay productos disponibles en la tienda."
             }
           />
         </div>

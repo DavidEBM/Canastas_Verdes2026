@@ -1,31 +1,29 @@
 import { NextResponse } from "next/server";
+import { Timestamp } from "firebase-admin/firestore";
+
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
-/*
- * ============================================================
- * TIPOS
- * ============================================================
- */
-
-type Rol = "usuario" | "repartidor" | "admin";
+type Rol = "consumidor" | "repartidor" | "admin";
 
 type ProductoDocumento = {
-  Nombre?: unknown;
+  code?: unknown;
   nombre?: unknown;
   descripcion?: unknown;
   precio?: unknown;
   stock?: unknown;
+  costoPcc?: unknown;
+  porcentajeLogistica?: unknown;
+  porcentajeTransporte?: unknown;
+  precioSugerido?: unknown;
+  precioVenta?: unknown;
   categoria?: unknown;
   unidad?: unknown;
-  imgPath?: unknown;
   activo?: unknown;
-  code?: unknown;
-  IdGranja?: unknown;
+  IdProductor?: unknown;
   IdMunicipalidad?: unknown;
+  FechaCierre?: unknown;
 };
 
 type PedidoProducto = {
@@ -34,10 +32,22 @@ type PedidoProducto = {
   nombre?: unknown;
   cantidad?: unknown;
   precioUnitario?: unknown;
+  precioFinal?: unknown;
   subtotal?: unknown;
   unidad?: unknown;
-  IdGranja?: unknown;
+
+  IdProductor?: unknown;
   IdMunicipalidad?: unknown;
+
+  costoPccUnitario?: unknown;
+  costoPcc?: unknown;
+  porcentajeLogistica?: unknown;
+  porcentajeTransporte?: unknown;
+  costoLogistica?: unknown;
+  costoTransporte?: unknown;
+  otrosCostos?: unknown;
+  costoTotal?: unknown;
+  utilidad?: unknown;
 };
 
 type PedidoDocumento = {
@@ -45,1581 +55,854 @@ type PedidoDocumento = {
   productos?: unknown;
   subtotal?: unknown;
   total?: unknown;
+  precioFinal?: unknown;
+
+  costoProductos?: unknown;
+  costoPcc?: unknown;
+  costoLogistica?: unknown;
+  costoTransporte?: unknown;
+  otrosCostos?: unknown;
+  costoTotal?: unknown;
+  utilidad?: unknown;
+  margen?: unknown;
+
   estado?: unknown;
-  reservaId?: unknown;
   IdMunicipalidad?: unknown;
-  direccionEntrega?: unknown;
   repartidorId?: unknown;
   fechaCreacion?: unknown;
-  ultimaActualizacion?: unknown;
-  fechaCancelacion?: unknown;
+  fechaRecibido?: unknown;
 };
 
-type CatalogoOpcion = {
+type UsuarioDocumento = {
+  Nombres?: unknown;
+  Apellidos?: unknown;
+  Correo?: unknown;
+  Rol?: unknown;
+};
+
+type ProductorDocumento = {
+  nombre?: unknown;
+  descripcion?: unknown;
+  activo?: unknown;
+};
+
+type MunicipalidadDocumento = {
+  nombre?: unknown;
+  departamento?: unknown;
+  activo?: unknown;
+};
+
+type CategoriaDocumento = {
+  nombre?: unknown;
+  activo?: unknown;
+};
+
+type ProductoEstadistica = {
   id: string;
-  nombre: string;
-};
-
-type EstadisticaProducto = {
-  productoId: string;
   code: string;
   nombre: string;
-  unidad: string;
   categoria: string;
-  IdGranja: string;
+  unidad: string;
+  IdProductor: string;
+  productor: string;
   IdMunicipalidad: string;
-  unidadesVendidas: number;
+  municipalidad: string;
+  cantidadVendida: number;
   ventas: number;
+  costo: number;
+  utilidad: number;
+  stock: number;
 };
 
-type EstadisticaGrupo = {
-  id: string;
-  nombre: string;
-  unidadesVendidas: number;
-  ventas: number;
-  productos: number;
-  pedidos: number;
-};
-
-type EstadisticaRepartidor = {
-  id: string;
-  nombre: string;
-  pedidosEntregados: number;
-  ventasGeneradas: number;
-};
-
-type Finanzas = {
-  disponible: boolean;
-  ventas: number;
-  costo: number | null;
-  ganancia: number;
-  mensaje: string;
-};
-
-/*
- * ============================================================
- * UTILIDADES
- * ============================================================
- */
-
-function tokenFrom(request: Request): string | null {
-  const value = request.headers.get("authorization");
-
-  if (!value?.startsWith("Bearer ")) {
-    return null;
-  }
-
-  const token = value.slice(7).trim();
-
-  return token || null;
-}
-
-function normalizeRole(value: unknown): Rol {
-  if (typeof value !== "string") {
-    return "usuario";
-  }
-
-  const role = value.trim().toLowerCase();
-
-  if (role === "admin") {
-    return "admin";
-  }
-
-  if (role === "repartidor") {
-    return "repartidor";
-  }
-
-  return "usuario";
-}
-
-function roleFromClaims(
-  claims: Record<string, unknown>,
-): Rol | null {
-  const role =
-    claims.role ??
-    claims.Rol ??
-    claims.rol;
-
-  if (
-    role === "admin" ||
-    role === "repartidor" ||
-    role === "usuario"
-  ) {
-    return normalizeRole(role);
-  }
-
-  return null;
-}
-
-function numberValue(value: unknown): number {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : 0;
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value);
-
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-
-  return 0;
-}
-
-function stringValue(value: unknown): string {
-  if (typeof value !== "string") {
-    return "";
-  }
-
-  return value.trim();
-}
-
-function displayValue(value: string): string {
-  return value.replace(/_/g, " ").trim();
-}
-
-function normalizeText(value: string): string {
-  return value.trim().toLowerCase();
-}
-
-function matchesFilter(
-  value: string,
-  filter: string | null,
-): boolean {
-  if (!filter) {
-    return true;
-  }
-
-  if (!value) {
-    return false;
-  }
-
-  return (
-    normalizeText(value) ===
-    normalizeText(filter)
-  );
-}
-
-function parseDate(value: unknown): Date | null {
-  if (!value) {
-    return null;
-  }
-
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime())
-      ? null
-      : value;
-  }
-
-  if (
-    typeof value === "object" &&
-    value !== null
-  ) {
-    const candidate = value as {
-      toDate?: () => Date;
-      seconds?: number;
-      nanoseconds?: number;
-    };
-
-    if (typeof candidate.toDate === "function") {
-      const date = candidate.toDate();
-
-      return date instanceof Date &&
-        !Number.isNaN(date.getTime())
-        ? date
-        : null;
-    }
-
-    if (typeof candidate.seconds === "number") {
-      const milliseconds =
-        candidate.seconds * 1000 +
-        Math.floor(
-          (candidate.nanoseconds ?? 0) / 1_000_000,
-        );
-
-      const date = new Date(milliseconds);
-
-      return Number.isNaN(date.getTime())
-        ? null
-        : date;
-    }
-  }
-
-  if (
-    typeof value === "number" &&
-    Number.isFinite(value)
-  ) {
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime())
-      ? null
-      : date;
-  }
-
-  if (typeof value === "string") {
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime())
-      ? null
-      : date;
-  }
-
-  return null;
-}
-
-function parseDateStart(
-  value: string | null,
-): Date | null {
-  if (!value) {
-    return null;
-  }
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const date = new Date(
-      `${value}T00:00:00`,
-    );
-
-    return Number.isNaN(date.getTime())
-      ? null
-      : date;
-  }
-
-  const date = new Date(value);
-
-  return Number.isNaN(date.getTime())
-    ? null
-    : date;
-}
-
-function parseDateEnd(
-  value: string | null,
-): Date | null {
-  if (!value) {
-    return null;
-  }
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const date = new Date(
-      `${value}T23:59:59.999`,
-    );
-
-    return Number.isNaN(date.getTime())
-      ? null
-      : date;
-  }
-
-  const date = new Date(value);
-
-  return Number.isNaN(date.getTime())
-    ? null
-    : date;
-}
-
-function errorResponse(
-  message: string,
-  status: number,
-) {
+function errorResponse(message: string, status: number) {
   return NextResponse.json(
     {
       success: false,
       message,
     },
-    {
-      status,
-    },
+    { status },
   );
 }
 
-/*
- * ============================================================
- * AUTENTICACIÓN
- * ============================================================
- */
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
 
-async function authenticateAdmin(
-  request: Request,
-) {
-  const token = tokenFrom(request);
+function numberValue(value: unknown): number {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) ? number : 0;
+}
 
-  if (!token) {
-    throw new Error("NO_AUTH");
+function positiveNumber(value: unknown): number {
+  return Math.max(0, numberValue(value));
+}
+
+function timestampToDate(value: unknown): Date | null {
+  if (!value) {
+    return null;
   }
 
-  const user =
-    await adminAuth.verifyIdToken(token);
+  if (value instanceof Timestamp) {
+    return value.toDate();
+  }
 
-  let role =
-    roleFromClaims(
-      user as Record<string, unknown>,
-    );
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "toDate" in value &&
+    typeof (value as { toDate?: unknown }).toDate === "function"
+  ) {
+    return (value as { toDate: () => Date }).toDate();
+  }
 
-  if (!role) {
-    const usuarioSnap =
-      await adminDb
-        .collection("usuarios")
-        .doc(user.uid)
-        .get();
+  if (value instanceof Date) {
+    return value;
+  }
 
-    if (usuarioSnap.exists) {
-      const data =
-        usuarioSnap.data() as Record<
-          string,
-          unknown
-        >;
+  if (typeof value === "string" || typeof value === "number") {
+    const date = new Date(value);
 
-      role = normalizeRole(
-        data.Rol ??
-          data.rol ??
-          data.Role ??
-          data.role,
-      );
-    } else {
-      role = "usuario";
+    if (!Number.isNaN(date.getTime())) {
+      return date;
     }
   }
 
-  if (role !== "admin") {
-    throw new Error("FORBIDDEN");
-  }
-
-  return {
-    user,
-    role,
-  };
+  return null;
 }
 
-/*
- * ============================================================
- * GET
- * ============================================================
- */
+function normalizeRole(value: unknown): Rol | null {
+  const role = stringValue(value).toLowerCase();
+
+  if (
+    role === "admin" ||
+    role === "repartidor" ||
+    role === "consumidor"
+  ) {
+    return role;
+  }
+
+  return null;
+}
+
+function tokenFrom(request: Request): string | null {
+  const authorization = request.headers.get("authorization");
+
+  if (!authorization?.startsWith("Bearer ")) {
+    return null;
+  }
+
+  const token = authorization.slice(7).trim();
+
+  return token || null;
+}
+
+function queryValue(
+  searchParams: URLSearchParams,
+  key: string,
+): string {
+  return (searchParams.get(key) ?? "").trim();
+}
+
+function withinDateRange(
+  date: Date | null,
+  desde: Date | null,
+  hasta: Date | null,
+): boolean {
+  if (!date) {
+    return false;
+  }
+
+  if (desde && date < desde) {
+    return false;
+  }
+
+  if (hasta && date > hasta) {
+    return false;
+  }
+
+  return true;
+}
+
+function displayName(
+  first: unknown,
+  last: unknown,
+  fallback: string,
+): string {
+  const name =
+    `${stringValue(first)} ${stringValue(last)}`.trim();
+
+  return name || fallback;
+}
 
 export async function GET(request: Request) {
   try {
-    await authenticateAdmin(request);
+    /*
+     * ================================================
+     * Autenticación
+     * ================================================
+     */
+
+    const token = tokenFrom(request);
+
+    if (!token) {
+      return errorResponse(
+        "No autorizado.",
+        401,
+      );
+    }
+
+    const decoded =
+      await adminAuth.verifyIdToken(token);
+
+    const userSnapshot = await adminDb
+      .collection("usuarios")
+      .doc(decoded.uid)
+      .get();
+
+    const userData =
+      userSnapshot.exists
+        ? (userSnapshot.data() as UsuarioDocumento)
+        : null;
+
+    const role = normalizeRole(
+      decoded.role ??
+        decoded.rol ??
+        userData?.Rol,
+    );
+
+    if (role !== "admin") {
+      return errorResponse(
+        "No tienes permisos para consultar las estadísticas.",
+        403,
+      );
+    }
+
+    /*
+     * ================================================
+     * Filtros
+     * ================================================
+     */
 
     const url = new URL(request.url);
+    const params = url.searchParams;
 
-    const fechaDesdeParam =
-      url.searchParams.get("fechaDesde");
+    const categoria = queryValue(params, "categoria");
+    const producto = queryValue(params, "producto");
+    const productor = queryValue(params, "productor");
+    const municipio = queryValue(params, "municipio");
+    const repartidor = queryValue(params, "repartidor");
+    const desdeValue = queryValue(params, "desde");
+    const hastaValue = queryValue(params, "hasta");
 
-    const fechaHastaParam =
-      url.searchParams.get("fechaHasta");
+    let desde: Date | null = null;
+    let hasta: Date | null = null;
 
-    const categoria =
-      url.searchParams.get("categoria");
+    if (desdeValue) {
+      desde = new Date(`${desdeValue}T00:00:00`);
 
-    const producto =
-      url.searchParams.get("producto");
-
-    const granja =
-      url.searchParams.get("granja");
-
-    const municipio =
-      url.searchParams.get("municipio");
-
-    const repartidor =
-      url.searchParams.get("repartidor");
-
-    const fechaDesde =
-      parseDateStart(fechaDesdeParam);
-
-    const fechaHasta =
-      parseDateEnd(fechaHastaParam);
-
-    if (
-      fechaDesdeParam &&
-      !fechaDesde
-    ) {
-      return errorResponse(
-        "La fechaDesde no tiene un formato válido.",
-        400,
-      );
+      if (Number.isNaN(desde.getTime())) {
+        return errorResponse(
+          "La fecha inicial no es válida.",
+          400,
+        );
+      }
     }
 
-    if (
-      fechaHastaParam &&
-      !fechaHasta
-    ) {
-      return errorResponse(
-        "La fechaHasta no tiene un formato válido.",
-        400,
-      );
-    }
+    if (hastaValue) {
+      hasta = new Date(`${hastaValue}T23:59:59.999`);
 
-    if (
-      fechaDesde &&
-      fechaHasta &&
-      fechaDesde > fechaHasta
-    ) {
-      return errorResponse(
-        "La fechaDesde no puede ser posterior a fechaHasta.",
-        400,
-      );
+      if (Number.isNaN(hasta.getTime())) {
+        return errorResponse(
+          "La fecha final no es válida.",
+          400,
+        );
+      }
     }
 
     /*
-     * ========================================================
-     * PRODUCTOS
-     * ========================================================
+     * ================================================
+     * Cargar catálogos
+     * ================================================
      */
 
-    const productosSnapshot =
-      await adminDb
-        .collection("productos")
-        .get();
+    const [
+      productosSnapshot,
+      productoresSnapshot,
+      municipalidadesSnapshot,
+      usuariosSnapshot,
+      categoriasSnapshot,
+      pedidosSnapshot,
+    ] = await Promise.all([
+      adminDb.collection("productos").get(),
+      adminDb.collection("productores").get(),
+      adminDb.collection("municipalidades").get(),
+      adminDb.collection("usuarios").get(),
+      adminDb.collection("categorias").get(),
+      adminDb.collection("pedidos").get(),
+    ]);
+
+    /*
+     * ================================================
+     * Mapas
+     * ================================================
+     */
 
     const productosMap =
-      new Map<
-        string,
-        ProductoDocumento
-      >();
+      new Map<string, ProductoDocumento>();
 
-    for (
-      const snapshot of productosSnapshot.docs
-    ) {
+    for (const doc of productosSnapshot.docs) {
       productosMap.set(
-        snapshot.id,
-        snapshot.data() as ProductoDocumento,
+        doc.id,
+        doc.data() as ProductoDocumento,
       );
     }
 
-    /*
-     * ========================================================
-     * CATÁLOGO DE CATEGORÍAS Y GRANJAS
-     * ========================================================
-     *
-     * Se construye ANTES de aplicar filtros.
-     *
-     * Esto es importante:
-     *
-     * /estadisticas?categoria=Frutas
-     *
-     * seguirá mostrando todas las categorías
-     * disponibles en el desplegable.
-     */
+    const productoresMap =
+      new Map<string, ProductorDocumento>();
+
+    for (const doc of productoresSnapshot.docs) {
+      productoresMap.set(
+        doc.id,
+        doc.data() as ProductorDocumento,
+      );
+    }
+
+    const municipalidadesMap =
+      new Map<string, MunicipalidadDocumento>();
+
+    for (const doc of municipalidadesSnapshot.docs) {
+      municipalidadesMap.set(
+        doc.id,
+        doc.data() as MunicipalidadDocumento,
+      );
+    }
 
     const categoriasMap =
-      new Map<string, string>();
+      new Map<string, CategoriaDocumento>();
 
-    const granjasMap =
-      new Map<string, string>();
-
-    for (
-      const productoData of productosMap.values()
-    ) {
-      const categoriaProducto =
-        stringValue(
-          productoData.categoria,
-        );
-
-      if (categoriaProducto) {
-        categoriasMap.set(
-          categoriaProducto,
-          displayValue(
-            categoriaProducto,
-          ),
-        );
-      }
-
-      const granjaProducto =
-        stringValue(
-          productoData.IdGranja,
-        );
-
-      if (granjaProducto) {
-        granjasMap.set(
-          granjaProducto,
-          displayValue(
-            granjaProducto,
-          ),
-        );
-      }
+    for (const doc of categoriasSnapshot.docs) {
+      categoriasMap.set(
+        doc.id,
+        doc.data() as CategoriaDocumento,
+      );
     }
-
-    /*
-     * ========================================================
-     * MUNICIPALIDADES
-     * ========================================================
-     */
-
-    const municipiosSnapshot =
-      await adminDb
-        .collection("municipalidades")
-        .get();
-
-    const municipiosMap =
-      new Map<string, string>();
-
-    for (
-      const snapshot of municipiosSnapshot.docs
-    ) {
-      const data =
-        snapshot.data() as Record<
-          string,
-          unknown
-        >;
-
-      const id =
-        stringValue(
-          data.Id ??
-            data.id ??
-            snapshot.id,
-        );
-
-      const nombre =
-        stringValue(
-          data.Nombre ??
-            data.nombre ??
-            id,
-        );
-
-      if (id) {
-        municipiosMap.set(
-          id,
-          nombre,
-        );
-      }
-
-      if (snapshot.id) {
-        municipiosMap.set(
-          snapshot.id,
-          nombre,
-        );
-      }
-    }
-
-    /*
-     * ========================================================
-     * REPARTIDORES
-     * ========================================================
-     *
-     * El catálogo de repartidores también se construye
-     * independientemente de las estadísticas.
-     */
-
-    const usuariosSnapshot =
-      await adminDb
-        .collection("usuarios")
-        .get();
 
     const repartidoresMap =
-      new Map<string, string>();
+      new Map<
+        string,
+        {
+          id: string;
+          nombre: string;
+          correo: string;
+        }
+      >();
 
-    for (
-      const snapshot of usuariosSnapshot.docs
-    ) {
+    for (const doc of usuariosSnapshot.docs) {
       const data =
-        snapshot.data() as Record<
-          string,
-          unknown
-        >;
+        doc.data() as UsuarioDocumento;
 
-      const role =
-        normalizeRole(
-          data.Rol ??
-            data.rol ??
-            data.Role ??
-            data.role,
-        );
-
-      if (role !== "repartidor") {
+      if (normalizeRole(data.Rol) !== "repartidor") {
         continue;
       }
 
-      const nombres =
-        stringValue(
-          data.Nombres ??
-            data.nombres ??
-            "",
-        );
-
-      const apellidos =
-        stringValue(
-          data.Apellidos ??
-            data.apellidos ??
-            "",
-        );
-
-      const nombreCompleto =
-        `${nombres} ${apellidos}`
-          .trim()
-          .replace(
-            /_/g,
-            " ",
-          );
-
-      repartidoresMap.set(
-        snapshot.id,
-        nombreCompleto ||
-          snapshot.id,
-      );
+      repartidoresMap.set(doc.id, {
+        id: doc.id,
+        nombre: displayName(
+          data.Nombres,
+          data.Apellidos,
+          doc.id,
+        ),
+        correo: stringValue(data.Correo),
+      });
     }
 
     /*
-     * ========================================================
-     * CATÁLOGOS PARA EL FRONTEND
-     * ========================================================
-     */
-
-    const catalogoCategorias: CatalogoOpcion[] =
-      [
-        ...categoriasMap.entries(),
-      ]
-        .map(
-          ([id, nombre]) => ({
-            id,
-            nombre,
-          }),
-        )
-        .sort(
-          (a, b) =>
-            a.nombre.localeCompare(
-              b.nombre,
-              "es",
-            ),
-        );
-
-    const catalogoGranjas: CatalogoOpcion[] =
-      [
-        ...granjasMap.entries(),
-      ]
-        .map(
-          ([id, nombre]) => ({
-            id,
-            nombre,
-          }),
-        )
-        .sort(
-          (a, b) =>
-            a.nombre.localeCompare(
-              b.nombre,
-              "es",
-            ),
-        );
-
-    const catalogoMunicipios: CatalogoOpcion[] =
-      [
-        ...municipiosMap.entries(),
-      ]
-        .filter(
-          ([id]) =>
-            id.length > 0,
-        )
-        .map(
-          ([id, nombre]) => ({
-            id,
-            nombre: displayValue(
-              nombre,
-            ),
-          }),
-        );
-
-    /*
-     * Eliminamos posibles duplicados producidos por
-     * guardar tanto Id como document ID.
-     */
-
-    const municipiosUnicos =
-      new Map<string, CatalogoOpcion>();
-
-    for (
-      const municipioItem of catalogoMunicipios
-    ) {
-      if (
-        !municipiosUnicos.has(
-          municipioItem.id,
-        )
-      ) {
-        municipiosUnicos.set(
-          municipioItem.id,
-          municipioItem,
-        );
-      }
-    }
-
-    const catalogoProductos: CatalogoOpcion[] =
-  [...productosMap.entries()]
-    .map(([id, productoData]) => {
-      const nombre =
-        stringValue(
-          productoData.Nombre ??
-            productoData.nombre ??
-            id,
-        );
-
-      const code =
-        stringValue(
-          productoData.code,
-        );
-
-      return {
-        id,
-        nombre: code
-          ? `${displayValue(nombre)} (${displayValue(code)})`
-          : displayValue(nombre),
-      };
-    })
-    .sort((a, b) =>
-      a.nombre.localeCompare(
-        b.nombre,
-        "es",
-      ),
-    );
-
-    const catalogoRepartidores: CatalogoOpcion[] =
-      [
-        ...repartidoresMap.entries(),
-      ]
-        .map(
-          ([id, nombre]) => ({
-            id,
-            nombre: displayValue(
-              nombre,
-            ),
-          }),
-        )
-        .sort(
-          (a, b) =>
-            a.nombre.localeCompare(
-              b.nombre,
-              "es",
-            ),
-        );
-
-    /*
-     * ========================================================
-     * PEDIDOS
-     * ========================================================
-     */
-
-    const pedidosSnapshot =
-      await adminDb
-        .collection("pedidos")
-        .get();
-
-    /*
-     * ========================================================
-     * ACUMULADORES
-     * ========================================================
+     * ================================================
+     * Estadísticas
+     * ================================================
      */
 
     const productosStats =
+      new Map<string, ProductoEstadistica>();
+
+    const productoresStats =
       new Map<
         string,
-        EstadisticaProducto
+        {
+          id: string;
+          nombre: string;
+          ventas: number;
+          costo: number;
+          utilidad: number;
+          productosVendidos: number;
+          pedidos: number;
+        }
       >();
 
-    const granjasStats =
+    const municipiosProductorStats =
       new Map<
         string,
-        EstadisticaGrupo
-      >();
-
-    const municipiosProductoresStats =
-      new Map<
-        string,
-        EstadisticaGrupo
+        {
+          id: string;
+          nombre: string;
+          departamento: string;
+          ventas: number;
+          pedidos: number;
+        }
       >();
 
     const municipiosEntregaStats =
       new Map<
         string,
-        EstadisticaGrupo
+        {
+          id: string;
+          nombre: string;
+          departamento: string;
+          ventas: number;
+          pedidos: number;
+        }
       >();
 
     const repartidoresStats =
       new Map<
         string,
-        EstadisticaRepartidor
+        {
+          id: string;
+          nombre: string;
+          correo: string;
+          ventasGeneradas: number;
+          pedidosEntregados: number;
+        }
       >();
 
-    let pedidosContabilizados = 0;
-    let unidadesVendidas = 0;
-    let ventasProductos = 0;
+    const consumidores = new Set<string>();
+
+    let pedidosEntregados = 0;
     let ventasTotales = 0;
+    let costosTotales = 0;
+    let utilidadTotal = 0;
+    let productosVendidos = 0;
 
     /*
-     * ========================================================
-     * CATÁLOGO ACTUAL
-     * ========================================================
+     * ================================================
+     * Procesar pedidos entregados
+     * ================================================
      */
 
-    let productosActivos = 0;
-    let stockActualCatalogo = 0;
-
-    for (
-      const productoData of productosMap.values()
-    ) {
-      if (
-        productoData.activo === true
-      ) {
-        productosActivos += 1;
-      }
-
-      stockActualCatalogo +=
-        Math.max(
-          0,
-          numberValue(
-            productoData.stock,
-          ),
-        );
-    }
-
-    /*
-     * ========================================================
-     * PROCESAMIENTO DE PEDIDOS
-     * ========================================================
-     */
-
-    for (
-      const pedidoSnapshot of pedidosSnapshot.docs
-    ) {
+    for (const pedidoDoc of pedidosSnapshot.docs) {
       const pedido =
-        pedidoSnapshot.data() as PedidoDocumento;
+        pedidoDoc.data() as PedidoDocumento;
 
-      /*
-       * Solo entregados.
-       */
-
-      if (
-        stringValue(
-          pedido.estado,
-        ) !== "entregado"
-      ) {
+      if (stringValue(pedido.estado) !== "entregado") {
         continue;
       }
 
       /*
-       * ======================================================
-       * FECHA
-       * ======================================================
+       * Se mantiene la fecha de creación como fecha
+       * principal del filtro histórico.
        */
-
       const fechaCreacion =
-        parseDate(
-          pedido.fechaCreacion,
-        );
+        timestampToDate(pedido.fechaCreacion);
 
       if (
-        fechaDesde &&
-        (
-          !fechaCreacion ||
-          fechaCreacion < fechaDesde
+        !withinDateRange(
+          fechaCreacion,
+          desde,
+          hasta,
         )
       ) {
         continue;
       }
 
+      const pedidoProductos =
+        Array.isArray(pedido.productos)
+          ? (pedido.productos as PedidoProducto[])
+          : [];
+
+      if (pedidoProductos.length === 0) {
+        continue;
+      }
+
+      /*
+       * Municipio de entrega.
+       */
+      const pedidoMunicipioId =
+        stringValue(pedido.IdMunicipalidad);
+
       if (
-        fechaHasta &&
-        (
-          !fechaCreacion ||
-          fechaCreacion > fechaHasta
-        )
+        municipio &&
+        pedidoMunicipioId !== municipio
       ) {
         continue;
       }
 
       /*
-       * ======================================================
-       * REPARTIDOR
-       * ======================================================
+       * Repartidor.
        */
-
-      const repartidorId =
-        stringValue(
-          pedido.repartidorId,
-        );
+      const pedidoRepartidorId =
+        stringValue(pedido.repartidorId);
 
       if (
         repartidor &&
-        !matchesFilter(
-          repartidorId,
-          repartidor,
-        )
+        pedidoRepartidorId !== repartidor
       ) {
         continue;
       }
 
-      /*
-       * ======================================================
-       * PRODUCTOS
-       * ======================================================
-       */
+      let pedidoVentas = 0;
+      let pedidoCostos = 0;
+      let pedidoUtilidad = 0;
+      let pedidoProductosVendidos = 0;
 
-      const pedidoProductos =
-        Array.isArray(
-          pedido.productos,
-        )
-          ? pedido.productos
-          : [];
+      let pedidoCoincide = false;
 
-      if (
-        pedidoProductos.length === 0
-      ) {
-        continue;
-      }
-
-      const totalPedido =
-        Math.max(
-          0,
-          numberValue(
-            pedido.total,
-          ),
-        );
+      const productoresPedido =
+        new Set<string>();
 
       /*
-       * ======================================================
-       * MUNICIPIO DE ENTREGA
-       * ======================================================
-       */
-
-      const municipioEntregaId =
-        stringValue(
-          pedido.IdMunicipalidad,
-        );
-
-      const municipioEntregaNombre =
-        municipiosMap.get(
-          municipioEntregaId,
-        ) ||
-        municipioEntregaId;
-
-      /*
-       * ======================================================
-       * FILTRO MUNICIPIO
-       * ======================================================
+       * ==============================================
+       * Items del pedido
        *
-       * Puede coincidir con:
-       *
-       * - municipio de entrega
-       * - municipio productor
+       * IMPORTANTE:
+       * Los valores financieros salen del snapshot
+       * guardado al marcar el pedido como entregado.
+       * ==============================================
        */
 
-      if (municipio) {
-        const coincideEntrega =
-          matchesFilter(
-            municipioEntregaId,
-            municipio,
-          ) ||
-          matchesFilter(
-            municipioEntregaNombre,
-            municipio,
-          );
-
-        if (!coincideEntrega) {
-          const coincideProducto =
-            pedidoProductos.some(
-              (itemUnknown) => {
-                if (
-                  !itemUnknown ||
-                  typeof itemUnknown !==
-                    "object"
-                ) {
-                  return false;
-                }
-
-                const item =
-                  itemUnknown as PedidoProducto;
-
-                const productoId =
-                  stringValue(
-                    item.productoId,
-                  );
-
-                const productoData =
-                  productosMap.get(
-                    productoId,
-                  );
-
-                const municipioProductoId =
-                  stringValue(
-                    item.IdMunicipalidad ??
-                      productoData?.IdMunicipalidad,
-                  );
-
-                const municipioProductoNombre =
-                  municipiosMap.get(
-                    municipioProductoId,
-                  ) ||
-                  municipioProductoId;
-
-                return (
-                  matchesFilter(
-                    municipioProductoId,
-                    municipio,
-                  ) ||
-                  matchesFilter(
-                    municipioProductoNombre,
-                    municipio,
-                  )
-                );
-              },
-            );
-
-          if (!coincideProducto) {
-            continue;
-          }
-        }
-      }
-
-      /*
-       * ======================================================
-       * ACUMULACIÓN DE PRODUCTOS
-       * ======================================================
-       */
-
-      let pedidoVentasProductos = 0;
-      let pedidoUnidades = 0;
-
-      let pedidoTieneProductoFiltrado =
-        !producto &&
-        !categoria &&
-        !granja;
-
-      for (
-        const itemUnknown of pedidoProductos
-      ) {
-        if (
-          !itemUnknown ||
-          typeof itemUnknown !==
-            "object"
-        ) {
-          continue;
-        }
-
-        const item =
-          itemUnknown as PedidoProducto;
-
+      for (const item of pedidoProductos) {
         const productoId =
-          stringValue(
-            item.productoId,
-          );
+          stringValue(item.productoId);
 
-        if (!productoId) {
-          continue;
-        }
-
-        const productoData =
-          productosMap.get(
-            productoId,
-          );
+        const productoDoc =
+          productosMap.get(productoId);
 
         const nombre =
-          stringValue(
-            item.nombre ??
-              productoData?.Nombre ??
-              productoData?.nombre ??
-              productoId,
-          );
+          stringValue(item.nombre) ||
+          stringValue(productoDoc?.nombre) ||
+          productoId;
 
         const code =
-          stringValue(
-            item.code ??
-              productoData?.code ??
-              "",
-          );
+          stringValue(item.code) ||
+          stringValue(productoDoc?.code);
 
         const unidad =
-          stringValue(
-            item.unidad ??
-              productoData?.unidad ??
-              "",
-          );
+          stringValue(item.unidad) ||
+          stringValue(productoDoc?.unidad);
 
-        const categoriaProducto =
-          stringValue(
-            productoData?.categoria,
-          );
-
-        const granjaProducto =
-          stringValue(
-            item.IdGranja ??
-              productoData?.IdGranja ??
-              "",
-          );
-
-        const municipioProducto =
-          stringValue(
-            item.IdMunicipalidad ??
-              productoData?.IdMunicipalidad ??
-              "",
-          );
-
-        const municipioProductoNombre =
-          municipiosMap.get(
-            municipioProducto,
-          ) ||
-          municipioProducto;
+        const cantidad =
+          positiveNumber(item.cantidad);
 
         /*
-         * ====================================================
-         * FILTRO PRODUCTO
-         * ====================================================
+         * Datos históricos congelados.
+         */
+        const ventas =
+          positiveNumber(
+            item.precioFinal ??
+              item.subtotal,
+          );
+
+        const costo =
+          positiveNumber(
+            item.costoTotal ??
+              item.costoPcc,
+          );
+
+        const utilidad =
+          numberValue(
+            item.utilidad ??
+              (ventas - costo),
+          );
+
+        const productorId =
+          stringValue(item.IdProductor) ||
+          stringValue(productoDoc?.IdProductor);
+
+        const municipioProductorId =
+          stringValue(item.IdMunicipalidad) ||
+          stringValue(
+            productoDoc?.IdMunicipalidad,
+          );
+
+        /*
+         * La categoría actualmente se obtiene del
+         * producto. Si posteriormente se quiere una
+         * trazabilidad histórica absoluta de categoría,
+         * también debe congelarse en el pedido.
+         */
+        const categoriaId =
+          stringValue(productoDoc?.categoria);
+
+        const categoriaNombre =
+          stringValue(
+            categoriasMap.get(categoriaId)?.nombre,
+          ) || categoriaId;
+
+        const productorNombre =
+          stringValue(
+            productoresMap.get(productorId)?.nombre,
+          ) || productorId;
+
+        /*
+         * ==============================================
+         * Filtros a nivel de producto
+         * ==============================================
          */
 
         if (
           producto &&
-          !(
-            matchesFilter(
-              productoId,
-              producto,
-            ) ||
-            matchesFilter(
-              code,
-              producto,
-            ) ||
-            matchesFilter(
-              nombre,
-              producto,
-            )
-          )
+          productoId !== producto
         ) {
           continue;
         }
-
-        /*
-         * ====================================================
-         * FILTRO CATEGORÍA
-         * ====================================================
-         */
 
         if (
           categoria &&
-          !matchesFilter(
-            categoriaProducto,
-            categoria,
-          )
+          categoriaId !== categoria
         ) {
           continue;
         }
-
-        /*
-         * ====================================================
-         * FILTRO GRANJA
-         * ====================================================
-         */
 
         if (
-          granja &&
-          !matchesFilter(
-            granjaProducto,
-            granja,
-          )
+          productor &&
+          productorId !== productor
         ) {
           continue;
         }
 
-        /*
-         * ====================================================
-         * FILTRO MUNICIPIO
-         * ====================================================
-         */
+        pedidoCoincide = true;
 
-        if (municipio) {
-          const coincideMunicipio =
-            matchesFilter(
-              municipioProducto,
-              municipio,
-            ) ||
-            matchesFilter(
-              municipioProductoNombre,
-              municipio,
-            ) ||
-            matchesFilter(
-              municipioEntregaId,
-              municipio,
-            ) ||
-            matchesFilter(
-              municipioEntregaNombre,
-              municipio,
-            );
+        pedidoVentas += ventas;
+        pedidoCostos += costo;
+        pedidoUtilidad += utilidad;
+        pedidoProductosVendidos += cantidad;
 
-          if (!coincideMunicipio) {
-            continue;
-          }
+        if (productorId) {
+          productoresPedido.add(productorId);
         }
 
-        pedidoTieneProductoFiltrado =
-          true;
-
-        const cantidad =
-          Math.max(
-            0,
-            numberValue(
-              item.cantidad,
-            ),
-          );
-
-        const subtotal =
-          Math.max(
-            0,
-            numberValue(
-              item.subtotal,
-            ),
-          );
-
-        pedidoUnidades +=
-          cantidad;
-
-        pedidoVentasProductos +=
-          subtotal;
-
         /*
-         * ====================================================
-         * PRODUCTO
-         * ====================================================
+         * ==============================================
+         * Estadísticas por producto
+         * ==============================================
          */
 
-        const existingProduct =
-          productosStats.get(
-            productoId,
-          );
+        const existing =
+          productosStats.get(productoId);
 
-        if (existingProduct) {
-          existingProduct.unidadesVendidas +=
-            cantidad;
-
-          existingProduct.ventas +=
-            subtotal;
+        if (existing) {
+          existing.cantidadVendida += cantidad;
+          existing.ventas += ventas;
+          existing.costo += costo;
+          existing.utilidad += utilidad;
         } else {
-          productosStats.set(
-            productoId,
-            {
-              productoId,
-              code,
-              nombre,
-              unidad,
-              categoria:
-                categoriaProducto,
-              IdGranja:
-                granjaProducto,
-              IdMunicipalidad:
-                municipioProducto,
-              unidadesVendidas:
-                cantidad,
-              ventas:
-                subtotal,
-            },
-          );
+          productosStats.set(productoId, {
+            id: productoId,
+            code,
+            nombre,
+            categoria: categoriaNombre,
+            unidad,
+            IdProductor: productorId,
+            productor: productorNombre,
+            IdMunicipalidad:
+              municipioProductorId,
+            municipalidad:
+              stringValue(
+                municipalidadesMap.get(
+                  municipioProductorId,
+                )?.nombre,
+              ) || municipioProductorId,
+            cantidadVendida: cantidad,
+            ventas,
+            costo,
+            utilidad,
+            stock: positiveNumber(
+              productoDoc?.stock,
+            ),
+          });
         }
 
         /*
-         * ====================================================
-         * GRANJA
-         * ====================================================
+         * ==============================================
+         * Estadísticas por productor
+         * ==============================================
          */
 
-        if (granjaProducto) {
-          const existingFarm =
-            granjasStats.get(
-              granjaProducto,
-            );
+        if (productorId) {
+          const current =
+            productoresStats.get(productorId);
 
-          if (existingFarm) {
-            existingFarm.unidadesVendidas +=
-              cantidad;
-
-            existingFarm.ventas +=
-              subtotal;
-
-            existingFarm.productos +=
-              1;
+          if (current) {
+            current.ventas += ventas;
+            current.costo += costo;
+            current.utilidad += utilidad;
+            current.productosVendidos += cantidad;
           } else {
-            granjasStats.set(
-              granjaProducto,
-              {
-                id:
-                  granjaProducto,
-                nombre:
-                  displayValue(
-                    granjaProducto,
-                  ),
-                unidadesVendidas:
-                  cantidad,
-                ventas:
-                  subtotal,
-                productos:
-                  1,
-                pedidos:
-                  0,
-              },
-            );
+            productoresStats.set(productorId, {
+              id: productorId,
+              nombre: productorNombre,
+              ventas,
+              costo,
+              utilidad,
+              productosVendidos: cantidad,
+              pedidos: 0,
+            });
           }
         }
 
         /*
-         * ====================================================
-         * MUNICIPIO PRODUCTOR
-         * ====================================================
+         * ==============================================
+         * Municipio del productor
+         * ==============================================
          */
 
-        if (municipioProducto) {
-          const existingMunicipality =
-            municipiosProductoresStats.get(
-              municipioProducto,
+        if (municipioProductorId) {
+          const municipalidad =
+            municipalidadesMap.get(
+              municipioProductorId,
             );
 
-          if (
-            existingMunicipality
-          ) {
-            existingMunicipality.unidadesVendidas +=
-              cantidad;
+          const current =
+            municipiosProductorStats.get(
+              municipioProductorId,
+            );
 
-            existingMunicipality.ventas +=
-              subtotal;
-
-            existingMunicipality.productos +=
-              1;
+          if (current) {
+            current.ventas += ventas;
           } else {
-            municipiosProductoresStats.set(
-              municipioProducto,
+            municipiosProductorStats.set(
+              municipioProductorId,
               {
-                id:
-                  municipioProducto,
+                id: municipioProductorId,
                 nombre:
-                  displayValue(
-                    municipioProductoNombre,
+                  stringValue(
+                    municipalidad?.nombre,
+                  ) || municipioProductorId,
+                departamento:
+                  stringValue(
+                    municipalidad?.departamento,
                   ),
-                unidadesVendidas:
-                  cantidad,
-                ventas:
-                  subtotal,
-                productos:
-                  1,
-                pedidos:
-                  0,
+                ventas,
+                pedidos: 0,
               },
             );
           }
         }
       }
 
-      if (
-        !pedidoTieneProductoFiltrado
-      ) {
+      /*
+       * ================================================
+       * El pedido solo cuenta si al menos un item
+       * cumple los filtros.
+       * ================================================
+       */
+
+      if (!pedidoCoincide) {
         continue;
       }
 
-      /*
-       * ======================================================
-       * RESUMEN
-       * ======================================================
-       */
+      pedidosEntregados += 1;
 
-      pedidosContabilizados += 1;
+      const usuarioId =
+        stringValue(pedido.usuarioId);
 
-      unidadesVendidas +=
-        pedidoUnidades;
-
-      ventasProductos +=
-        pedidoVentasProductos;
-
-      if (
-        producto ||
-        categoria ||
-        granja
-      ) {
-        ventasTotales +=
-          pedidoVentasProductos;
-      } else {
-        ventasTotales +=
-          totalPedido;
+      if (usuarioId) {
+        consumidores.add(usuarioId);
       }
 
+      ventasTotales += pedidoVentas;
+      costosTotales += pedidoCostos;
+      utilidadTotal += pedidoUtilidad;
+      productosVendidos += pedidoProductosVendidos;
+
       /*
-       * ======================================================
-       * GRANJAS -> PEDIDOS
-       * ======================================================
+       * ================================================
+       * Pedidos por productor
+       * ================================================
        */
 
-      const granjasDelPedido =
-        new Set<string>();
+      for (const productorId of productoresPedido) {
+        const current =
+          productoresStats.get(productorId);
 
-      for (
-        const itemUnknown of pedidoProductos
-      ) {
-        if (
-          !itemUnknown ||
-          typeof itemUnknown !==
-            "object"
-        ) {
-          continue;
-        }
-
-        const item =
-          itemUnknown as PedidoProducto;
-
-        const granjaId =
-          stringValue(
-            item.IdGranja,
-          );
-
-        if (
-          granjaId &&
-          granjasStats.has(
-            granjaId,
-          )
-        ) {
-          granjasDelPedido.add(
-            granjaId,
-          );
-        }
-      }
-
-      for (
-        const granjaId of granjasDelPedido
-      ) {
-        const farm =
-          granjasStats.get(
-            granjaId,
-          );
-
-        if (farm) {
-          farm.pedidos += 1;
+        if (current) {
+          current.pedidos += 1;
         }
       }
 
       /*
-       * ======================================================
-       * MUNICIPIOS PRODUCTORES -> PEDIDOS
-       * ======================================================
+       * ================================================
+       * Municipio de entrega
+       * ================================================
        */
 
-      const municipiosDelPedido =
-        new Set<string>();
-
-      for (
-        const itemUnknown of pedidoProductos
-      ) {
-        if (
-          !itemUnknown ||
-          typeof itemUnknown !==
-            "object"
-        ) {
-          continue;
-        }
-
-        const item =
-          itemUnknown as PedidoProducto;
-
-        const municipioId =
-          stringValue(
-            item.IdMunicipalidad,
+      if (pedidoMunicipioId) {
+        const municipalidad =
+          municipalidadesMap.get(
+            pedidoMunicipioId,
           );
 
-        if (
-          municipioId &&
-          municipiosProductoresStats.has(
-            municipioId,
-          )
-        ) {
-          municipiosDelPedido.add(
-            municipioId,
-          );
-        }
-      }
-
-      for (
-        const municipioId of municipiosDelPedido
-      ) {
-        const municipality =
-          municipiosProductoresStats.get(
-            municipioId,
-          );
-
-        if (municipality) {
-          municipality.pedidos += 1;
-        }
-      }
-
-      /*
-       * ======================================================
-       * MUNICIPIO DE ENTREGA
-       * ======================================================
-       */
-
-      if (municipioEntregaId) {
-        const existingMunicipality =
+        const current =
           municipiosEntregaStats.get(
-            municipioEntregaId,
+            pedidoMunicipioId,
           );
 
-        if (existingMunicipality) {
-          existingMunicipality.ventas +=
-            totalPedido;
-
-          existingMunicipality.pedidos +=
-            1;
-
-          existingMunicipality.unidadesVendidas +=
-            pedidoUnidades;
+        if (current) {
+          current.ventas += pedidoVentas;
+          current.pedidos += 1;
         } else {
           municipiosEntregaStats.set(
-            municipioEntregaId,
+            pedidoMunicipioId,
             {
-              id:
-                municipioEntregaId,
-
+              id: pedidoMunicipioId,
               nombre:
-                displayValue(
-                  municipioEntregaNombre,
+                stringValue(
+                  municipalidad?.nombre,
+                ) || pedidoMunicipioId,
+              departamento:
+                stringValue(
+                  municipalidad?.departamento,
                 ),
-
-              unidadesVendidas:
-                pedidoUnidades,
-
-              ventas:
-                totalPedido,
-
-              productos:
-                pedidoProductos.length,
-
-              pedidos:
-                1,
+              ventas: pedidoVentas,
+              pedidos: 1,
             },
           );
         }
       }
 
       /*
-       * ======================================================
-       * REPARTIDOR
-       * ======================================================
+       * ================================================
+       * Repartidor
+       * ================================================
        */
 
-      if (repartidorId) {
-        const existingDeliverer =
-          repartidoresStats.get(
-            repartidorId,
+      if (pedidoRepartidorId) {
+        const repartidorInfo =
+          repartidoresMap.get(
+            pedidoRepartidorId,
           );
 
-        if (existingDeliverer) {
-          existingDeliverer.pedidosEntregados +=
-            1;
+        const current =
+          repartidoresStats.get(
+            pedidoRepartidorId,
+          );
 
-          existingDeliverer.ventasGeneradas +=
-            totalPedido;
+        if (current) {
+          current.ventasGeneradas +=
+            pedidoVentas;
+
+          current.pedidosEntregados += 1;
         } else {
           repartidoresStats.set(
-            repartidorId,
+            pedidoRepartidorId,
             {
-              id:
-                repartidorId,
-
+              id: pedidoRepartidorId,
               nombre:
-                displayValue(
-                  repartidoresMap.get(
-                    repartidorId,
-                  ) ||
-                    repartidorId,
-                ),
-
-              pedidosEntregados:
-                1,
-
-              ventasGeneradas:
-                totalPedido,
+                repartidorInfo?.nombre ??
+                pedidoRepartidorId,
+              correo:
+                repartidorInfo?.correo ?? "",
+              ventasGeneradas: pedidoVentas,
+              pedidosEntregados: 1,
             },
           );
         }
@@ -1627,165 +910,208 @@ export async function GET(request: Request) {
     }
 
     /*
-     * ========================================================
-     * ORDENAR
-     * ========================================================
+     * ================================================
+     * Catálogo actual
+     *
+     * Estos valores son actuales y NO se utilizan
+     * para calcular ventas históricas.
+     * ================================================
      */
 
-    const productosMasVendidos =
-      [...productosStats.values()]
-        .sort(
-          (a, b) =>
-            b.unidadesVendidas -
-            a.unidadesVendidas,
-        );
+    const catalogoProductos =
+      productosSnapshot.docs.map((doc) => {
+        const product =
+          doc.data() as ProductoDocumento;
 
-    const productosPorIngresos =
-      [...productosStats.values()]
-        .sort(
-          (a, b) =>
-            b.ventas -
-            a.ventas,
-        );
+        const productorId =
+          stringValue(product.IdProductor);
 
-    const granjas =
-      [...granjasStats.values()]
-        .sort(
-          (a, b) =>
-            b.unidadesVendidas -
-            a.unidadesVendidas,
-        );
+        const municipioId =
+          stringValue(product.IdMunicipalidad);
 
-    const municipiosProductores =
-      [
-        ...municipiosProductoresStats.values(),
-      ].sort(
-        (a, b) =>
-          b.unidadesVendidas -
-          a.unidadesVendidas,
-      );
+        const categoriaId =
+          stringValue(product.categoria);
 
-    const municipiosEntrega =
-      [
-        ...municipiosEntregaStats.values(),
-      ].sort(
-        (a, b) =>
-          b.ventas -
-          a.ventas,
-      );
+        return {
+          id: doc.id,
+          code: stringValue(product.code),
+          nombre: stringValue(product.nombre),
 
-    const repartidores =
-      [...repartidoresStats.values()]
-        .sort(
-          (a, b) =>
-            b.pedidosEntregados -
-            a.pedidosEntregados,
-        );
+          categoria:
+            stringValue(
+              categoriasMap.get(
+                categoriaId,
+              )?.nombre,
+            ) || categoriaId,
+
+          IdProductor: productorId,
+
+          productor:
+            stringValue(
+              productoresMap.get(
+                productorId,
+              )?.nombre,
+            ) || productorId,
+
+          IdMunicipalidad: municipioId,
+
+          municipalidad:
+            stringValue(
+              municipalidadesMap.get(
+                municipioId,
+              )?.nombre,
+            ) || municipioId,
+
+          precio:
+            numberValue(product.precio),
+
+          precioVenta:
+            numberValue(product.precioVenta),
+
+          costoPcc:
+            numberValue(product.costoPcc),
+
+          stock:
+            numberValue(product.stock),
+
+          activo:
+            product.activo === true,
+
+          unidad:
+            stringValue(product.unidad),
+        };
+      });
 
     /*
-     * ========================================================
-     * FINANZAS
-     * ========================================================
+     * ================================================
+     * Catálogos para filtros
+     * ================================================
      */
 
-    const finanzas = {
-      productos: {
-        disponible: true,
-        ventas:
-          ventasProductos,
-        costo: null,
-        ganancia:
-          ventasProductos,
-        mensaje:
-          "Actualmente se registra el valor de venta de los productos, pero no su costo de adquisición. Por tanto, este valor representa ingresos por productos, no utilidad neta.",
-      } satisfies Finanzas,
+    const catalogoProductores =
+      productoresSnapshot.docs.map((doc) => {
+        const data =
+          doc.data() as ProductorDocumento;
 
-      logistica: {
-        disponible: false,
-        ventas: 0,
-        costo: 0,
-        ganancia: 0,
-        mensaje:
-          "Todavía no existen campos de logística registrados en los pedidos.",
-      } satisfies Finanzas,
+        return {
+          id: doc.id,
+          nombre:
+            stringValue(data.nombre) || doc.id,
+          activo: data.activo === true,
+        };
+      });
 
-      almacenamiento: {
-        disponible: false,
-        ventas: 0,
-        costo: 0,
-        ganancia: 0,
-        mensaje:
-          "Todavía no existen campos de almacenamiento registrados en los pedidos.",
-      } satisfies Finanzas,
+    const catalogoMunicipalidades =
+      municipalidadesSnapshot.docs.map((doc) => {
+        const data =
+          doc.data() as MunicipalidadDocumento;
 
-      entrega: {
-        disponible: false,
-        ventas: 0,
-        costo: 0,
-        ganancia: 0,
-        mensaje:
-          "Todavía no existe un valor económico de entrega registrado por pedido o repartidor.",
-      } satisfies Finanzas,
-    };
+        return {
+          id: doc.id,
+          nombre:
+            stringValue(data.nombre) || doc.id,
+          departamento:
+            stringValue(data.departamento),
+          activo: data.activo === true,
+        };
+      });
+
+    const catalogoCategorias =
+      categoriasSnapshot.docs.map((doc) => {
+        const data =
+          doc.data() as CategoriaDocumento;
+
+        return {
+          id: doc.id,
+          nombre:
+            stringValue(data.nombre) || doc.id,
+          activo: data.activo === true,
+        };
+      });
 
     /*
-     * ========================================================
-     * RESPUESTA
-     * ========================================================
+     * ================================================
+     * Resultados
+     * ================================================
      */
+
+    const productos = [
+      ...productosStats.values(),
+    ].sort(
+      (a, b) => b.ventas - a.ventas,
+    );
+
+    const productores = [
+      ...productoresStats.values(),
+    ].sort(
+      (a, b) => b.ventas - a.ventas,
+    );
+
+    const municipiosProductores = [
+      ...municipiosProductorStats.values(),
+    ].sort(
+      (a, b) => b.ventas - a.ventas,
+    );
+
+    const municipiosEntrega = [
+      ...municipiosEntregaStats.values(),
+    ].sort(
+      (a, b) => b.ventas - a.ventas,
+    );
+
+    const repartidores = [
+      ...repartidoresStats.values(),
+    ].sort(
+      (a, b) =>
+        b.ventasGeneradas -
+        a.ventasGeneradas,
+    );
+
+    const margen =
+      ventasTotales > 0
+        ? (utilidadTotal / ventasTotales) * 100
+        : 0;
+
+    const stockActual =
+      catalogoProductos.reduce(
+        (total, product) =>
+          total + product.stock,
+        0,
+      );
+
+    const productosActivos =
+      catalogoProductos.filter(
+        (product) => product.activo,
+      ).length;
 
     return NextResponse.json({
       success: true,
 
       filtros: {
-        fechaDesde:
-          fechaDesdeParam || null,
-        fechaHasta:
-          fechaHastaParam || null,
-        categoria:
-          categoria || null,
-        producto:
-          producto || null,
-        granja:
-          granja || null,
-        municipio:
-          municipio || null,
-        repartidor:
-          repartidor || null,
+        categoria,
+        producto,
+        productor,
+        municipio,
+        repartidor,
+        desde: desdeValue,
+        hasta: hastaValue,
       },
 
       resumen: {
-        pedidos:
-          pedidosContabilizados,
-
-        unidadesVendidas,
-
-        gananciasProductos:
-          ventasProductos,
-
-        gananciasLogistica:
-          0,
-
-        gananciasAlmacenamiento:
-          0,
-
-        gananciasEntrega:
-          0,
-
-        gananciasTotales:
-          ventasTotales,
-
-        ingresosTotales:
-          ventasTotales,
+        ventasTotales,
+        costosTotales,
+        utilidadTotal,
+        margen,
+        pedidosEntregados,
+        productosVendidos,
+        consumidores: consumidores.size,
+        productosActivos,
+        stockActual,
       },
 
-      finanzas,
+      productos,
 
-      productosMasVendidos,
-
-      productosPorIngresos,
-
-      granjas,
+      productores,
 
       municipios: {
         productores:
@@ -1796,71 +1122,19 @@ export async function GET(request: Request) {
 
       repartidores,
 
-      /*
-       * ======================================================
-       * CATÁLOGOS PARA FILTROS
-       * ======================================================
-       */
-
-      catalogos: {
-  productos: catalogoProductos,
-
-  categorias: catalogoCategorias,
-
-  granjas: catalogoGranjas,
-
-  municipios: [
-    ...municipiosUnicos.values(),
-  ].sort(
-    (a, b) =>
-      a.nombre.localeCompare(
-        b.nombre,
-        "es",
-      ),
-  ),
-
-  repartidores: catalogoRepartidores,
-},
-
-      /*
-       * ======================================================
-       * INFORMACIÓN DEL CATÁLOGO
-       * ======================================================
-       */
-
-      catalogo: {
-        productosActivos,
-
-        stockActual:
-          stockActualCatalogo,
-
-        ofertaHistoricaDisponible:
-          false,
-
-        mensaje:
-          "El sistema actualmente almacena el stock actual, pero no registra un histórico de cantidades ofrecidas. No se calcula oferta histórica a partir del stock actual.",
+      finanzas: {
+        ventas: ventasTotales,
+        costos: costosTotales,
+        utilidad: utilidadTotal,
+        margen,
       },
 
-      metadata: {
-        estadosContabilizados: [
-          "entregado",
-        ],
-
-        estadosExcluidos: [
-          "pendiente",
-          "asignado",
-          "en_camino",
-          "cancelado",
-        ],
-
-        totalPedidosEncontrados:
-          pedidosSnapshot.size,
-
-        totalProductosCatalogo:
-          productosMap.size,
-
-        totalRepartidores:
-          repartidoresMap.size,
+      catalogos: {
+        productos: catalogoProductos,
+        productores: catalogoProductores,
+        municipalidades:
+          catalogoMunicipalidades,
+        categorias: catalogoCategorias,
       },
     });
   } catch (error) {
@@ -1868,26 +1142,6 @@ export async function GET(request: Request) {
       "Error obteniendo estadísticas del dashboard:",
       error,
     );
-
-    if (
-      error instanceof Error
-    ) {
-      switch (
-        error.message
-      ) {
-        case "NO_AUTH":
-          return errorResponse(
-            "Debes iniciar sesión.",
-            401,
-          );
-
-        case "FORBIDDEN":
-          return errorResponse(
-            "No tienes permiso para consultar las estadísticas.",
-            403,
-          );
-      }
-    }
 
     return errorResponse(
       "No fue posible obtener las estadísticas.",

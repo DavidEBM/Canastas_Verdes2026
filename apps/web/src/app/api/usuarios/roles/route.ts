@@ -5,11 +5,17 @@ import { requireAdmin } from "@/lib/require-admin";
 
 export const runtime = "nodejs";
 
-const ROLES = ["usuario", "repartidor", "admin"] as const;
+const ROLES = [
+  "consumidor",
+  "repartidor",
+  "admin",
+] as const;
 
 type Role = (typeof ROLES)[number];
 
-function isRole(value: unknown): value is Role {
+function isRole(
+  value: unknown,
+): value is Role {
   return (
     typeof value === "string" &&
     ROLES.includes(value as Role)
@@ -93,13 +99,13 @@ export async function GET(request: Request) {
               ? data.Rol
                   .trim()
                   .toLowerCase()
-              : "usuario";
+              : "consumidor";
 
           const role: Role = isRole(
             firestoreRole,
           )
             ? firestoreRole
-            : "usuario";
+            : "consumidor";
 
           return {
             uid: user.uid,

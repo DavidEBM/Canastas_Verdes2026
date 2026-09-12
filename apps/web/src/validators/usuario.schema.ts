@@ -4,7 +4,7 @@ import { z } from "zod";
  * Roles disponibles dentro del sistema.
  */
 export const rolUsuarioSchema = z.enum([
-  "usuario",
+  "consumidor",
   "repartidor",
   "admin",
 ]);
@@ -80,7 +80,7 @@ export type UsuarioInput = z.infer<
  * Datos permitidos durante el registro.
  *
  * El usuario NO puede elegir su propio rol.
- * Todo usuario nuevo comienza como cliente.
+ * Todo usuario nuevo comienza como consumidor.
  */
 export const registroUsuarioSchema = z.object({
   nombre: z

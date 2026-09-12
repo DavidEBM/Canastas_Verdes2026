@@ -45,7 +45,7 @@ function product(
       input.activo !== false &&
       input.activo !== "false" &&
       input.activo !== "FALSE",
-    IdGranja: text(input.IdGranja),
+    IdProductor: text(input.IdProductor),
     IdMunicipalidad: text(
       input.IdMunicipalidad,
     ),

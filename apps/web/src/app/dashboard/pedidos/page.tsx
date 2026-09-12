@@ -24,7 +24,7 @@ interface PedidoProducto {
   precioUnitario: number;
   subtotal: number;
   unidad: string;
-  IdGranja: string;
+  IdProductor: string;
   IdMunicipalidad: string;
 }
 

@@ -362,7 +362,7 @@ export async function GET(
      *
      * Solo puede consultar sus propios pedidos.
      */
-    else if (role === "usuario") {
+    else if (role === "consumidor") {
       if (
         !usuarioId ||
         usuarioId !== uid

@@ -52,17 +52,41 @@ export default function Navbar() {
   return (
     <header className="sticky top-0 z-50 border-b border-[var(--border)] bg-[var(--background)]/90 backdrop-blur">
       <nav
-        className="mx-auto flex min-h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8"
+        className="relative mx-auto flex min-h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8"
         aria-label="Navegación principal"
       >
-        {/* Logo */}
+        {/* Marca */}
         <Link
           href="/"
           onClick={closeMenu}
-          className="flex shrink-0 items-center"
+          className="flex min-w-0 shrink-0 items-center gap-2"
           aria-label="Canastas Verdes - Inicio"
         >
-          <span className="text-xl font-bold tracking-tight text-[var(--foreground)] sm:text-2xl">
+          {/* Logo único */}
+          <span
+            className="
+              relative h-10 w-10 shrink-0 overflow-hidden rounded-full
+              border border-[var(--border)] bg-[var(--surface)]
+              md:static
+              max-md:absolute max-md:left-1/2 max-md:top-1/2
+              max-md:-translate-x-1/2 max-md:-translate-y-1/2
+            "
+          >
+            <img
+              src="/images/logo.webp"
+              alt="Logo de Canastas Verdes"
+              className="h-full w-full object-cover"
+            />
+          </span>
+
+          {/* Nombre */}
+          <span
+            className="
+              text-xl font-bold tracking-tight
+              text-[var(--foreground)]
+              sm:text-2xl
+            "
+          >
             Canastas{" "}
             <span className="text-[var(--primary)]">
               Verdes
@@ -149,8 +173,8 @@ export default function Navbar() {
           </button>
 
           {/* Autenticación */}
-          {!authLoading && (
-            user ? (
+          {!authLoading &&
+            (user ? (
               <Link
                 href="/perfil"
                 className="rounded-lg border border-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)] hover:text-[var(--primary-foreground)]"
@@ -164,12 +188,12 @@ export default function Navbar() {
               >
                 Iniciar sesión
               </Link>
-            )
-          )}
+            ))}
         </div>
 
         {/* Controles móviles */}
-        <div className="flex items-center gap-2 md:hidden">
+        <div className="ml-auto flex items-center gap-2 md:hidden">
+          {/* Cesta */}
           <button
             type="button"
             onClick={openCart}
@@ -203,6 +227,7 @@ export default function Navbar() {
             )}
           </button>
 
+          {/* Menú */}
           <button
             type="button"
             className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"

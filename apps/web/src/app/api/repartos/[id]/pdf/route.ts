@@ -710,10 +710,10 @@ export async function GET(
                 item.unidad ??
                   item.presentacion,
               ),
-
-            IdGranja:
+              
+              IdProductor:
               normalizarTexto(
-                item.IdGranja,
+                item.IdProductor,
               ),
 
             IdMunicipalidad:

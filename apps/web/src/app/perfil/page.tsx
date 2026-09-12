@@ -49,8 +49,11 @@ function roleLabel(role: string) {
     case "repartidor":
       return "Repartidor";
 
+    case "consumidor":
+      return "Consumidor";
+
     default:
-      return "Usuario";
+      return "Consumidor";
   }
 }
 
@@ -205,7 +208,7 @@ export default function PerfilPage() {
           Rol:
             typeof data.Rol === "string"
               ? data.Rol.trim().toLowerCase()
-              : "usuario",
+              : "consumidor",
         });
       } catch (caught) {
         setError(

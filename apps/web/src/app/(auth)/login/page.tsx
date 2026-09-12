@@ -16,7 +16,7 @@ import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 
 type UserRole =
-  | "usuario"
+  | "consumidor"
   | "repartidor"
   | "admin";
 
@@ -35,7 +35,7 @@ function normalizeRole(
     .toLowerCase();
 
   if (
-    role === "usuario" ||
+    role === "consumidor" ||
     role === "repartidor" ||
     role === "admin"
   ) {
@@ -134,7 +134,7 @@ function redirectByRole(
       );
       break;
 
-    case "usuario":
+    case "consumidor":
     default:
       router.push("/");
       break;

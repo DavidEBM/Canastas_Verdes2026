@@ -19,7 +19,7 @@ const ESTADOS = [
 type Estado = (typeof ESTADOS)[number];
 
 type Rol =
-  | "usuario"
+  | "consumidor"
   | "repartidor"
   | "admin";
 
@@ -80,7 +80,7 @@ function normalizeRole(
   if (
     typeof value !== "string"
   ) {
-    return "usuario";
+    return "consumidor";
   }
 
   const role =
@@ -98,7 +98,7 @@ function normalizeRole(
     return "repartidor";
   }
 
-  return "usuario";
+  return "consumidor";
 }
 
 function roleFromClaims(
@@ -193,7 +193,7 @@ async function authenticate(
             usuarioData.role,
         );
     } else {
-      role = "usuario";
+      role = "consumidor";
     }
   }
 
@@ -430,7 +430,7 @@ export async function PATCH(
      */
 
     if (
-      role === "usuario"
+      role === "consumidor"
     ) {
       return errorResponse(
         "No tienes permiso para modificar pedidos.",

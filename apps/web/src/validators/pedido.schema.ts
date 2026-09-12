@@ -37,9 +37,9 @@ export const pedidoProductoSchema = z.object({
     .string()
     .min(1, "La unidad es obligatoria"),
 
-  IdGranja: z
+  IdProductor: z
     .string()
-    .min(1, "La granja es obligatoria"),
+    .min(1, "El productor es obligatorio"),
 
   IdMunicipalidad: z
     .string()

@@ -104,7 +104,7 @@ function errorResponse(error: unknown) {
 | El UID utilizado como ID del documento es exactamente
 | el UID generado por Firebase Authentication.
 |
-| El rol inicial siempre será "usuario".
+| El rol inicial siempre será "consumidor".
 |
 |--------------------------------------------------------------------------
 */
@@ -291,7 +291,7 @@ export async function POST(request: Request) {
       Correo: correo,
       Telefono: telefono,
       Direccion: direccion,
-      Rol: "usuario",
+      Rol: "consumidor",
       ultimaActualizacion: new Date(),
     });
 
@@ -319,7 +319,7 @@ export async function POST(request: Request) {
           Correo: correo,
           Telefono: telefono,
           Direccion: direccion,
-          Rol: "usuario",
+          Rol: "consumidor",
         },
       },
       { status: 201 },
@@ -402,7 +402,7 @@ export async function GET(request: Request) {
         Rol:
           typeof data?.Rol === "string"
             ? data.Rol
-            : "usuario",
+            : "consumidor",
       },
     });
   } catch (error) {
@@ -594,4 +594,3 @@ export async function PUT(request: Request) {
     return errorResponse(error);
   }
 }
-

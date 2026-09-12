@@ -8,7 +8,6 @@ import {
   where,
   type DocumentData,
   type DocumentSnapshot,
-  type QueryDocumentSnapshot,
   type Timestamp,
 } from "firebase/firestore";
 
@@ -51,13 +50,13 @@ export interface PedidoProducto {
   IdPresentacion: string;
 
   /**
-   * Referencia a la granja productora.
+   * Referencia al productor.
    */
-  IdGranja: string;
+  IdProductor: string;
 
   /**
    * Municipalidad donde se encuentra
-   * la granja productora.
+   * el productor.
    */
   IdMunicipalidad: string;
 }
@@ -132,8 +131,8 @@ function mapPedido(
             IdPresentacion:
               producto.IdPresentacion ?? "",
 
-            IdGranja:
-              producto.IdGranja ?? "",
+            IdProductor:
+              producto.IdProductor ?? "",
 
             IdMunicipalidad:
               producto.IdMunicipalidad ?? "",

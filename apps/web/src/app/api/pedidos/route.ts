@@ -219,7 +219,7 @@ export async function GET(
       FirebaseFirestore.Query =
       adminDb.collection("pedidos");
 
-    if (role === "usuario") {
+    if (role === "consumidor") {
       pedidosQuery =
         pedidosQuery.where(
           "usuarioId",

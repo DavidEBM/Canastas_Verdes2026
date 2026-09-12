@@ -54,9 +54,7 @@ function parseItems(value: unknown): CheckoutItem[] | null {
       return null;
     }
 
-    const current =
-      quantities.get(productId) ?? 0;
-
+    const current = quantities.get(productId) ?? 0;
     const next = current + quantity;
 
     if (next > 999) {
@@ -104,8 +102,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const user =
-      await adminAuth.verifyIdToken(token);
+    const user = await adminAuth.verifyIdToken(token);
 
     /*
      * ================================================
@@ -113,13 +110,9 @@ export async function POST(request: Request) {
      * ================================================
      */
 
-    const body: unknown =
-      await request.json();
+    const body: unknown = await request.json();
 
-    if (
-      !body ||
-      typeof body !== "object"
-    ) {
+    if (!body || typeof body !== "object") {
       return errorResponse(
         "Solicitud inválida.",
         400,
@@ -175,277 +168,265 @@ export async function POST(request: Request) {
      * ================================================
      * Transacción
      * ================================================
-     *
-     * La lectura y modificación del stock,
-     * la reserva y el pedido ocurren de forma
-     * atómica.
      */
 
-    const result =
-      await adminDb.runTransaction(
-        async (transaction) => {
-          const productRefs = items.map(
-            (item) =>
-              adminDb
-                .collection("productos")
-                .doc(item.productId),
+    const result = await adminDb.runTransaction(
+      async (transaction) => {
+        const productRefs = items.map(
+          (item) =>
+            adminDb
+              .collection("productos")
+              .doc(item.productId),
+        );
+
+        /*
+         * Leer primero todos los productos.
+         */
+
+        const productSnapshots = [];
+
+        for (const ref of productRefs) {
+          productSnapshots.push(
+            await transaction.get(ref),
+          );
+        }
+
+        const productos: Array<
+          Record<string, unknown>
+        > = [];
+
+        let subtotal = 0;
+
+        /*
+         * ==========================================
+         * Validar productos y stock
+         * ==========================================
+         */
+
+        for (
+          let index = 0;
+          index < items.length;
+          index += 1
+        ) {
+          const snapshot =
+            productSnapshots[index];
+
+          const item = items[index];
+
+          if (!snapshot.exists) {
+            throw new Error(
+              "PRODUCT_NOT_FOUND",
+            );
+          }
+
+          const product = snapshot.data();
+
+          if (!product) {
+            throw new Error(
+              "PRODUCT_INVALID",
+            );
+          }
+
+          const stock = Number(
+            product.stock ?? 0,
           );
 
-          /*
-           * Leer primero todos los productos.
-           */
-
-          const productSnapshots = [];
-
-          for (const ref of productRefs) {
-            productSnapshots.push(
-              await transaction.get(ref),
-            );
-          }
-
-          const productos: Array<
-            Record<string, unknown>
-          > = [];
-
-          let subtotal = 0;
-
-          /*
-           * ==========================================
-           * Validar productos y stock
-           * ==========================================
-           */
-
-          for (
-            let index = 0;
-            index < items.length;
-            index += 1
-          ) {
-            const snapshot =
-              productSnapshots[index];
-
-            const item = items[index];
-
-            if (!snapshot.exists) {
-              throw new Error(
-                "PRODUCT_NOT_FOUND",
-              );
-            }
-
-            const product =
-              snapshot.data();
-
-            if (!product) {
-              throw new Error(
-                "PRODUCT_INVALID",
-              );
-            }
-
-            const stock = Number(
-              product.stock ?? 0,
-            );
-
-            const precio = Number(
-              product.precio ?? 0,
-            );
-
-            if (
-              !Number.isInteger(stock) ||
-              stock < 0
-            ) {
-              throw new Error(
-                "INVALID_STOCK",
-              );
-            }
-
-            if (
-              product.activo !== true
-            ) {
-              throw new Error(
-                `El producto "${String(
-                  product.nombre ??
-                    item.productId,
-                )}" no está disponible.`,
-              );
-            }
-
-            if (
-              stock < item.quantity
-            ) {
-              throw new Error(
-                `No hay stock suficiente para ${String(
-                  product.nombre ??
-                    item.productId,
-                )}.`,
-              );
-            }
-
-            if (
-              !Number.isFinite(precio) ||
-              precio < 0
-            ) {
-              throw new Error(
-                "INVALID_PRICE",
-              );
-            }
-
-            const lineSubtotal =
-              precio * item.quantity;
-
-            subtotal += lineSubtotal;
-
-            productos.push({
-              productoId:
-                item.productId,
-
-              code: String(
-                product.code ?? "",
-              ),
-
-              nombre: String(
-                product.nombre ?? "",
-              ),
-
-              cantidad:
-                item.quantity,
-
-              precioUnitario:
-                precio,
-
-              subtotal:
-                lineSubtotal,
-
-              unidad: String(
-                product.unidad ?? "",
-              ),
-
-              IdGranja: String(
-                product.IdGranja ?? "",
-              ),
-
-              IdMunicipalidad:
-                String(
-                  product.IdMunicipalidad ??
-                    "",
-                ),
-            });
-          }
-
-          /*
-           * ==========================================
-           * Actualizar stock
-           * ==========================================
-           */
-
-          for (
-            let index = 0;
-            index < items.length;
-            index += 1
-          ) {
-            const snapshot =
-              productSnapshots[index];
-
-            const item = items[index];
-
-            const product =
-              snapshot.data();
-
-            const stock =
-              Number(
-                product?.stock ?? 0,
-              );
-
-            transaction.update(
-              productRefs[index],
-              {
-                stock:
-                  stock -
-                  item.quantity,
-
-                ultimaActualizacion:
-                  FieldValue.serverTimestamp(),
-              },
-            );
-          }
-
-          /*
-           * ==========================================
-           * Crear reserva
-           * ==========================================
-           */
-
-          transaction.set(
-            reservationRef,
-            {
-              userId: user.uid,
-
-              items,
-
-              status: "confirmed",
-
-              pedidoId:
-                pedidoRef.id,
-
-              createdAt:
-                FieldValue.serverTimestamp(),
-
-              confirmedAt:
-                FieldValue.serverTimestamp(),
-            },
+          const precio = Number(
+            product.precio ?? 0,
           );
 
-          /*
-           * ==========================================
-           * Crear pedido
-           * ==========================================
-           */
+          if (
+            !Number.isInteger(stock) ||
+            stock < 0
+          ) {
+            throw new Error(
+              "INVALID_STOCK",
+            );
+          }
 
-          transaction.set(
-            pedidoRef,
+          if (product.activo !== true) {
+            throw new Error(
+              `El producto "${String(
+                product.nombre ??
+                  item.productId,
+              )}" no está disponible.`,
+            );
+          }
+
+          if (stock < item.quantity) {
+            throw new Error(
+              `No hay stock suficiente para ${String(
+                product.nombre ??
+                  item.productId,
+              )}.`,
+            );
+          }
+
+          if (
+            !Number.isFinite(precio) ||
+            precio < 0
+          ) {
+            throw new Error(
+              "INVALID_PRICE",
+            );
+          }
+
+          const lineSubtotal =
+            precio * item.quantity;
+
+          subtotal += lineSubtotal;
+
+          productos.push({
+            productoId:
+              item.productId,
+
+            code: String(
+              product.code ?? "",
+            ),
+
+            nombre: String(
+              product.nombre ?? "",
+            ),
+
+            cantidad:
+              item.quantity,
+
+            precioUnitario:
+              precio,
+
+            subtotal:
+              lineSubtotal,
+
+            unidad: String(
+              product.unidad ?? "",
+            ),
+
+            IdProductor: String(
+              product.IdProductor ?? "",
+            ),
+
+            IdMunicipalidad:
+              String(
+                product.IdMunicipalidad ??
+                  "",
+              ),
+          });
+        }
+
+        /*
+         * ==========================================
+         * Actualizar stock
+         * ==========================================
+         */
+
+        for (
+          let index = 0;
+          index < items.length;
+          index += 1
+        ) {
+          const snapshot =
+            productSnapshots[index];
+
+          const item = items[index];
+
+          const product =
+            snapshot.data();
+
+          const stock = Number(
+            product?.stock ?? 0,
+          );
+
+          transaction.update(
+            productRefs[index],
             {
-              usuarioId:
-                user.uid,
-
-              productos,
-
-              subtotal,
-
-              total: subtotal,
-
-              estado:
-                "pendiente",
-
-              reservaId:
-                reservationRef.id,
-
-              IdMunicipalidad:
-                municipality,
-
-              direccionEntrega:
-                address,
-
-              repartidorId:
-                null,
-
-              fechaCreacion:
-                FieldValue.serverTimestamp(),
+              stock:
+                stock - item.quantity,
 
               ultimaActualizacion:
                 FieldValue.serverTimestamp(),
-
-              fechaCancelacion:
-                null,
             },
           );
+        }
 
-          return {
+        /*
+         * ==========================================
+         * Crear reserva
+         * ==========================================
+         */
+
+        transaction.set(
+          reservationRef,
+          {
+            userId: user.uid,
+
+            items,
+
+            status: "confirmed",
+
             pedidoId:
               pedidoRef.id,
 
-            total:
-              subtotal,
-          };
-        },
-      );
+            createdAt:
+              FieldValue.serverTimestamp(),
+
+            confirmedAt:
+              FieldValue.serverTimestamp(),
+          },
+        );
+
+        /*
+         * ==========================================
+         * Crear pedido
+         * ==========================================
+         */
+
+        transaction.set(
+          pedidoRef,
+          {
+            usuarioId:
+              user.uid,
+
+            productos,
+
+            subtotal,
+
+            total: subtotal,
+
+            estado:
+              "pendiente",
+
+            reservaId:
+              reservationRef.id,
+
+            IdMunicipalidad:
+              municipality,
+
+            direccionEntrega:
+              address,
+
+            repartidorId:
+              null,
+
+            fechaCreacion:
+              FieldValue.serverTimestamp(),
+
+            ultimaActualizacion:
+              FieldValue.serverTimestamp(),
+
+            fechaCancelacion:
+              null,
+          },
+        );
+
+        return {
+          pedidoId:
+            pedidoRef.id,
+
+          total:
+            subtotal,
+        };
+      },
+    );
 
     return NextResponse.json(
       {
@@ -486,11 +467,6 @@ export async function POST(request: Request) {
             409,
           );
       }
-
-      /*
-       * Los mensajes de negocio generados
-       * durante la validación del stock.
-       */
 
       if (
         error.message.startsWith(

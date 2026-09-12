@@ -1,141 +1,142 @@
-import { NextRequest, NextResponse } from "next/server";
-import { FieldValue } from "firebase-admin/firestore";
+import { NextResponse } from "next/server";
+import {
+  FieldValue,
+} from "firebase-admin/firestore";
 
-import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import {
+  adminAuth,
+  adminDb,
+} from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 
-type MetodoFirma = "manuscrita" | "texto";
-type RolUsuario = "admin" | "repartidor" | "usuario";
+type Rol =
+  | "consumidor"
+  | "repartidor"
+  | "admin";
 
-interface RecibidoBody {
-  metodo: MetodoFirma;
+type RecibidoBody = {
+  metodo: "manuscrita" | "texto";
   valor: string;
   recibidoPor?: string;
+};
+
+type ProductoDocumento = {
+  code?: unknown;
+  nombre?: unknown;
+  categoria?: unknown;
+  unidad?: unknown;
+  precio?: unknown;
+  precioVenta?: unknown;
+  costoPcc?: unknown;
+  porcentajeLogistica?: unknown;
+  porcentajeTransporte?: unknown;
+  IdProductor?: unknown;
+  IdMunicipalidad?: unknown;
+};
+
+type PedidoProducto = {
+  productoId?: unknown;
+  code?: unknown;
+  nombre?: unknown;
+  cantidad?: unknown;
+  precioUnitario?: unknown;
+  subtotal?: unknown;
+  unidad?: unknown;
+  IdProductor?: unknown;
+  IdMunicipalidad?: unknown;
+};
+
+type PedidoDocumento = {
+  estado?: unknown;
+  repartidorId?: unknown;
+  productos?: unknown;
+};
+
+type CatalogoDocumento = {
+  nombre?: unknown;
+};
+
+function stringValue(value: unknown): string {
+  return typeof value === "string"
+    ? value.trim()
+    : "";
 }
 
-function getBearerToken(request: NextRequest): string | null {
-  const authorization = request.headers.get("authorization");
+function numberValue(value: unknown): number {
+  const valueNumber = Number(value ?? 0);
 
-  if (!authorization?.startsWith("Bearer ")) {
-    return null;
-  }
-
-  return authorization.slice(7).trim() || null;
+  return Number.isFinite(valueNumber)
+    ? valueNumber
+    : 0;
 }
 
-/**
- * Normaliza el valor del rol para soportar:
- * - role
- * - rol
- * - Rol
- *
- * El sistema utiliza principalmente "Rol" en Firestore.
- */
-function normalizarRol(value: unknown): RolUsuario | null {
-  if (typeof value !== "string") {
-    return null;
+function porcentaje(value: unknown): number {
+  const number = numberValue(value);
+
+  if (number <= 0) {
+    return 0;
   }
 
-  const rol = value.trim().toLowerCase();
+  return number > 1
+    ? number / 100
+    : number;
+}
 
-  if (rol === "admin") {
-    return "admin";
-  }
+function normalizeRole(
+  value: unknown,
+): Rol | null {
+  const role =
+    stringValue(value).toLowerCase();
 
-  if (rol === "repartidor") {
-    return "repartidor";
-  }
-
-  if (rol === "usuario") {
-    return "usuario";
+  if (
+    role === "admin" ||
+    role === "repartidor" ||
+    role === "consumidor"
+  ) {
+    return role;
   }
 
   return null;
 }
 
-/**
- * Obtiene el rol desde los custom claims del usuario.
- */
-function obtenerRolDesdeClaims(
-  claims: Record<string, unknown>,
-): RolUsuario | null {
-  return (
-    normalizarRol(claims.role) ??
-    normalizarRol(claims.rol) ??
-    normalizarRol(claims.Rol)
-  );
-}
-
-/**
- * Obtiene el rol del usuario desde Firestore.
- *
- * Esto es necesario porque en Canastas Verdes el rol se encuentra
- * almacenado en usuarios/{uid}.Rol y no necesariamente está
- * presente como custom claim de Firebase Auth.
- */
-async function obtenerRol(
-  uid: string,
-  claims: Record<string, unknown>,
-): Promise<RolUsuario | null> {
-  // Primero intentamos utilizar el custom claim.
-  const rolClaims = obtenerRolDesdeClaims(claims);
-
-  if (rolClaims) {
-    return rolClaims;
-  }
-
-  // Si no existe, consultamos Firestore.
-  const usuarioSnap = await adminDb
-    .collection("usuarios")
-    .doc(uid)
-    .get();
-
-  if (!usuarioSnap.exists) {
-    return null;
-  }
-
-  const usuario = usuarioSnap.data();
-
-  if (!usuario) {
-    return null;
-  }
-
-  return (
-    normalizarRol(usuario.Rol) ??
-    normalizarRol(usuario.rol) ??
-    normalizarRol(usuario.role)
-  );
-}
-
-function esFirmaValida(
-  metodo: MetodoFirma,
-  valor: string,
-): boolean {
-  if (!valor.trim()) {
-    return false;
-  }
-
-  if (metodo === "texto") {
-    return valor.trim().length >= 2;
-  }
-
-  if (metodo === "manuscrita") {
-    /**
-     * La firma manuscrita llega como Data URL.
-     *
-     * Permitimos imágenes PNG/JPEG generadas desde canvas.
-     */
-    return /^data:image\/(png|jpeg|jpg);base64,/i.test(
-      valor.trim(),
+function tokenFrom(
+  request: Request,
+): string | null {
+  const authorization =
+    request.headers.get(
+      "authorization",
     );
+
+  if (
+    !authorization?.startsWith(
+      "Bearer ",
+    )
+  ) {
+    return null;
   }
 
-  return false;
+  const token =
+    authorization.slice(7).trim();
+
+  return token || null;
+}
+
+function errorResponse(
+  message: string,
+  status: number,
+) {
+  return NextResponse.json(
+    {
+      success: false,
+      message,
+    },
+    { status },
+  );
 }
 
 export async function POST(
-  request: NextRequest,
+  request: Request,
   context: {
     params: Promise<{
       id: string;
@@ -143,317 +144,764 @@ export async function POST(
   },
 ) {
   try {
-    // ==========================================================
-    // AUTENTICACIÓN
-    // ==========================================================
+    /*
+     * ============================================
+     * Autenticación
+     * ============================================
+     */
 
-    const token = getBearerToken(request);
+    const token = tokenFrom(request);
 
     if (!token) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "NO_AUTH",
-          message:
-            "No se proporcionó un token de autenticación.",
-        },
-        { status: 401 },
+      return errorResponse(
+        "No autorizado.",
+        401,
       );
     }
 
-    let decodedToken;
+    const decoded =
+      await adminAuth.verifyIdToken(
+        token,
+      );
 
-    try {
-      decodedToken = await adminAuth.verifyIdToken(token);
-    } catch {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "INVALID_TOKEN",
-          message:
-            "El token de autenticación no es válido.",
-        },
-        { status: 401 },
+    const userSnapshot =
+      await adminDb
+        .collection("usuarios")
+        .doc(decoded.uid)
+        .get();
+
+    const userData =
+      userSnapshot.exists
+        ? userSnapshot.data()
+        : null;
+
+    const role =
+      normalizeRole(
+        decoded.role ??
+          decoded.rol ??
+          userData?.Rol,
+      );
+
+    if (
+      role !== "admin" &&
+      role !== "repartidor"
+    ) {
+      return errorResponse(
+        "No tienes permisos para registrar la entrega.",
+        403,
       );
     }
 
-    // ==========================================================
-    // OBTENER ROL
-    // ==========================================================
+    /*
+     * ============================================
+     * Pedido
+     * ============================================
+     */
 
-    const role = await obtenerRol(
-      decodedToken.uid,
-      decodedToken as Record<string, unknown>,
-    );
+    const { id } =
+      await context.params;
 
-    if (role !== "admin" && role !== "repartidor") {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "FORBIDDEN",
-          message:
-            "No tienes permisos para registrar entregas.",
-        },
-        { status: 403 },
+    if (!id) {
+      return errorResponse(
+        "El ID del pedido es obligatorio.",
+        400,
       );
     }
 
-    // ==========================================================
-    // ID DEL PEDIDO
-    // ==========================================================
-
-    const { id } = await context.params;
-
-    if (!id?.trim()) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "INVALID_ID",
-          message:
-            "No se proporcionó un ID de pedido válido.",
-        },
-        { status: 400 },
-      );
-    }
-
-    // ==========================================================
-    // BODY
-    // ==========================================================
-
-    let body: RecibidoBody;
-
-    try {
-      body = (await request.json()) as RecibidoBody;
-    } catch {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "INVALID_BODY",
-          message:
-            "El cuerpo de la solicitud no es válido.",
-        },
-        { status: 400 },
-      );
-    }
+    const body =
+      (await request.json()) as RecibidoBody;
 
     const metodo = body.metodo;
-
     const valor =
-      typeof body.valor === "string"
-        ? body.valor.trim()
-        : "";
+      stringValue(body.valor);
 
     if (
       metodo !== "manuscrita" &&
       metodo !== "texto"
     ) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "INVALID_METHOD",
-          message:
-            "El método debe ser 'manuscrita' o 'texto'.",
-        },
-        { status: 400 },
+      return errorResponse(
+        "El método de recibido no es válido.",
+        400,
       );
     }
 
-    if (!esFirmaValida(metodo, valor)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "INVALID_SIGNATURE",
-          message:
-            metodo === "manuscrita"
-              ? "La firma manuscrita no es válida."
-              : "La confirmación textual debe contener al menos 2 caracteres.",
-        },
-        { status: 400 },
+    if (!valor) {
+      return errorResponse(
+        "El recibido es obligatorio.",
+        400,
       );
     }
 
-    // ==========================================================
-    // PEDIDO
-    // ==========================================================
+    if (
+      metodo === "texto" &&
+      valor.length < 2
+    ) {
+      return errorResponse(
+        "El nombre de quien recibe no es válido.",
+        400,
+      );
+    }
 
-    const pedidoRef = adminDb
-      .collection("pedidos")
-      .doc(id);
+    if (
+      metodo === "manuscrita" &&
+      !/^data:image\/(png|jpeg|jpg);base64,/i.test(
+        valor,
+      )
+    ) {
+      return errorResponse(
+        "La firma manuscrita no es válida.",
+        400,
+      );
+    }
 
-    // ==========================================================
-    // TRANSACCIÓN
-    // ==========================================================
+    const pedidoRef =
+      adminDb
+        .collection("pedidos")
+        .doc(id);
 
-    /**
-     * Se verifica el estado y el repartidor dentro de la
-     * transacción para evitar que dos solicitudes registren
-     * simultáneamente la misma entrega.
+    /*
+     * ============================================
+     * Transacción
+     * ============================================
      */
-    const resultado = await adminDb.runTransaction(
-      async (transaction) => {
-        const pedidoSnap = await transaction.get(
-          pedidoRef,
-        );
 
-        if (!pedidoSnap.exists) {
-          throw new Error("NOT_FOUND");
-        }
+    const resultado =
+      await adminDb.runTransaction(
+        async (transaction) => {
+          const pedidoSnapshot =
+            await transaction.get(
+              pedidoRef,
+            );
 
-        const pedido = pedidoSnap.data();
+          if (!pedidoSnapshot.exists) {
+            throw new Error(
+              "PEDIDO_NO_EXISTE",
+            );
+          }
 
-        if (!pedido) {
-          throw new Error("INVALID_ORDER");
-        }
+          const pedido =
+            pedidoSnapshot.data() as PedidoDocumento;
 
-        const estado = String(
-          pedido.estado ?? "",
-        );
+          if (
+            stringValue(
+              pedido.estado,
+            ) !== "en_camino"
+          ) {
+            throw new Error(
+              "PEDIDO_NO_EN_CAMINO",
+            );
+          }
 
-        // ======================================================
-        // VALIDAR ESTADO
-        // ======================================================
+          if (
+            role === "repartidor" &&
+            stringValue(
+              pedido.repartidorId,
+            ) !== decoded.uid
+          ) {
+            throw new Error(
+              "REPARTIDOR_NO_ASIGNADO",
+            );
+          }
 
-        /**
-         * Solo se puede confirmar una entrega cuando
-         * el pedido está en camino.
-         */
-        if (estado !== "en_camino") {
-          throw new Error("INVALID_STATUS");
-        }
+          const items =
+            Array.isArray(
+              pedido.productos,
+            )
+              ? (pedido.productos as PedidoProducto[])
+              : [];
 
-        // ======================================================
-        // VALIDAR REPARTIDOR
-        // ======================================================
+          if (items.length === 0) {
+            throw new Error(
+              "PEDIDO_SIN_PRODUCTOS",
+            );
+          }
 
-        /**
-         * Un repartidor únicamente puede confirmar
-         * pedidos que estén asignados a su propio UID.
-         *
-         * El administrador puede confirmar cualquier pedido
-         * que esté en camino.
-         */
-        if (
-          role === "repartidor" &&
-          pedido.repartidorId !== decodedToken.uid
-        ) {
-          throw new Error("NOT_ASSIGNED");
-        }
+          /*
+           * ========================================
+           * Leer productos y catálogos actuales.
+           *
+           * Estos datos solamente sirven para crear
+           * la fotografía histórica.
+           * ========================================
+           */
 
-        // ======================================================
-        // INFORMACIÓN DE RECEPCIÓN
-        // ======================================================
+          const productoSnapshots =
+            await Promise.all(
+              items.map((item) =>
+                transaction.get(
+                  adminDb
+                    .collection(
+                      "productos",
+                    )
+                    .doc(
+                      stringValue(
+                        item.productoId,
+                      ),
+                    ),
+                ),
+              ),
+            );
 
-        const recibidoPor =
-          typeof body.recibidoPor === "string"
-            ? body.recibidoPor.trim()
-            : "";
+          const productorIds =
+            new Set<string>();
 
-        // ======================================================
-        // ACTUALIZAR PEDIDO
-        // ======================================================
+          const municipalidadIds =
+            new Set<string>();
 
-        transaction.update(pedidoRef, {
-          estado: "entregado",
+          const categoriaIds =
+            new Set<string>();
 
-          firma: {
-            metodo,
-            valor,
-            recibidoPor: recibidoPor || null,
-            fechaRecibido:
-              FieldValue.serverTimestamp(),
-          },
+          for (const item of items) {
+            const productoId =
+              stringValue(
+                item.productoId,
+              );
 
-          fechaRecibido:
-            FieldValue.serverTimestamp(),
+            const index =
+              items.indexOf(item);
 
-          ultimaActualizacion:
-            FieldValue.serverTimestamp(),
-        });
+            const producto =
+              productoSnapshots[index]
+                .data() as
+                | ProductoDocumento
+                | undefined;
 
-        return {
-          pedidoId: pedidoSnap.id,
-          estado: "entregado",
-          metodo,
-        };
-      },
-    );
+            const productorId =
+              stringValue(
+                item.IdProductor,
+              ) ||
+              stringValue(
+                producto?.IdProductor,
+              );
 
-    // ==========================================================
-    // RESPUESTA
-    // ==========================================================
+            const municipalidadId =
+              stringValue(
+                item.IdMunicipalidad,
+              ) ||
+              stringValue(
+                producto?.IdMunicipalidad,
+              );
+
+            const categoriaId =
+              stringValue(
+                producto?.categoria,
+              );
+
+            if (productorId) {
+              productorIds.add(
+                productorId,
+              );
+            }
+
+            if (municipalidadId) {
+              municipalidadIds.add(
+                municipalidadId,
+              );
+            }
+
+            if (categoriaId) {
+              categoriaIds.add(
+                categoriaId,
+              );
+            }
+
+            void productoId;
+          }
+
+          const productoresMap =
+            new Map<
+              string,
+              string
+            >();
+
+          const municipalidadesMap =
+            new Map<
+              string,
+              string
+            >();
+
+          const categoriasMap =
+            new Map<
+              string,
+              string
+            >();
+
+          for (const productorId of productorIds) {
+            const snapshot =
+              await transaction.get(
+                adminDb
+                  .collection(
+                    "productores",
+                  )
+                  .doc(productorId),
+              );
+
+            if (snapshot.exists) {
+              const data =
+                snapshot.data() as CatalogoDocumento;
+
+              productoresMap.set(
+                productorId,
+                stringValue(
+                  data.nombre,
+                ) || productorId,
+              );
+            }
+          }
+
+          for (const municipalidadId of municipalidadIds) {
+            const snapshot =
+              await transaction.get(
+                adminDb
+                  .collection(
+                    "municipalidades",
+                  )
+                  .doc(
+                    municipalidadId,
+                  ),
+              );
+
+            if (snapshot.exists) {
+              const data =
+                snapshot.data() as CatalogoDocumento;
+
+              municipalidadesMap.set(
+                municipalidadId,
+                stringValue(
+                  data.nombre,
+                ) || municipalidadId,
+              );
+            }
+          }
+
+          for (const categoriaId of categoriaIds) {
+            const snapshot =
+              await transaction.get(
+                adminDb
+                  .collection(
+                    "categorias",
+                  )
+                  .doc(categoriaId),
+              );
+
+            if (snapshot.exists) {
+              const data =
+                snapshot.data() as CatalogoDocumento;
+
+              categoriasMap.set(
+                categoriaId,
+                stringValue(
+                  data.nombre,
+                ) || categoriaId,
+              );
+            }
+          }
+
+          /*
+           * ========================================
+           * Crear snapshot financiero e histórico
+           * ========================================
+           */
+
+          const productosActualizados =
+            items.map(
+              (item, index) => {
+                const producto =
+                  productoSnapshots[index]
+                    .data() as
+                    | ProductoDocumento
+                    | undefined;
+
+                const productoId =
+                  stringValue(
+                    item.productoId,
+                  );
+
+                const cantidad =
+                  Math.max(
+                    0,
+                    numberValue(
+                      item.cantidad,
+                    ),
+                  );
+
+                const code =
+                  stringValue(
+                    item.code,
+                  ) ||
+                  stringValue(
+                    producto?.code,
+                  );
+
+                const nombre =
+                  stringValue(
+                    item.nombre,
+                  ) ||
+                  stringValue(
+                    producto?.nombre,
+                  ) ||
+                  productoId;
+
+                const unidad =
+                  stringValue(
+                    item.unidad,
+                  ) ||
+                  stringValue(
+                    producto?.unidad,
+                  );
+
+                const categoriaId =
+                  stringValue(
+                    producto?.categoria,
+                  );
+
+                const categoria =
+                  categoriasMap.get(
+                    categoriaId,
+                  ) ||
+                  categoriaId;
+
+                const productorId =
+                  stringValue(
+                    item.IdProductor,
+                  ) ||
+                  stringValue(
+                    producto?.IdProductor,
+                  );
+
+                const productor =
+                  productoresMap.get(
+                    productorId,
+                  ) ||
+                  productorId;
+
+                const municipalidadId =
+                  stringValue(
+                    item.IdMunicipalidad,
+                  ) ||
+                  stringValue(
+                    producto?.IdMunicipalidad,
+                  );
+
+                const municipalidad =
+                  municipalidadesMap.get(
+                    municipalidadId,
+                  ) ||
+                  municipalidadId;
+
+                const precioVenta =
+                  numberValue(
+                    producto?.precioVenta,
+                  ) ||
+                  numberValue(
+                    producto?.precio,
+                  );
+
+                const precioFinal =
+                  precioVenta *
+                  cantidad;
+
+                const costoPccUnitario =
+                  Math.max(
+                    0,
+                    numberValue(
+                      producto?.costoPcc,
+                    ),
+                  );
+
+                const costoPcc =
+                  costoPccUnitario *
+                  cantidad;
+
+                const porcentajeLogistica =
+                  porcentaje(
+                    producto
+                      ?.porcentajeLogistica,
+                  );
+
+                const porcentajeTransporte =
+                  porcentaje(
+                    producto
+                      ?.porcentajeTransporte,
+                  );
+
+                const costoLogistica =
+                  costoPcc *
+                  porcentajeLogistica;
+
+                const costoTransporte =
+                  costoPcc *
+                  porcentajeTransporte;
+
+                const otrosCostos = 0;
+
+                const costoTotal =
+                  costoPcc +
+                  costoLogistica +
+                  costoTransporte +
+                  otrosCostos;
+
+                const utilidad =
+                  precioFinal -
+                  costoTotal;
+
+                const margen =
+                  precioFinal > 0
+                    ? (utilidad /
+                        precioFinal) *
+                      100
+                    : 0;
+
+                return {
+                  productoId,
+                  code,
+                  nombre,
+                  categoriaId,
+                  categoria,
+                  cantidad,
+                  unidad,
+
+                  IdProductor:
+                    productorId,
+                  productor,
+
+                  IdMunicipalidad:
+                    municipalidadId,
+                  municipalidad,
+
+                  precioUnitario:
+                    precioVenta,
+
+                  precioFinal,
+                  subtotal:
+                    precioFinal,
+
+                  costoPccUnitario,
+                  costoPcc,
+
+                  porcentajeLogistica,
+                  porcentajeTransporte,
+
+                  costoLogistica,
+                  costoTransporte,
+                  otrosCostos,
+                  costoTotal,
+
+                  utilidad,
+                  margen,
+                };
+              },
+            );
+
+          /*
+           * ========================================
+           * Totales congelados
+           * ========================================
+           */
+
+          const precioFinalTotal =
+            productosActualizados.reduce(
+              (total, item) =>
+                total +
+                item.precioFinal,
+              0,
+            );
+
+          const costoPccTotal =
+            productosActualizados.reduce(
+              (total, item) =>
+                total +
+                item.costoPcc,
+              0,
+            );
+
+          const costoLogisticaTotal =
+            productosActualizados.reduce(
+              (total, item) =>
+                total +
+                item.costoLogistica,
+              0,
+            );
+
+          const costoTransporteTotal =
+            productosActualizados.reduce(
+              (total, item) =>
+                total +
+                item.costoTransporte,
+              0,
+            );
+
+          const otrosCostosTotal =
+            productosActualizados.reduce(
+              (total, item) =>
+                total +
+                item.otrosCostos,
+              0,
+            );
+
+          const costoTotal =
+            productosActualizados.reduce(
+              (total, item) =>
+                total +
+                item.costoTotal,
+              0,
+            );
+
+          const utilidadTotal =
+            productosActualizados.reduce(
+              (total, item) =>
+                total +
+                item.utilidad,
+              0,
+            );
+
+          const margen =
+            precioFinalTotal > 0
+              ? (utilidadTotal /
+                  precioFinalTotal) *
+                100
+              : 0;
+
+          /*
+           * ========================================
+           * Actualizar pedido
+           * ========================================
+           */
+
+          transaction.update(
+            pedidoRef,
+            {
+              estado: "entregado",
+
+              productos:
+                productosActualizados,
+
+              subtotal:
+                precioFinalTotal,
+
+              total:
+                precioFinalTotal,
+
+              precioFinal:
+                precioFinalTotal,
+
+              costoProductos:
+                costoPccTotal,
+
+              costoPcc:
+                costoPccTotal,
+
+              costoLogistica:
+                costoLogisticaTotal,
+
+              costoTransporte:
+                costoTransporteTotal,
+
+              otrosCostos:
+                otrosCostosTotal,
+
+              costoTotal,
+
+              utilidad:
+                utilidadTotal,
+
+              margen,
+
+              firma: {
+                metodo,
+                valor,
+                recibidoPor:
+                  stringValue(
+                    body.recibidoPor,
+                  ),
+                fechaRecibido:
+                  FieldValue.serverTimestamp(),
+              },
+
+              fechaRecibido:
+                FieldValue.serverTimestamp(),
+
+              ultimaActualizacion:
+                FieldValue.serverTimestamp(),
+            },
+          );
+
+          return {
+            precioFinal:
+              precioFinalTotal,
+            costoPcc:
+              costoPccTotal,
+            costoLogistica:
+              costoLogisticaTotal,
+            costoTransporte:
+              costoTransporteTotal,
+            otrosCostos:
+              otrosCostosTotal,
+            costoTotal,
+            utilidad:
+              utilidadTotal,
+            margen,
+          };
+        },
+      );
 
     return NextResponse.json({
       success: true,
       message:
-        "La entrega fue registrada correctamente.",
-      data: resultado,
+        "Pedido marcado como entregado y datos históricos congelados correctamente.",
+      ...resultado,
     });
   } catch (error) {
-    const message =
+    const code =
       error instanceof Error
         ? error.message
         : "";
 
-    switch (message) {
-      case "NOT_FOUND":
-        return NextResponse.json(
-          {
-            success: false,
-            error: "NOT_FOUND",
-            message:
-              "El pedido no existe.",
-          },
-          { status: 404 },
-        );
-
-      case "INVALID_ORDER":
-        return NextResponse.json(
-          {
-            success: false,
-            error: "INVALID_ORDER",
-            message:
-              "Los datos del pedido no son válidos.",
-          },
-          { status: 400 },
-        );
-
-      case "INVALID_STATUS":
-        return NextResponse.json(
-          {
-            success: false,
-            error: "INVALID_STATUS",
-            message:
-              "El pedido debe estar en estado 'en_camino' para registrar la recepción.",
-          },
-          { status: 409 },
-        );
-
-      case "NOT_ASSIGNED":
-        return NextResponse.json(
-          {
-            success: false,
-            error: "NOT_ASSIGNED",
-            message:
-              "Este pedido no está asignado al repartidor actual.",
-          },
-          { status: 403 },
-        );
-
-      default:
-        console.error(
-          "Error registrando recepción:",
-          error,
-        );
-
-        return NextResponse.json(
-          {
-            success: false,
-            error: "SERVER_ERROR",
-            message:
-              "Ocurrió un error al registrar la recepción.",
-          },
-          { status: 500 },
-        );
+    if (code === "PEDIDO_NO_EXISTE") {
+      return errorResponse(
+        "El pedido no existe.",
+        404,
+      );
     }
+
+    if (
+      code ===
+      "PEDIDO_NO_EN_CAMINO"
+    ) {
+      return errorResponse(
+        "El pedido no está en estado en camino.",
+        409,
+      );
+    }
+
+    if (
+      code ===
+      "REPARTIDOR_NO_ASIGNADO"
+    ) {
+      return errorResponse(
+        "El pedido no está asignado a este repartidor.",
+        403,
+      );
+    }
+
+    if (
+      code ===
+      "PEDIDO_SIN_PRODUCTOS"
+    ) {
+      return errorResponse(
+        "El pedido no contiene productos.",
+        400,
+      );
+    }
+
+    console.error(
+      "Error registrando entrega:",
+      error,
+    );
+
+    return errorResponse(
+      "No fue posible registrar la entrega.",
+      500,
+    );
   }
 }

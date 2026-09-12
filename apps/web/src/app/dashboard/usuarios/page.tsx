@@ -20,13 +20,13 @@ interface ManagedUser {
 }
 
 const roles: UserRole[] = [
-  "usuario",
+  "consumidor",
   "repartidor",
   "admin",
 ];
 
 const roleLabels: Record<UserRole, string> = {
-  usuario: "Usuario",
+  consumidor: "Consumidor",
   repartidor: "Repartidor",
   admin: "Administrador",
 };
@@ -158,7 +158,10 @@ export default function DashboardUsuariosPage() {
   );
 
   useEffect(() => {
-    if (user && currentRole === "admin") {
+    if (
+      user &&
+      currentRole === "admin"
+    ) {
       void load();
     } else if (!loading) {
       setReady(true);
@@ -333,16 +336,17 @@ export default function DashboardUsuariosPage() {
       </div>
 
       {/* Información */}
-<div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
-  <p className="text-sm text-[var(--foreground)]">
-    Los roles se almacenan en la colección
-    <strong> usuarios </strong>
-    de Firestore, utilizando el campo
-    <strong> Rol</strong>. Los cambios se
-    aplican directamente sobre el usuario
-    seleccionado.
-  </p>
-</div>
+      <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+        <p className="text-sm text-[var(--foreground)]">
+          Los roles se almacenan en la
+          colección
+          <strong> usuarios </strong>
+          de Firestore, utilizando el campo
+          <strong> Rol</strong>. Los cambios se
+          aplican directamente sobre el usuario
+          seleccionado.
+        </p>
+      </div>
 
       {/* Mensajes */}
       {error && (
@@ -442,7 +446,7 @@ export default function DashboardUsuariosPage() {
                               managedUser.role,
                             )
                               ? managedUser.role
-                              : "usuario"
+                              : "consumidor"
                           }
                           disabled={
                             isCurrentUser ||
@@ -525,4 +529,3 @@ export default function DashboardUsuariosPage() {
     </main>
   );
 }
-

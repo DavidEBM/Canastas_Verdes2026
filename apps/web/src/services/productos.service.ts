@@ -18,24 +18,44 @@ import { db } from "@/lib/firebase";
 export interface Product {
   id: string;
 
+  /* Identificación */
   code: string;
   nombre: string;
   descripcion: string;
 
+  /* Precios */
   precio: number;
+  precioVenta: number;
+  precioSugerido: number;
+
+  /* Costos */
+  costoPcc: number;
+  porcentajeLogistica: number;
+  porcentajeTransporte: number;
+
+  /* Presentación */
+  presentacionCantidad: string;
+  presentacionNombre: string;
+
+  /* Inventario */
   stock: number;
 
+  /* Clasificación */
   categoria: string;
   unidad: string;
 
+  /* Relaciones */
+  IdProductor: string;
+  IdMunicipalidad: string;
+
+  /* Imágenes */
   imgPath: string;
   imageName: string;
 
+  /* Estado */
   activo: boolean;
 
-  IdGranja: string;
-  IdMunicipalidad: string;
-
+  /* Fechas */
   fechaCreacion: Timestamp | null;
   ultimaActualizacion: Timestamp | null;
   fechaCierre: Timestamp | null;
@@ -48,6 +68,45 @@ export interface Product {
 const PRODUCTS_COLLECTION = "productos";
 
 /* =========================================================
+   Helpers
+========================================================= */
+
+function numberValue(
+  value: unknown,
+): number {
+  if (typeof value === "number") {
+    return Number.isFinite(value)
+      ? value
+      : 0;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value
+      .replace("%", "")
+      .replace(/\$/g, "")
+      .replace(/\./g, "")
+      .replace(",", ".")
+      .trim();
+
+    const parsed = Number(normalized);
+
+    return Number.isFinite(parsed)
+      ? parsed
+      : 0;
+  }
+
+  return 0;
+}
+
+function stringValue(
+  value: unknown,
+): string {
+  return typeof value === "string"
+    ? value
+    : "";
+}
+
+/* =========================================================
    Conversión Firestore → Product
 ========================================================= */
 
@@ -55,67 +114,98 @@ function mapProduct(
   id: string,
   data: Record<string, unknown>,
 ): Product {
+  const precioVenta =
+    numberValue(data.precioVenta);
+
+  /*
+   * Compatibilidad:
+   * si el documento antiguo no tiene precioVenta,
+   * usamos precio.
+   */
+  const precio =
+    data.precioVenta !== undefined
+      ? precioVenta
+      : numberValue(data.precio);
+
+  const presentacionNombre =
+    stringValue(
+      data.presentacionNombre,
+    ) || stringValue(data.unidad);
+
   return {
     id,
 
-    code:
-      typeof data.code === "string"
-        ? data.code
-        : "",
+    code: stringValue(data.code),
 
-    nombre:
-      typeof data.nombre === "string"
-        ? data.nombre
-        : "",
+    nombre: stringValue(data.nombre),
 
     descripcion:
-      typeof data.descripcion === "string"
-        ? data.descripcion
-        : "",
+      stringValue(data.descripcion),
 
-    precio:
-      typeof data.precio === "number"
-        ? data.precio
-        : Number(data.precio ?? 0),
+    /* Precios */
+    precio,
 
+    precioVenta,
+
+    precioSugerido:
+      numberValue(
+        data.precioSugerido,
+      ),
+
+    /* Costos */
+    costoPcc:
+      numberValue(data.costoPcc),
+
+    porcentajeLogistica:
+      numberValue(
+        data.porcentajeLogistica,
+      ),
+
+    porcentajeTransporte:
+      numberValue(
+        data.porcentajeTransporte,
+      ),
+
+    /* Presentación */
+    presentacionCantidad:
+      stringValue(
+        data.presentacionCantidad,
+      ),
+
+    presentacionNombre,
+
+    /* Inventario */
     stock:
-      typeof data.stock === "number"
-        ? data.stock
-        : Number(data.stock ?? 0),
+      numberValue(data.stock),
 
+    /* Clasificación */
     categoria:
-      typeof data.categoria === "string"
-        ? data.categoria
-        : "",
+      stringValue(data.categoria),
 
     unidad:
-      typeof data.unidad === "string"
-        ? data.unidad
-        : "",
+      presentacionNombre,
 
+    /* Relaciones */
+    IdProductor:
+      stringValue(data.IdProductor),
+
+    IdMunicipalidad:
+      stringValue(
+        data.IdMunicipalidad,
+      ),
+
+    /* Imágenes */
     imgPath:
-      typeof data.imgPath === "string"
-        ? data.imgPath
-        : "",
+      stringValue(data.imgPath),
 
     imageName:
-      typeof data.imageName === "string"
-        ? data.imageName
-        : "",
+      stringValue(data.imageName),
 
+    /* Estado */
     activo:
       data.activo === true,
 
-    IdGranja:
-      typeof data.IdGranja === "string"
-        ? data.IdGranja
-        : "",
-
-    IdMunicipalidad:
-      typeof data.IdMunicipalidad === "string"
-        ? data.IdMunicipalidad
-        : "",
-
+    /* Fechas */
     fechaCreacion:
       data.fechaCreacion instanceof Timestamp
         ? data.fechaCreacion
@@ -137,9 +227,7 @@ function mapProduct(
    Obtener todos los productos activos
 ========================================================= */
 
-export async function getActiveProducts(): Promise<
-  Product[]
-> {
+export async function getActiveProducts(): Promise<Product[]> {
   const productsRef = collection(
     db,
     PRODUCTS_COLLECTION,
@@ -169,14 +257,10 @@ export async function getActiveProducts(): Promise<
 
 /* =========================================================
    Obtener todos los productos activos,
-   incluyendo los que actualmente tienen stock 0.
-   
-   Esto será útil para mostrar "No Stock".
+   incluyendo stock 0
 ========================================================= */
 
-export async function getStoreProducts(): Promise<
-  Product[]
-> {
+export async function getStoreProducts(): Promise<Product[]> {
   const productsRef = collection(
     db,
     PRODUCTS_COLLECTION,
@@ -250,7 +334,8 @@ export async function getProductByCode(
     return null;
   }
 
-  const document = snapshot.docs[0];
+  const document =
+    snapshot.docs[0];
 
   return mapProduct(
     document.id,

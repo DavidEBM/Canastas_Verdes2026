@@ -10,7 +10,7 @@ export const runtime = "nodejs";
  * ============================================================
  */
 
-type Rol = "admin" | "repartidor" | "usuario";
+type Rol = "admin" | "repartidor" | "consumidor";
 
 const ESTADOS_REPARTO = [
   "pendiente",
@@ -30,7 +30,7 @@ interface ProductoPedido {
   precioUnitario: number;
   subtotal: number;
   unidad: string;
-  IdGranja: string;
+  IdProductor: string;
   IdMunicipalidad: string;
 }
 
@@ -88,7 +88,7 @@ function normalizeRole(
   value: unknown,
 ): Rol {
   if (typeof value !== "string") {
-    return "usuario";
+    return "consumidor";
   }
 
   const role = value
@@ -103,7 +103,11 @@ function normalizeRole(
     return "repartidor";
   }
 
-  return "usuario";
+  /*
+   * Sistema actual:
+   * usuario -> consumidor
+   */
+  return "consumidor";
 }
 
 function roleFromClaims(
@@ -116,7 +120,8 @@ function roleFromClaims(
 
   if (
     role === "admin" ||
-    role === "repartidor"
+    role === "repartidor" ||
+    role === "consumidor"
   ) {
     return normalizeRole(role);
   }
@@ -162,16 +167,8 @@ async function authenticate(
 
     /*
      * ========================================================
-     * 2. Si no existe el claim, consultar Firestore
+     * 2. Obtener el rol desde usuarios/{uid}.Rol
      * ========================================================
-     *
-     * Los usuarios de Canastas Verdes actualmente almacenan
-     * su rol en:
-     *
-     * usuarios/{uid}.Rol
-     *
-     * Esto permite que el sistema funcione aunque todavía no
-     * se hayan configurado Custom Claims para todos los usuarios.
      */
 
     const usuarioSnapshot =
@@ -200,14 +197,14 @@ async function authenticate(
 
     /*
      * ========================================================
-     * 3. Usuario autenticado pero sin documento de perfil
+     * 3. Usuario autenticado sin perfil
      * ========================================================
      */
 
     return {
       ok: true as const,
       user,
-      role: "usuario" as const,
+      role: "consumidor" as const,
     };
   } catch (error) {
     console.error(
@@ -356,7 +353,7 @@ function emptyClient(
     id: userId,
     nombres: "",
     apellidos: "",
-    nombreCompleto: "Cliente",
+    nombreCompleto: "Consumidor",
     correo: "",
     telefono: "",
     direccion: "",
@@ -388,7 +385,7 @@ function emptyCourier(
  * Repartidor:
  *   devuelve únicamente los pedidos asignados a su UID.
  *
- * Usuario:
+ * Consumidor:
  *   no tiene acceso a este endpoint.
  */
 
@@ -547,12 +544,6 @@ export async function GET(
         UsuarioData
       >();
 
-    /*
-     * Firestore limita las operaciones get()
-     * por lote. Por seguridad hacemos lotes
-     * de máximo 30 documentos.
-     */
-
     const allUserIds =
       Array.from(
         new Set([
@@ -612,6 +603,13 @@ export async function GET(
      * ========================================================
      * Cargar municipalidades
      * ========================================================
+     *
+     * La ubicación del pedido se obtiene exclusivamente
+     * desde la colección municipalidades mediante
+     * IdMunicipalidad.
+     *
+     * productores se mantiene como información administrativa
+     * y no interviene en la resolución de la ubicación.
      */
 
     const municipalidades =
@@ -620,18 +618,19 @@ export async function GET(
         MunicipalidadData
       >();
 
+    const allMunicipalidadIds =
+      Array.from(
+        municipalidadIds,
+      );
+
     for (
       let index = 0;
       index <
-      Array.from(
-        municipalidadIds,
-      ).length;
+      allMunicipalidadIds.length;
       index += 30
     ) {
       const batch =
-        Array.from(
-          municipalidadIds,
-        ).slice(
+        allMunicipalidadIds.slice(
           index,
           index + 30,
         );
@@ -682,7 +681,7 @@ export async function GET(
       ({ id, data: pedido }) => {
         /*
          * ----------------------------------------------------
-         * Cliente
+         * Consumidor
          * ----------------------------------------------------
          */
 
@@ -714,7 +713,7 @@ export async function GET(
             .filter(Boolean)
             .join(" ")
             .trim() ||
-          "Cliente";
+          "Consumidor";
 
         const cliente = {
           id: usuarioId,
@@ -835,6 +834,12 @@ export async function GET(
          * ----------------------------------------------------
          * Productos
          * ----------------------------------------------------
+         *
+         * Sistema actual:
+         * IdProductor
+         *
+         * productores continúa existiendo para información
+         * administrativa, pero no se consulta desde esta API.
          */
 
         const productosRaw =
@@ -893,9 +898,9 @@ export async function GET(
                     value.unidad,
                   ),
 
-                IdGranja:
+                IdProductor:
                   stringValue(
-                    value.IdGranja,
+                    value.IdProductor,
                   ),
 
                 IdMunicipalidad:
@@ -927,15 +932,6 @@ export async function GET(
          * ----------------------------------------------------
          * Costos
          * ----------------------------------------------------
-         *
-         * Actualmente crear/route.ts guarda:
-         *
-         * subtotal = subtotalProductos
-         * total    = subtotal
-         *
-         * Los conceptos de entrega, logística y
-         * almacenamiento se dejan en 0 hasta que
-         * el checkout los implemente.
          */
 
         const subtotalProductos =
@@ -969,9 +965,6 @@ export async function GET(
          *
          * Como crear/route.ts actualmente exige una dirección,
          * interpretamos estos pedidos como domicilio.
-         *
-         * Cuando checkout implemente "recogida", este campo
-         * deberá guardarse en el pedido.
          */
 
         const modalidadEntrega =
@@ -1094,8 +1087,6 @@ export async function GET(
      * ========================================================
      * Ordenamiento
      * ========================================================
-     *
-     * Más recientes primero.
      */
 
     data.sort(

@@ -99,7 +99,7 @@ export interface ProductoPedido {
 
   unidad: string;
 
-  IdGranja: string;
+  IdProductor: string;
 
   IdMunicipalidad: string;
 }
@@ -270,46 +270,12 @@ export interface FirmaRecibido {
 
   firmaDataUrl?: string | null;
 
-  fechaRecibido?: FirestoreTimestampLike
+  fechaRecibido?:
+    | FirestoreTimestampLike
     | string
     | null;
 
   recibidoPor?: string | null;
-}
-
-/*
- * ============================================================
- * Pedido enriquecido para Repartos
- * ============================================================
- *
- * Este es el objeto que utilizará principalmente la interfaz
- * del dashboard.
- *
- * Combina:
- *
- * pedido Firestore
- * + cliente
- * + repartidor
- * + municipalidad
- * + información calculada
- */
-
-export interface Reparto {
-  id: string;
-
-  pedido: Pedido;
-
-  cliente: ClienteReparto;
-
-  repartidor: RepartidorReparto | null;
-
-  municipalidad: MunicipalidadReparto;
-
-  costos: CostosReparto;
-
-  modalidadEntrega: ModalidadEntrega;
-
-  firma: FirmaRecibido | null;
 }
 
 /*

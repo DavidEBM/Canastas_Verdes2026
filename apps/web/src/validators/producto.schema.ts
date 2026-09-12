@@ -75,19 +75,19 @@ export const productoSchema = z.object({
     ),
 
   /**
-   * Referencia a la granja productora.
+   * Referencia al productor.
    */
-  IdGranja: z
+  IdProductor: z
     .string()
     .trim()
     .min(
       1,
-      "La granja es obligatoria",
+      "El productor es obligatorio",
     ),
 
   /**
    * Referencia a la municipalidad
-   * donde está ubicada la granja.
+   * donde está ubicado el productor.
    */
   IdMunicipalidad: z
     .string()
