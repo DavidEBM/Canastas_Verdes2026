@@ -6,13 +6,26 @@ import { adminDb } from "@/lib/firebase-admin";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT!,
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!
-);
-
 const REMINDER_DAYS = 15;
+
+function configureWebPush() {
+  const subject = process.env.VAPID_SUBJECT;
+  const publicKey =
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  const privateKey = process.env.VAPID_PRIVATE_KEY;
+
+  if (!subject || !publicKey || !privateKey) {
+    throw new Error(
+      "Faltan las variables de entorno VAPID_SUBJECT, NEXT_PUBLIC_VAPID_PUBLIC_KEY o VAPID_PRIVATE_KEY."
+    );
+  }
+
+  webpush.setVapidDetails(
+    subject,
+    publicKey,
+    privateKey
+  );
+}
 
 function isAuthorized(request: NextRequest) {
   const authorization =
@@ -55,6 +68,16 @@ export async function GET(
         }
       );
     }
+
+    /*
+     * Configuramos Web Push solamente cuando
+     * se ejecuta realmente el endpoint.
+     *
+     * Esto evita que el build de Next.js falle
+     * si las variables VAPID no están disponibles
+     * durante la evaluación del módulo.
+     */
+    configureWebPush();
 
     const limitDate =
       getDateDaysAgo(REMINDER_DAYS);

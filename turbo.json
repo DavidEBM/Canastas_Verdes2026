@@ -14,7 +14,11 @@
         "FIREBASE_PROJECT_ID",
         "FIREBASE_CLIENT_EMAIL",
         "FIREBASE_PRIVATE_KEY",
-        "FIREBASE_INITIAL_ADMIN_EMAIL"
+        "FIREBASE_INITIAL_ADMIN_EMAIL",
+        "VAPID_SUBJECT",
+        "VAPID_PRIVATE_KEY",
+        "NEXT_PUBLIC_VAPID_PUBLIC_KEY",
+        "CRON_SECRET"
       ]
     },
     "build": {
@@ -29,7 +33,11 @@
         "FIREBASE_PROJECT_ID",
         "FIREBASE_CLIENT_EMAIL",
         "FIREBASE_PRIVATE_KEY",
-        "FIREBASE_INITIAL_ADMIN_EMAIL"
+        "FIREBASE_INITIAL_ADMIN_EMAIL",
+        "VAPID_SUBJECT",
+        "VAPID_PRIVATE_KEY",
+        "NEXT_PUBLIC_VAPID_PUBLIC_KEY",
+        "CRON_SECRET"
       ]
     },
     "lint": {
