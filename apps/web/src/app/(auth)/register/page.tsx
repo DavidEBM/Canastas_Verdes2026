@@ -30,6 +30,9 @@ export default function RegisterPage() {
   const [termsAccepted, setTermsAccepted] =
     useState(false);
 
+  const [showTerms, setShowTerms] =
+    useState(false);
+
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] =
     useState(false);
@@ -82,6 +85,13 @@ export default function RegisterPage() {
           Correo: correo.trim(),
           Telefono: "",
           Direccion: "",
+
+          // Aceptación de términos
+          AceptacionTerminos: {
+            aceptado: true,
+            version: "1.0",
+            tipo: "terminos-condiciones",
+          },
         }),
       },
     );
@@ -148,7 +158,9 @@ export default function RegisterPage() {
     }
 
     if (!email.trim()) {
-      setError("Debes ingresar tu correo electrónico.");
+      setError(
+        "Debes ingresar tu correo electrónico.",
+      );
       return;
     }
 
@@ -336,10 +348,6 @@ export default function RegisterPage() {
 
       const user = result.user;
 
-      /*
-       * Google normalmente proporciona el nombre
-       * completo mediante displayName.
-       */
       const displayName =
         user.displayName?.trim() ?? "";
 
@@ -353,10 +361,6 @@ export default function RegisterPage() {
       const apellidos =
         nameParts.join(" ");
 
-      /*
-       * Si Google no proporciona apellidos,
-       * dejamos el campo vacío.
-       */
       await createUserProfile(
         nombres,
         apellidos,
@@ -468,9 +472,7 @@ export default function RegisterPage() {
     <main className="min-h-screen bg-[var(--background)] px-4 py-10">
       <div className="mx-auto w-full max-w-md">
         <div className="rounded-2xl border border-[var(--secondary)] bg-white p-6 shadow-lg sm:p-8">
-          {/* ==================================================
-              ENCABEZADO
-          ================================================== */}
+
           <div className="mb-6 text-center">
             <h1 className="text-3xl font-bold text-[var(--primary)]">
               Crear cuenta
@@ -481,9 +483,6 @@ export default function RegisterPage() {
             </p>
           </div>
 
-          {/* ==================================================
-              ERROR
-          ================================================== */}
           {error && (
             <div
               role="alert"
@@ -493,14 +492,10 @@ export default function RegisterPage() {
             </div>
           )}
 
-          {/* ==================================================
-              FORMULARIO
-          ================================================== */}
           <form
             onSubmit={handleRegister}
             className="space-y-4"
           >
-            {/* NOMBRE */}
             <div>
               <label
                 htmlFor="name"
@@ -525,7 +520,6 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* APELLIDOS */}
             <div>
               <label
                 htmlFor="lastName"
@@ -550,7 +544,6 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* CORREO */}
             <div>
               <label
                 htmlFor="email"
@@ -575,7 +568,6 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* CONTRASEÑA */}
             <div>
               <label
                 htmlFor="password"
@@ -600,7 +592,6 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* CONFIRMAR CONTRASEÑA */}
             <div>
               <label
                 htmlFor="confirmPassword"
@@ -627,9 +618,7 @@ export default function RegisterPage() {
               />
             </div>
 
-            {/* ==================================================
-                TÉRMINOS Y CONDICIONES
-            ================================================== */}
+            {/* TÉRMINOS */}
             <div className="pt-1">
               <label className="flex cursor-pointer items-start gap-2 text-sm text-[var(--foreground)]/80">
                 <input
@@ -647,8 +636,18 @@ export default function RegisterPage() {
                 />
 
                 <span>
-                  Acepto los términos y condiciones
+                  Acepto los{" "}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowTerms(true)
+                    }
+                    className="font-semibold text-[var(--primary)] underline underline-offset-2 transition hover:opacity-80"
+                  >
+                    términos y condiciones
+                  </button>{" "}
                   de uso
+
                   <span className="ml-1 font-bold text-red-600">
                     *
                   </span>
@@ -656,9 +655,6 @@ export default function RegisterPage() {
               </label>
             </div>
 
-            {/* ==================================================
-                BOTÓN CREAR CUENTA
-            ================================================== */}
             <button
               type="submit"
               disabled={
@@ -674,9 +670,6 @@ export default function RegisterPage() {
             </button>
           </form>
 
-          {/* ==================================================
-              SEPARADOR
-          ================================================== */}
           <div className="my-5 flex items-center gap-3">
             <div className="h-px flex-1 bg-gray-200" />
 
@@ -687,9 +680,6 @@ export default function RegisterPage() {
             <div className="h-px flex-1 bg-gray-200" />
           </div>
 
-          {/* ==================================================
-              GOOGLE
-          ================================================== */}
           <button
             type="button"
             onClick={handleGoogleRegister}
@@ -763,9 +753,6 @@ export default function RegisterPage() {
             )}
           </button>
 
-          {/* ==================================================
-              LOGIN
-          ================================================== */}
           <p className="mt-6 text-center text-sm text-[var(--foreground)]/70">
             ¿Ya tienes una cuenta?{" "}
             <Link
@@ -777,6 +764,370 @@ export default function RegisterPage() {
           </p>
         </div>
       </div>
+
+      {/* ========================================================
+          POPUP — TÉRMINOS Y CONDICIONES
+      ======================================================== */}
+      {showTerms && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="terms-title"
+          onMouseDown={(event) => {
+            if (
+              event.target === event.currentTarget
+            ) {
+              setShowTerms(false);
+            }
+          }}
+        >
+          <div className="relative flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+
+            <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-5 py-4 sm:px-6">
+              <div>
+                <h2
+                  id="terms-title"
+                  className="text-xl font-bold text-[var(--primary)]"
+                >
+                  Términos y condiciones
+                </h2>
+
+                <p className="mt-1 text-xs text-[var(--foreground)]/60">
+                  Canastas Verdes
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setShowTerms(false)
+                }
+                aria-label="Cerrar términos y condiciones"
+                className="rounded-lg px-3 py-2 text-2xl leading-none text-gray-500 transition hover:bg-gray-100 hover:text-gray-800"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="overflow-y-auto px-5 py-5 text-sm leading-6 text-[var(--foreground)] sm:px-6">
+
+              <div className="mb-6 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+                <p className="text-sm">
+                  <strong>Última actualización:</strong>{" "}
+                  septiembre de 2026.
+                </p>
+
+                <p className="mt-2 text-sm text-[var(--foreground)]/75">
+                  Estos términos establecen las condiciones
+                  aplicables al uso de la plataforma Canastas
+                  Verdes y al tratamiento de la información
+                  proporcionada por sus usuarios.
+                </p>
+              </div>
+
+              <section className="mb-6">
+                <h3 className="mb-2 text-base font-bold text-[var(--primary)]">
+                  1. Aceptación de los términos
+                </h3>
+
+                <p>
+                  Al registrarte, acceder o utilizar la
+                  plataforma Canastas Verdes, aceptas estos
+                  términos y condiciones de uso. Si no estás
+                  de acuerdo con alguno de ellos, debes
+                  abstenerte de utilizar los servicios de la
+                  plataforma.
+                </p>
+              </section>
+
+              <section className="mb-6">
+                <h3 className="mb-2 text-base font-bold text-[var(--primary)]">
+                  2. Registro y cuenta de usuario
+                </h3>
+
+                <p>
+                  Para utilizar determinadas funcionalidades
+                  de Canastas Verdes es necesario crear una
+                  cuenta. El usuario se compromete a
+                  proporcionar información verdadera, completa
+                  y actualizada.
+                </p>
+
+                <p className="mt-2">
+                  El usuario es responsable de mantener la
+                  confidencialidad de sus credenciales y de
+                  las actividades realizadas desde su cuenta.
+                </p>
+              </section>
+
+              <section className="mb-6">
+                <h3 className="mb-2 text-base font-bold text-[var(--primary)]">
+                  3. Datos personales
+                </h3>
+
+                <p>
+                  Canastas Verdes podrá recopilar y tratar
+                  datos personales proporcionados directamente
+                  por el usuario, incluyendo nombres, apellidos,
+                  correo electrónico, teléfono, dirección y
+                  demás información necesaria para prestar los
+                  servicios ofrecidos por la plataforma.
+                </p>
+
+                <p className="mt-2">
+                  El tratamiento de estos datos se realizará
+                  de acuerdo con la legislación colombiana
+                  aplicable en materia de protección de datos
+                  personales y con las políticas de tratamiento
+                  de información de Canastas Verdes.
+                </p>
+              </section>
+
+              <section className="mb-6">
+                <h3 className="mb-2 text-base font-bold text-[var(--primary)]">
+                  4. Datos sensibles
+                </h3>
+
+                <p>
+                  Canastas Verdes no solicitará datos sensibles
+                  salvo que sean necesarios para una finalidad
+                  determinada y exista una base legal o
+                  autorización válida para su tratamiento.
+                </p>
+
+                <p className="mt-2">
+                  Cuando corresponda, el usuario será informado
+                  sobre la finalidad del tratamiento y sobre
+                  los derechos que le asisten como titular de
+                  los datos.
+                </p>
+              </section>
+
+              <section className="mb-6">
+                <h3 className="mb-2 text-base font-bold text-[var(--primary)]">
+                  5. Almacenamiento y seguridad
+                </h3>
+
+                <p>
+                  La información de las cuentas y los datos
+                  necesarios para el funcionamiento de la
+                  plataforma pueden ser almacenados y
+                  procesados mediante servicios tecnológicos
+                  de terceros utilizados por Canastas Verdes,
+                  incluyendo servicios de autenticación,
+                  almacenamiento y bases de datos.
+                </p>
+
+                <p className="mt-2">
+                  Se aplicarán medidas técnicas y organizativas
+                  razonables para proteger la información frente
+                  a accesos no autorizados, pérdida, alteración
+                  o divulgación indebida.
+                </p>
+              </section>
+
+              <section className="mb-6">
+                <h3 className="mb-2 text-base font-bold text-[var(--primary)]">
+                  6. Finalidad del tratamiento
+                </h3>
+
+                <p>
+                  Los datos podrán utilizarse para crear y
+                  administrar cuentas, procesar pedidos,
+                  gestionar entregas, prestar atención al
+                  usuario, responder solicitudes, mejorar la
+                  plataforma, mantener la seguridad del servicio
+                  y cumplir obligaciones legales.
+                </p>
+              </section>
+
+              <section className="mb-6">
+                <h3 className="mb-2 text-base font-bold text-[var(--primary)]">
+                  7. Pedidos, productos y precios
+                </h3>
+
+                <p>
+                  La información sobre productos, precios,
+                  existencias, presentaciones y disponibilidad
+                  puede cambiar sin previo aviso.
+                </p>
+
+                <p className="mt-2">
+                  La realización de un pedido estará sujeta a
+                  la disponibilidad del producto y a las
+                  condiciones mostradas durante el proceso de
+                  compra.
+                </p>
+              </section>
+
+              <section className="mb-6">
+                <h3 className="mb-2 text-base font-bold text-[var(--primary)]">
+                  8. Cookies y tecnologías similares
+                </h3>
+
+                <p>
+                  Canastas Verdes puede utilizar cookies y
+                  tecnologías similares necesarias para el
+                  funcionamiento de la plataforma y, cuando
+                  corresponda, para mejorar la experiencia de
+                  navegación.
+                </p>
+
+                <p className="mt-2">
+                  El uso de cookies se encuentra desarrollado
+                  con mayor detalle en la{" "}
+                  <Link
+                    href="/politica-cookies"
+                    onClick={() =>
+                      setShowTerms(false)
+                    }
+                    className="font-semibold text-[var(--primary)] underline underline-offset-2"
+                  >
+                    Política de Cookies
+                  </Link>
+                  .
+                </p>
+              </section>
+
+              <section className="mb-6">
+                <h3 className="mb-2 text-base font-bold text-[var(--primary)]">
+                  9. Responsabilidades del usuario
+                </h3>
+
+                <p>
+                  El usuario se compromete a utilizar la
+                  plataforma de manera lícita, responsable y
+                  conforme a estos términos.
+                </p>
+
+                <p className="mt-2">
+                  No deberá intentar acceder sin autorización
+                  a sistemas, cuentas, información o
+                  funcionalidades restringidas.
+                </p>
+              </section>
+
+              <section className="mb-6">
+                <h3 className="mb-2 text-base font-bold text-[var(--primary)]">
+                  10. Limitación de responsabilidad
+                </h3>
+
+                <p>
+                  Canastas Verdes procurará mantener la
+                  disponibilidad y correcto funcionamiento de
+                  la plataforma, pero no garantiza que el
+                  servicio permanezca libre de interrupciones,
+                  errores, fallos técnicos o situaciones
+                  derivadas de servicios externos.
+                </p>
+
+                <p className="mt-2">
+                  En la medida permitida por la legislación
+                  aplicable, Canastas Verdes no será responsable
+                  por daños derivados de hechos que se encuentren
+                  fuera de su control razonable, incluyendo
+                  fallos de conectividad, servicios tecnológicos
+                  de terceros o actuaciones indebidas del
+                  usuario.
+                </p>
+              </section>
+
+              <section className="mb-6">
+                <h3 className="mb-2 text-base font-bold text-[var(--primary)]">
+                  11. Servicios de terceros
+                </h3>
+
+                <p>
+                  La plataforma puede utilizar servicios
+                  tecnológicos proporcionados por terceros para
+                  autenticación, almacenamiento, análisis,
+                  infraestructura u otras funciones necesarias
+                  para su operación.
+                </p>
+
+                <p className="mt-2">
+                  La disponibilidad de dichos servicios puede
+                  estar sujeta a sus propias condiciones,
+                  políticas y limitaciones.
+                </p>
+              </section>
+
+              <section className="mb-6">
+                <h3 className="mb-2 text-base font-bold text-[var(--primary)]">
+                  12. Derechos sobre los datos personales
+                </h3>
+
+                <p>
+                  El titular de los datos podrá ejercer los
+                  derechos reconocidos por la legislación
+                  aplicable, incluyendo conocer, actualizar,
+                  rectificar y solicitar la eliminación de sus
+                  datos cuando legalmente corresponda.
+                </p>
+              </section>
+
+              <section className="mb-6">
+                <h3 className="mb-2 text-base font-bold text-[var(--primary)]">
+                  13. Conservación de la información
+                </h3>
+
+                <p>
+                  La información será conservada durante el
+                  tiempo necesario para cumplir las finalidades
+                  para las cuales fue recopilada, atender
+                  obligaciones legales, contractuales,
+                  administrativas o de seguridad y resolver
+                  posibles controversias.
+                </p>
+              </section>
+
+              <section className="mb-6">
+                <h3 className="mb-2 text-base font-bold text-[var(--primary)]">
+                  14. Modificaciones
+                </h3>
+
+                <p>
+                  Canastas Verdes podrá actualizar estos
+                  términos cuando sea necesario por cambios
+                  legales, técnicos, operativos o en los
+                  servicios ofrecidos.
+                </p>
+
+                <p className="mt-2">
+                  Las modificaciones serán publicadas en la
+                  plataforma.
+                </p>
+              </section>
+
+              <section className="mb-2">
+                <h3 className="mb-2 text-base font-bold text-[var(--primary)]">
+                  15. Aceptación
+                </h3>
+
+                <p>
+                  Al marcar la casilla de aceptación y completar
+                  el proceso de registro, el usuario declara
+                  haber leído y comprendido estos términos y
+                  condiciones y manifiesta su aceptación.
+                </p>
+              </section>
+            </div>
+
+            <div className="flex shrink-0 justify-end border-t border-[var(--border)] bg-[var(--surface)] px-5 py-4 sm:px-6">
+              <button
+                type="button"
+                onClick={() =>
+                  setShowTerms(false)
+                }
+                className="rounded-lg bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

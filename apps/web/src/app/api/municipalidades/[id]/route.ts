@@ -6,6 +6,8 @@ import { requireAdmin } from "@/lib/require-admin";
 
 export const runtime = "nodejs";
 
+const COLLECTION = "municipalidades";
+
 interface RouteContext {
   params: Promise<{
     id: string;
@@ -33,19 +35,15 @@ function validateId(id: string) {
   }
 }
 
-/*
- * Busca primero por ID del documento.
- * Si no existe, busca por el campo Id.
- */
-async function findMunicipality(id: string) {
-  const collection = adminDb.collection(
-    "municipalidades",
-  );
+/* =========================================================
+   Buscar municipalidad
+========================================================= */
 
-  /*
-   * Caso 1:
-   * El ID recibido corresponde al ID del documento.
-   */
+async function findMunicipality(id: string) {
+  const collection =
+    adminDb.collection(COLLECTION);
+
+  // 1. ID del documento
   const directRef = collection.doc(id);
   const directSnapshot = await directRef.get();
 
@@ -53,10 +51,7 @@ async function findMunicipality(id: string) {
     return directRef;
   }
 
-  /*
-   * Caso 2:
-   * El ID recibido corresponde al campo Id.
-   */
+  // 2. Campo Id como string
   const byId = await collection
     .where("Id", "==", id)
     .limit(1)
@@ -66,10 +61,7 @@ async function findMunicipality(id: string) {
     return byId.docs[0].ref;
   }
 
-  /*
-   * Caso 3:
-   * Id podría estar almacenado como número.
-   */
+  // 3. Campo Id como número
   const numericId = Number(id);
 
   if (Number.isInteger(numericId)) {
@@ -86,11 +78,41 @@ async function findMunicipality(id: string) {
   return null;
 }
 
-/*
- * =========================================================
- * PUT
- * =========================================================
- */
+function getErrorResponse(
+  error: unknown,
+  fallback: string,
+) {
+  console.error(fallback, error);
+
+  if (error instanceof Error) {
+    switch (error.message) {
+      case "INVALID_ID":
+        return jsonError(
+          "Identificador de municipalidad inválido.",
+          400,
+        );
+
+      case "AUTH_REQUIRED":
+        return jsonError(
+          "Debes iniciar sesión.",
+          401,
+        );
+
+      case "ADMIN_REQUIRED":
+        return jsonError(
+          "Solo un administrador puede gestionar municipalidades.",
+          403,
+        );
+    }
+  }
+
+  return jsonError(fallback, 500);
+}
+
+/* =========================================================
+   PUT
+   Editar / Activar / Desactivar
+========================================================= */
 
 export async function PUT(
   request: Request,
@@ -103,11 +125,67 @@ export async function PUT(
 
     validateId(id);
 
+    const ref = await findMunicipality(id);
+
+    if (!ref) {
+      return jsonError(
+        "La municipalidad no existe.",
+        404,
+      );
+    }
+
     const body: unknown = await request.json();
 
     if (
       !body ||
-      typeof body !== "object" ||
+      typeof body !== "object"
+    ) {
+      return jsonError(
+        "Datos inválidos.",
+        400,
+      );
+    }
+
+    /*
+     * =====================================================
+     * ACTIVAR / DESACTIVAR
+     * =====================================================
+     */
+
+    if (
+      "activo" in body &&
+      typeof body.activo === "boolean"
+    ) {
+      const activo = body.activo;
+
+      await ref.update({
+        Activo: activo,
+        clausura: activo
+          ? null
+          : FieldValue.serverTimestamp(),
+        actualizacion:
+          FieldValue.serverTimestamp(),
+      });
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          id: ref.id,
+          activo,
+        },
+        message: activo
+          ? "Municipalidad activada correctamente."
+          : "Municipalidad desactivada correctamente.",
+      });
+    }
+
+    /*
+     * =====================================================
+     * EDITAR NOMBRE
+     * =====================================================
+     */
+
+    if (
       !("nombre" in body) ||
       typeof body.nombre !== "string"
     ) {
@@ -126,20 +204,8 @@ export async function PUT(
       );
     }
 
-    const ref = await findMunicipality(id);
-
-    if (!ref) {
-      return jsonError(
-        "La municipalidad no existe.",
-        404,
-      );
-    }
-
-    /*
-     * Comprobar duplicados ignorando mayúsculas.
-     */
     const snapshot = await adminDb
-      .collection("municipalidades")
+      .collection(COLLECTION)
       .get();
 
     const duplicate = snapshot.docs.some(
@@ -157,21 +223,21 @@ export async function PUT(
 
         return (
           existingName ===
-          nombre.toLowerCase()
+            nombre.toLowerCase() &&
+          data.Activo !== false
         );
       },
     );
 
     if (duplicate) {
       return jsonError(
-        "Ya existe una municipalidad con ese nombre.",
+        "Ya existe una municipalidad activa con ese nombre.",
         409,
       );
     }
 
     await ref.update({
       Nombre: nombre,
-      Activo: true,
       actualizacion:
         FieldValue.serverTimestamp(),
     });
@@ -179,59 +245,24 @@ export async function PUT(
     return NextResponse.json({
       success: true,
       data: {
-        id,
+        id: ref.id,
         nombre,
-        activo: true,
       },
+      message:
+        "Municipalidad actualizada correctamente.",
     });
   } catch (error) {
-    console.error(
-      "Error actualizando municipalidad:",
+    return getErrorResponse(
       error,
-    );
-
-    if (
-      error instanceof Error &&
-      error.message === "INVALID_ID"
-    ) {
-      return jsonError(
-        "Identificador de municipalidad inválido.",
-        400,
-      );
-    }
-
-    if (
-      error instanceof Error &&
-      error.message === "AUTH_REQUIRED"
-    ) {
-      return jsonError(
-        "Debes iniciar sesión.",
-        401,
-      );
-    }
-
-    if (
-      error instanceof Error &&
-      error.message === "ADMIN_REQUIRED"
-    ) {
-      return jsonError(
-        "Solo un administrador puede gestionar municipalidades.",
-        403,
-      );
-    }
-
-    return jsonError(
       "No fue posible actualizar la municipalidad.",
-      500,
     );
   }
 }
 
-/*
- * =========================================================
- * DELETE
- * =========================================================
- */
+/* =========================================================
+   DELETE
+   Eliminación permanente
+========================================================= */
 
 export async function DELETE(
   request: Request,
@@ -253,58 +284,31 @@ export async function DELETE(
       );
     }
 
-    await ref.update({
-      Activo: false,
-      clausura:
-        FieldValue.serverTimestamp(),
-      actualizacion:
-        FieldValue.serverTimestamp(),
-    });
+    const snapshot = await ref.get();
+    const data = snapshot.data();
+
+    /*
+     * Nunca permitir eliminar físicamente
+     * una municipalidad activa.
+     */
+    if (data?.Activo !== false) {
+      return jsonError(
+        "Solo se pueden eliminar municipalidades desactivadas.",
+        409,
+      );
+    }
+
+    await ref.delete();
 
     return NextResponse.json({
       success: true,
       message:
-        "Municipalidad desactivada correctamente.",
+        "Municipalidad eliminada definitivamente.",
     });
   } catch (error) {
-    console.error(
-      "Error desactivando municipalidad:",
+    return getErrorResponse(
       error,
-    );
-
-    if (
-      error instanceof Error &&
-      error.message === "INVALID_ID"
-    ) {
-      return jsonError(
-        "Identificador de municipalidad inválido.",
-        400,
-      );
-    }
-
-    if (
-      error instanceof Error &&
-      error.message === "AUTH_REQUIRED"
-    ) {
-      return jsonError(
-        "Debes iniciar sesión.",
-        401,
-      );
-    }
-
-    if (
-      error instanceof Error &&
-      error.message === "ADMIN_REQUIRED"
-    ) {
-      return jsonError(
-        "Solo un administrador puede gestionar municipalidades.",
-        403,
-      );
-    }
-
-    return jsonError(
-      "No fue posible desactivar la municipalidad.",
-      500,
+      "No fue posible eliminar la municipalidad.",
     );
   }
 }

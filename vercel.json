@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/recordatorios-compras",
+      "schedule": "0 14 * * 6"
+    }
+  ]
+}

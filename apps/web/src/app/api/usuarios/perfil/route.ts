@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
+import { FieldValue } from "firebase-admin/firestore";
 
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
+
+/**
+ * Versión vigente de los términos y condiciones.
+ */
+const VERSION_TERMINOS = "1.0";
 
 /**
  * Obtiene el token Bearer enviado por el cliente.
@@ -99,6 +105,7 @@ function errorResponse(error: unknown) {
 | Telefono
 | Direccion
 | Rol
+| AceptacionTerminos
 | ultimaActualizacion
 |
 | El UID utilizado como ID del documento es exactamente
@@ -137,6 +144,7 @@ export async function POST(request: Request) {
         Correo?: unknown;
         Telefono?: unknown;
         Direccion?: unknown;
+        AceptacionTerminos?: unknown;
       };
 
     const nombres =
@@ -163,6 +171,43 @@ export async function POST(request: Request) {
       typeof input.Direccion === "string"
         ? input.Direccion.trim()
         : "";
+
+    /*
+     * Validar aceptación de términos.
+     *
+     * La aceptación se genera en el servidor y la fecha
+     * no es proporcionada por el cliente.
+     */
+    let terminosAceptados = false;
+
+    if (
+      input.AceptacionTerminos &&
+      typeof input.AceptacionTerminos === "object"
+    ) {
+      const aceptacion =
+        input.AceptacionTerminos as {
+          aceptado?: unknown;
+          version?: unknown;
+          tipo?: unknown;
+        };
+
+      terminosAceptados =
+        aceptacion.aceptado === true &&
+        aceptacion.version === VERSION_TERMINOS &&
+        aceptacion.tipo ===
+          "terminos-condiciones";
+    }
+
+    if (!terminosAceptados) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Debes aceptar los términos y condiciones de uso.",
+        },
+        { status: 400 },
+      );
+    }
 
     if (!nombres) {
       return NextResponse.json(
@@ -267,9 +312,8 @@ export async function POST(request: Request) {
     /*
      * Si el perfil ya existe, NO lo sobrescribimos.
      *
-     * Esto es especialmente importante para evitar
-     * modificar accidentalmente el Rol de un usuario
-     * existente, por ejemplo un administrador.
+     * Esto evita modificar accidentalmente información
+     * existente, especialmente el Rol.
      */
     if (existingUser.exists) {
       return NextResponse.json({
@@ -284,6 +328,9 @@ export async function POST(request: Request) {
 
     /*
      * Creamos el documento del usuario.
+     *
+     * La fecha de aceptación se genera en el servidor
+     * mediante serverTimestamp().
      */
     await userRef.set({
       Nombres: nombres,
@@ -292,7 +339,16 @@ export async function POST(request: Request) {
       Telefono: telefono,
       Direccion: direccion,
       Rol: "consumidor",
-      ultimaActualizacion: new Date(),
+
+      AceptacionTerminos: {
+        aceptado: true,
+        version: VERSION_TERMINOS,
+        tipo: "terminos-condiciones",
+        fecha: FieldValue.serverTimestamp(),
+      },
+
+      ultimaActualizacion:
+        FieldValue.serverTimestamp(),
     });
 
     /*
@@ -320,6 +376,12 @@ export async function POST(request: Request) {
           Telefono: telefono,
           Direccion: direccion,
           Rol: "consumidor",
+
+          AceptacionTerminos: {
+            aceptado: true,
+            version: VERSION_TERMINOS,
+            tipo: "terminos-condiciones",
+          },
         },
       },
       { status: 201 },
@@ -369,6 +431,9 @@ export async function GET(request: Request) {
     const data =
       snapshot.data();
 
+    const aceptacion =
+      data?.AceptacionTerminos;
+
     return NextResponse.json({
       success: true,
       data: {
@@ -403,6 +468,26 @@ export async function GET(request: Request) {
           typeof data?.Rol === "string"
             ? data.Rol
             : "consumidor",
+
+        AceptacionTerminos:
+          aceptacion
+            ? {
+                aceptado:
+                  aceptacion.aceptado === true,
+
+                version:
+                  typeof aceptacion.version ===
+                  "string"
+                    ? aceptacion.version
+                    : "",
+
+                tipo:
+                  typeof aceptacion.tipo ===
+                  "string"
+                    ? aceptacion.tipo
+                    : "",
+              }
+            : null,
       },
     });
   } catch (error) {
@@ -427,6 +512,7 @@ export async function GET(request: Request) {
 |
 | Correo
 | Rol
+| AceptacionTerminos
 |
 |--------------------------------------------------------------------------
 */
@@ -557,14 +643,15 @@ export async function PUT(request: Request) {
     /*
      * Solamente actualizamos los campos permitidos.
      *
-     * El Rol y el Correo permanecen intactos.
+     * El Rol, Correo y AceptacionTerminos permanecen intactos.
      */
     await userRef.update({
       Nombres: nombres,
       Apellidos: apellidos,
       Telefono: telefono,
       Direccion: direccion,
-      ultimaActualizacion: new Date(),
+      ultimaActualizacion:
+        FieldValue.serverTimestamp(),
     });
 
     /*

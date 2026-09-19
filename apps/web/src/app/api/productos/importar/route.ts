@@ -6,70 +6,91 @@ import { requireAdmin } from "@/lib/require-admin";
 
 export const runtime = "nodejs";
 
-const COLLECTION = "productos";
-const PRODUCTORES_COLLECTION = "productores";
+const PRODUCTS_COLLECTION = "productos";
+const PRODUCERS_COLLECTION = "productores";
+const MUNICIPALITIES_COLLECTION = "municipalidades";
 
-const MAX_ROWS = 400;
+const MAX_ROWS = 500;
+const MAX_COMPONENT_ROWS = 1500;
 
 const MAX_CODE_LENGTH = 50;
 const MAX_NAME_LENGTH = 150;
 const MAX_TEXT_LENGTH = 500;
 
-type Action =
-  | "CREAR"
-  | "ACTUALIZAR"
-  | "ELIMINAR";
+const CANASTA_CATEGORY = "Canasta";
 
-type ProductRow = Record<string, unknown>;
+type ExcelRow = Record<string, unknown>;
 
-type CanastaComponent = {
-  productoId: string;
-  cantidad: number;
-};
-
-type NormalizedProduct = {
+type NormalizedRow = {
   code: string;
   nombre: string;
   descripcion: string;
   precio: number;
-  stock: number;
-
   costoPcc: number;
   porcentajeLogistica: number;
   porcentajeTransporte: number;
   precioSugerido: number;
   precioVenta: number;
-
+  stock: number;
   categoria: string;
   unidad: string;
-  imgPath: string;
-  imageName: string;
+  nombreProductor: string;
+  nombreMunicipio: string;
   activo: boolean;
+};
 
-  IdProductor?: string;
-  IdMunicipalidad: string;
+type ComponentRow = {
+  codigoCanasta: string;
+  producto: string;
+  cantidad: number;
+  rowNumber: number;
+};
 
-  componentes: CanastaComponent[];
+type ComponentReference = {
+  productoId: string;
+  cantidad: number;
+};
+
+type ProductDocument = {
+  id: string;
+  data: FirebaseFirestore.DocumentData;
+};
+
+type ResolvedProduct = {
+  row: NormalizedRow;
+  rowNumber: number;
+  productorId: string;
+  municipioId: string;
+};
+
+type ImportOperation = {
+  type: "CREATE" | "UPDATE" | "DEACTIVATE";
+  id: string;
+  row: ResolvedProduct;
 };
 
 function text(
   value: unknown,
   maxLength = MAX_TEXT_LENGTH,
 ): string {
-  if (typeof value !== "string") {
+  if (value === null || value === undefined) {
     return "";
   }
 
-  return value.trim().slice(0, maxLength);
+  return String(value).trim().slice(0, maxLength);
 }
 
-function normalizeCode(
-  value: unknown,
-): string {
-  return text(
-    value,
-    MAX_CODE_LENGTH,
-  ).toUpperCase();
+function normalizeCode(value: unknown): string {
+  return text(value, MAX_CODE_LENGTH).toUpperCase();
+}
+
+function normalizeName(value: unknown): string {
+  return text(value, MAX_NAME_LENGTH)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function numberValue(
@@ -84,10 +105,45 @@ function numberValue(
     return defaultValue;
   }
 
-  const parsed =
-    typeof value === "number"
+  if (typeof value === "number") {
+    return Number.isFinite(value)
       ? value
-      : Number(value);
+      : defaultValue;
+  }
+
+  let normalized = String(value)
+    .trim()
+    .replace(/\$/g, "")
+    .replace(/\s/g, "")
+    .replace(/COP/gi, "");
+
+  if (!normalized) {
+    return defaultValue;
+  }
+
+  if (
+    normalized.includes(".") &&
+    normalized.includes(",")
+  ) {
+    normalized = normalized
+      .replace(/\./g, "")
+      .replace(",", ".");
+  } else if (normalized.includes(",")) {
+    normalized = normalized.replace(",", ".");
+  } else if (normalized.includes(".")) {
+    const parts = normalized.split(".");
+
+    if (
+      parts.length > 1 &&
+      parts.slice(1).every(
+        (part) => /^\d{3}$/.test(part),
+      )
+    ) {
+      normalized = normalized.replace(/\./g, "");
+    }
+  }
+
+  const parsed = Number(normalized);
 
   return Number.isFinite(parsed)
     ? parsed
@@ -99,8 +155,7 @@ function percentageValue(
   fieldName: string,
   rowNumber: number,
 ): number {
-  const parsed =
-    numberValue(value, 0);
+  const parsed = numberValue(value, 0);
 
   if (
     !Number.isFinite(parsed) ||
@@ -115,310 +170,703 @@ function percentageValue(
   return parsed;
 }
 
-function getAction(
+function booleanValue(
   value: unknown,
-): Action {
-  const normalized =
-    text(value).toUpperCase();
+): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  const normalized = text(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 
   if (
-    normalized === "CREAR" ||
-    normalized === "ACTUALIZAR" ||
-    normalized === "ELIMINAR"
+    [
+      "no",
+      "false",
+      "0",
+      "inactivo",
+      "inactiva",
+    ].includes(normalized)
   ) {
-    return normalized;
+    return false;
   }
 
-  throw new Error(
-    `Acción inválida: "${
-      text(value) || "vacía"
-    }". Usa CREAR, ACTUALIZAR o ELIMINAR.`,
-  );
+  return true;
 }
 
-function normalizeComponents(
-  value: unknown,
-  rowNumber: number,
-): CanastaComponent[] {
-  if (
-    value === undefined ||
-    value === null ||
-    value === ""
-  ) {
-    return [];
-  }
-
-  let parsed = value;
-
-  /*
-   * Permite importar componentes como JSON
-   * desde Excel.
-   *
-   * Ejemplo:
-   *
-   * [
-   *   {"productoId":"abc","cantidad":2},
-   *   {"productoId":"def","cantidad":1}
-   * ]
-   */
-  if (typeof value === "string") {
-    try {
-      parsed = JSON.parse(value);
-    } catch {
-      throw new Error(
-        `Fila ${rowNumber}: el campo componentes debe contener un JSON válido.`,
-      );
-    }
-  }
-
-  if (!Array.isArray(parsed)) {
-    throw new Error(
-      `Fila ${rowNumber}: los componentes de la canasta no son válidos.`,
-    );
-  }
-
-  return parsed.map(
-    (component, index) => {
-      if (
-        !component ||
-        typeof component !== "object" ||
-        Array.isArray(component)
-      ) {
-        throw new Error(
-          `Fila ${rowNumber}: el componente ${
-            index + 1
-          } no es válido.`,
-        );
-      }
-
-      const item =
-        component as Record<
-          string,
-          unknown
-        >;
-
-      const productoId =
-        text(
-          item.productoId,
-          200,
-        );
-
-      const cantidad =
-        numberValue(
-          item.cantidad,
-          0,
-        );
-
-      if (!productoId) {
-        throw new Error(
-          `Fila ${rowNumber}: el componente ${
-            index + 1
-          } requiere productoId.`,
-        );
-      }
-
-      if (
-        !Number.isInteger(cantidad) ||
-        cantidad <= 0
-      ) {
-        throw new Error(
-          `Fila ${rowNumber}: la cantidad del componente ${
-            index + 1
-          } debe ser un entero mayor que 0.`,
-        );
-      }
-
-      return {
-        productoId,
-        cantidad,
-      };
-    },
+/**
+ * Excel:
+ * Cantidad = 200
+ * Unidad = gr
+ *
+ * Firestore:
+ * unidad = "200 x gr"
+ */
+function buildUnidad(
+  row: ExcelRow,
+): string {
+  const unidad = text(
+    row.Unidad ??
+      row.unidad,
+    100,
   );
+
+  const cantidadRaw =
+    row.Cantidad ??
+    row.cantidad;
+
+  const cantidad =
+    cantidadRaw === null ||
+    cantidadRaw === undefined ||
+    String(cantidadRaw).trim() === ""
+      ? ""
+      : text(cantidadRaw, 50);
+
+  if (cantidad && unidad) {
+    return `${cantidad} x ${unidad}`;
+  }
+
+  if (unidad) {
+    return unidad;
+  }
+
+  return cantidad;
 }
 
-function normalizeProduct(
-  row: ProductRow,
+function normalizeProductRow(
+  row: ExcelRow,
   rowNumber: number,
-): NormalizedProduct {
-  const code =
-    normalizeCode(row.code);
+  expectedCategory?: string,
+): NormalizedRow {
+  const code = normalizeCode(
+    row.Codigo ??
+      row.codigo ??
+      row.code,
+  );
 
-  const nombre =
-    text(
+  const nombre = text(
+    row.Nombre ??
       row.nombre,
-      MAX_NAME_LENGTH,
-    );
+    MAX_NAME_LENGTH,
+  );
 
-  const precio =
-    numberValue(row.precio);
-
-  const stock =
-    numberValue(row.stock);
-
-  if (
-    !code ||
-    !nombre ||
-    !Number.isFinite(precio) ||
-    precio < 0 ||
-    !Number.isInteger(stock) ||
-    stock < 0
-  ) {
+  if (!code) {
     throw new Error(
-      `Fila ${rowNumber} inválida: código, nombre, precio y stock son obligatorios.`,
+      `Fila ${rowNumber}: el campo Codigo es obligatorio.`,
     );
   }
 
-  const costoPcc =
-    numberValue(
+  if (!nombre) {
+    throw new Error(
+      `Fila ${rowNumber}: el campo Nombre es obligatorio.`,
+    );
+  }
+
+  const precio = numberValue(
+    row.Precio ??
+      row.precio,
+  );
+
+  const costoPcc = numberValue(
+    row.CostoPcc ??
       row.costoPcc,
-    );
-
-  if (
-    !Number.isFinite(costoPcc) ||
-    costoPcc < 0
-  ) {
-    throw new Error(
-      `Fila ${rowNumber}: el costo PCC no es válido.`,
-    );
-  }
+  );
 
   const porcentajeLogistica =
     percentageValue(
-      row.porcentajeLogistica,
+      row.PorcentajeLogistica ??
+        row.porcentajeLogistica,
       "el porcentaje de logística",
       rowNumber,
     );
 
   const porcentajeTransporte =
     percentageValue(
-      row.porcentajeTransporte,
+      row.PorcentajeTransporte ??
+        row.porcentajeTransporte,
       "el porcentaje de transporte",
       rowNumber,
     );
 
   const precioSugerido =
     numberValue(
-      row.precioSugerido,
+      row.PrecioSugerido ??
+        row.precioSugerido,
     );
+
+  const precioVenta =
+    numberValue(
+      row.PrecioVenta ??
+        row.precioVenta,
+    );
+
+  const stock = numberValue(
+    row.Stock ??
+      row.stock,
+  );
+
+  if (
+    !Number.isFinite(precio) ||
+    precio < 0
+  ) {
+    throw new Error(
+      `Fila ${rowNumber}: Precio no es válido.`,
+    );
+  }
+
+  if (
+    !Number.isFinite(costoPcc) ||
+    costoPcc < 0
+  ) {
+    throw new Error(
+      `Fila ${rowNumber}: CostoPcc no es válido.`,
+    );
+  }
 
   if (
     !Number.isFinite(precioSugerido) ||
     precioSugerido < 0
   ) {
     throw new Error(
-      `Fila ${rowNumber}: el precio sugerido no es válido.`,
+      `Fila ${rowNumber}: PrecioSugerido no es válido.`,
     );
   }
-
-  const precioVenta =
-    numberValue(
-      row.precioVenta,
-    );
 
   if (
     !Number.isFinite(precioVenta) ||
     precioVenta < 0
   ) {
     throw new Error(
-      `Fila ${rowNumber}: el precio de venta no es válido.`,
+      `Fila ${rowNumber}: PrecioVenta no es válido.`,
     );
   }
 
-  const categoria =
-    text(
-      row.categoria,
-      200,
-    );
-
-  const unidad =
-    text(
-      row.unidad,
-      100,
-    );
-
-  const componentes =
-    normalizeComponents(
-      row.componentes,
-      rowNumber,
-    );
-
-  /*
-   * Una canasta debe tener componentes.
-   */
   if (
-    categoria.toLowerCase() ===
-      "canasta" &&
-    componentes.length === 0
+    !Number.isInteger(stock) ||
+    stock < 0
   ) {
     throw new Error(
-      `Fila ${rowNumber}: una canasta debe contener al menos un producto.`,
+      `Fila ${rowNumber}: Stock debe ser un número entero mayor o igual a 0.`,
+    );
+  }
+
+  let categoria = text(
+    row.Categoria ??
+      row.categoria,
+    200,
+  );
+
+  // En la hoja Canastas la categoría es implícita.
+  if (expectedCategory) {
+    categoria = expectedCategory;
+  }
+
+  if (!categoria) {
+    throw new Error(
+      `Fila ${rowNumber}: Categoria es obligatoria.`,
+    );
+  }
+
+  const nombreProductor = text(
+    row.NombreProductor ??
+      row.nombreProductor,
+    MAX_NAME_LENGTH,
+  );
+
+  const nombreMunicipio = text(
+    row.NombreMunicipio ??
+      row.nombreMunicipio,
+    MAX_NAME_LENGTH,
+  );
+
+  if (!nombreProductor) {
+    throw new Error(
+      `Fila ${rowNumber}: NombreProductor es obligatorio.`,
+    );
+  }
+
+  if (!nombreMunicipio) {
+    throw new Error(
+      `Fila ${rowNumber}: NombreMunicipio es obligatorio.`,
     );
   }
 
   return {
     code,
     nombre,
-
-    descripcion:
-      text(row.descripcion),
-
+    descripcion: text(
+      row.Descripcion ??
+        row.descripcion,
+    ),
     precio,
-    stock,
-
     costoPcc,
     porcentajeLogistica,
     porcentajeTransporte,
     precioSugerido,
     precioVenta,
-
+    stock,
     categoria,
+    unidad: buildUnidad(row),
+    nombreProductor,
+    nombreMunicipio,
+    activo: booleanValue(
+      row.Activo ??
+        row.activo,
+    ),
+  };
+}
 
-    unidad:
-      categoria.toLowerCase() ===
-      "canasta"
-        ? unidad
-        : unidad,
+function normalizeComponentRow(
+  row: ExcelRow,
+  rowNumber: number,
+): ComponentRow {
+  const codigoCanasta =
+    normalizeCode(
+      row.CodigoCanasta ??
+        row.codigoCanasta ??
+        row.Canasta,
+    );
 
-    imgPath:
-      text(
-        row.imgPath,
-        500,
+  const producto = text(
+    row.Producto ??
+      row.producto,
+    MAX_NAME_LENGTH,
+  );
+
+  const cantidad = numberValue(
+    row.Cantidad ??
+      row.cantidad,
+  );
+
+  if (!codigoCanasta) {
+    throw new Error(
+      `Fila ${rowNumber}: CodigoCanasta es obligatorio en ComponentesCanastas.`,
+    );
+  }
+
+  if (!producto) {
+    throw new Error(
+      `Fila ${rowNumber}: Producto es obligatorio en ComponentesCanastas.`,
+    );
+  }
+
+  if (
+    !Number.isInteger(cantidad) ||
+    cantidad <= 0
+  ) {
+    throw new Error(
+      `Fila ${rowNumber}: Cantidad debe ser un entero mayor que 0.`,
+    );
+  }
+
+  return {
+    codigoCanasta,
+    producto,
+    cantidad,
+    rowNumber,
+  };
+}
+
+function sameNumber(
+  a: number,
+  b: number,
+): boolean {
+  return Math.abs(a - b) < 0.000001;
+}
+
+function getComparableProduct(
+  data: FirebaseFirestore.DocumentData,
+) {
+  return {
+    code: normalizeCode(data.code),
+    nombre: text(
+      data.nombre,
+      MAX_NAME_LENGTH,
+    ),
+    descripcion: text(
+      data.descripcion,
+    ),
+    precio: numberValue(
+      data.precio,
+    ),
+    costoPcc: numberValue(
+      data.costoPcc,
+    ),
+    porcentajeLogistica:
+      numberValue(
+        data.porcentajeLogistica,
       ),
-
-    imageName:
-      text(
-        row.imageName,
-        255,
+    porcentajeTransporte:
+      numberValue(
+        data.porcentajeTransporte,
       ),
-
-    activo:
-      row.activo !== false &&
-      row.activo !== "false" &&
-      row.activo !== "FALSE" &&
-      row.activo !== 0 &&
-      row.activo !== "0",
-
-    ...(text(
-      row.IdProductor,
+    precioSugerido:
+      numberValue(
+        data.precioSugerido,
+      ),
+    precioVenta:
+      numberValue(
+        data.precioVenta,
+      ),
+    stock: numberValue(
+      data.stock,
+    ),
+    categoria: text(
+      data.categoria,
       200,
-    )
-      ? {
-          IdProductor:
-            text(
-              row.IdProductor,
-              200,
-            ),
-        }
-      : {}),
+    ),
+    unidad: text(
+      data.unidad,
+      100,
+    ),
+    activo:
+      data.activo !== false,
+    IdProductor: text(
+      data.IdProductor,
+      200,
+    ),
+    IdMunicipalidad: text(
+      data.IdMunicipalidad,
+      200,
+    ),
+  };
+}
 
-    IdMunicipalidad:
-      text(
-        row.IdMunicipalidad,
+function getExistingComponents(
+  data: FirebaseFirestore.DocumentData,
+): ComponentReference[] {
+  if (
+    !Array.isArray(
+      data.componentes,
+    )
+  ) {
+    return [];
+  }
+
+  return data.componentes
+    .filter(
+      (
+        item: unknown,
+      ): item is {
+        productoId: string;
+        cantidad: number;
+      } =>
+        !!item &&
+        typeof item === "object" &&
+        !Array.isArray(item) &&
+        typeof (
+          item as Record<
+            string,
+            unknown
+          >
+        ).productoId === "string",
+    )
+    .map((item) => ({
+      productoId: text(
+        item.productoId,
         200,
       ),
+      cantidad: numberValue(
+        item.cantidad,
+      ),
+    }));
+}
 
-    componentes,
-  };
+function sameComponents(
+  current: ComponentReference[],
+  incoming: ComponentReference[],
+): boolean {
+  if (
+    current.length !==
+    incoming.length
+  ) {
+    return false;
+  }
+
+  const currentMap =
+    new Map<string, number>();
+
+  for (const item of current) {
+    currentMap.set(
+      item.productoId,
+      item.cantidad,
+    );
+  }
+
+  for (const item of incoming) {
+    const currentQuantity =
+      currentMap.get(
+        item.productoId,
+      );
+
+    if (
+      currentQuantity === undefined ||
+      !sameNumber(
+        currentQuantity,
+        item.cantidad,
+      )
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function sameProductData(
+  current: FirebaseFirestore.DocumentData,
+  incoming: NormalizedRow,
+  productorId: string,
+  municipioId: string,
+  incomingComponents?: ComponentReference[],
+): boolean {
+  const existing =
+    getComparableProduct(
+      current,
+    );
+
+  const basicSame =
+    existing.code ===
+      incoming.code &&
+    existing.nombre ===
+      incoming.nombre &&
+    existing.descripcion ===
+      incoming.descripcion &&
+    sameNumber(
+      existing.precio,
+      incoming.precio,
+    ) &&
+    sameNumber(
+      existing.costoPcc,
+      incoming.costoPcc,
+    ) &&
+    sameNumber(
+      existing.porcentajeLogistica,
+      incoming.porcentajeLogistica,
+    ) &&
+    sameNumber(
+      existing.porcentajeTransporte,
+      incoming.porcentajeTransporte,
+    ) &&
+    sameNumber(
+      existing.precioSugerido,
+      incoming.precioSugerido,
+    ) &&
+    sameNumber(
+      existing.precioVenta,
+      incoming.precioVenta,
+    ) &&
+    existing.stock ===
+      incoming.stock &&
+    normalizeName(
+      existing.categoria,
+    ) ===
+      normalizeName(
+        incoming.categoria,
+      ) &&
+    existing.unidad ===
+      incoming.unidad &&
+    existing.activo ===
+      incoming.activo &&
+    existing.IdProductor ===
+      productorId &&
+    existing.IdMunicipalidad ===
+      municipioId;
+
+  if (!basicSame) {
+    return false;
+  }
+
+  if (
+    normalizeName(
+      incoming.categoria,
+    ) !==
+    normalizeName(
+      CANASTA_CATEGORY,
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    incomingComponents ===
+    undefined
+  ) {
+    return true;
+  }
+
+  return sameComponents(
+    getExistingComponents(
+      current,
+    ),
+    incomingComponents,
+  );
+}
+
+async function loadMunicipalityMap() {
+  const snapshot =
+    await adminDb
+      .collection(
+        MUNICIPALITIES_COLLECTION,
+      )
+      .get();
+
+  const map = new Map<
+    string,
+    {
+      id: string;
+      nombre: string;
+      activo: boolean;
+    }[]
+  >();
+
+  for (
+    const document of
+      snapshot.docs
+  ) {
+    const data =
+      document.data();
+
+    const nombre = text(
+      data.nombre ??
+        data.Nombre ??
+        data.nombreMunicipio ??
+        data.NombreMunicipio,
+      MAX_NAME_LENGTH,
+    );
+
+    if (!nombre) {
+      continue;
+    }
+
+    const key =
+      normalizeName(nombre);
+
+    const list =
+      map.get(key) ?? [];
+
+    list.push({
+      id: document.id,
+      nombre,
+      activo:
+        data.activo !== false,
+    });
+
+    map.set(
+      key,
+      list,
+    );
+  }
+
+  return map;
+}
+
+async function loadProducerMap() {
+  const snapshot =
+    await adminDb
+      .collection(
+        PRODUCERS_COLLECTION,
+      )
+      .get();
+
+  const map = new Map<
+    string,
+    {
+      id: string;
+      nombre: string;
+      activo: boolean;
+    }[]
+  >();
+
+  for (
+    const document of
+      snapshot.docs
+  ) {
+    const data =
+      document.data();
+
+    const nombre = text(
+      data.nombre ??
+        data.Nombre ??
+        data.nombreProductor ??
+        data.NombreProductor,
+      MAX_NAME_LENGTH,
+    );
+
+    if (!nombre) {
+      continue;
+    }
+
+    const key =
+      normalizeName(nombre);
+
+    const list =
+      map.get(key) ?? [];
+
+    list.push({
+      id: document.id,
+      nombre,
+      activo:
+        data.activo !== false,
+    });
+
+    map.set(
+      key,
+      list,
+    );
+  }
+
+  return map;
+}
+
+function resolveCatalogItem(
+  map: Map<
+    string,
+    {
+      id: string;
+      nombre: string;
+      activo: boolean;
+    }[]
+  >,
+  nombre: string,
+  tipo: string,
+  rowNumber: number,
+) {
+  const key =
+    normalizeName(nombre);
+
+  const matches =
+    map.get(key) ?? [];
+
+  if (
+    matches.length === 0
+  ) {
+    throw new Error(
+      `Fila ${rowNumber}: no existe ${tipo} "${nombre}".`,
+    );
+  }
+
+  if (
+    matches.length > 1
+  ) {
+    throw new Error(
+      `Fila ${rowNumber}: existen varios registros llamados "${nombre}". Debe corregirse el catálogo antes de importar.`,
+    );
+  }
+
+  const item =
+    matches[0];
+
+  if (!item.activo) {
+    throw new Error(
+      `Fila ${rowNumber}: el ${tipo} "${item.nombre}" está inactivo.`,
+    );
+  }
+
+  return item;
 }
 
 function errorResponse(
@@ -441,13 +889,12 @@ function errorResponse(
 
   if (
     error instanceof Error &&
-    (
-      error.message ===
-        "USER_NOT_FOUND" ||
-      error.message ===
-        "USER_INVALID" ||
-      error.message ===
-        "ADMIN_REQUIRED"
+    [
+      "USER_NOT_FOUND",
+      "USER_INVALID",
+      "ADMIN_REQUIRED",
+    ].includes(
+      error.message,
     )
   ) {
     return NextResponse.json(
@@ -488,83 +935,6 @@ function errorResponse(
   );
 }
 
-async function validateProductor(
-  productorId: string,
-  rowNumber: number,
-) {
-  if (!productorId) {
-    throw new Error(
-      `Fila ${rowNumber}: debes indicar un IdProductor.`,
-    );
-  }
-
-  const productorRef =
-    adminDb
-      .collection(
-        PRODUCTORES_COLLECTION,
-      )
-      .doc(productorId);
-
-  const productorSnapshot =
-    await productorRef.get();
-
-  if (
-    !productorSnapshot.exists
-  ) {
-    throw new Error(
-      `Fila ${rowNumber}: el productor con ID "${productorId}" no existe.`,
-    );
-  }
-
-  const productorData =
-    productorSnapshot.data();
-
-  if (
-    productorData?.activo === false
-  ) {
-    throw new Error(
-      `Fila ${rowNumber}: el productor indicado está inactivo.`,
-    );
-  }
-}
-
-async function validateComponents(
-  componentes: CanastaComponent[],
-  rowNumber: number,
-) {
-  if (
-    componentes.length === 0
-  ) {
-    return;
-  }
-
-  const uniqueIds =
-    Array.from(
-      new Set(
-        componentes.map(
-          (item) =>
-            item.productoId,
-        ),
-      ),
-    );
-
-  for (
-    const productoId of uniqueIds
-  ) {
-    const snapshot =
-      await adminDb
-        .collection(COLLECTION)
-        .doc(productoId)
-        .get();
-
-    if (!snapshot.exists) {
-      throw new Error(
-        `Fila ${rowNumber}: el producto "${productoId}" utilizado como componente no existe.`,
-      );
-    }
-  }
-}
-
 export async function POST(
   request: Request,
 ) {
@@ -577,27 +947,8 @@ export async function POST(
     if (
       !body ||
       typeof body !== "object" ||
-      Array.isArray(body) ||
-      !("rows" in body)
+      Array.isArray(body)
     ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "La solicitud no contiene filas.",
-        },
-        { status: 400 },
-      );
-    }
-
-    const rows =
-      (
-        body as {
-          rows?: unknown;
-        }
-      ).rows;
-
-    if (!Array.isArray(rows)) {
       return NextResponse.json(
         {
           success: false,
@@ -608,103 +959,197 @@ export async function POST(
       );
     }
 
-    if (rows.length === 0) {
+    const payload =
+      body as Record<
+        string,
+        unknown
+      >;
+
+    const productRows =
+      Array.isArray(
+        payload.productos,
+      )
+        ? payload.productos
+        : Array.isArray(
+              payload.rows,
+            )
+          ? payload.rows
+          : [];
+
+    const canastaRows =
+      Array.isArray(
+        payload.canastas,
+      )
+        ? payload.canastas
+        : [];
+
+    const componentRows =
+      Array.isArray(
+        payload.componentesCanastas,
+      )
+        ? payload.componentesCanastas
+        : [];
+
+    if (
+      productRows.length === 0 &&
+      canastaRows.length === 0
+    ) {
       return NextResponse.json(
         {
           success: false,
           message:
-            "El archivo no tiene filas de productos.",
+            "El archivo no contiene productos ni canastas.",
         },
         { status: 400 },
       );
     }
 
     if (
-      rows.length > MAX_ROWS
+      productRows.length >
+      MAX_ROWS
     ) {
       return NextResponse.json(
         {
           success: false,
           message:
-            `El máximo por importación es de ${MAX_ROWS} productos.`,
+            `El máximo de productos por importación es ${MAX_ROWS}.`,
         },
         { status: 400 },
       );
     }
 
-    const collection =
-      adminDb.collection(
-        COLLECTION,
+    if (
+      canastaRows.length >
+      MAX_ROWS
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            `El máximo de canastas por importación es ${MAX_ROWS}.`,
+        },
+        { status: 400 },
       );
+    }
 
-    const snapshot =
-      await collection.get();
+    if (
+      componentRows.length >
+      MAX_COMPONENT_ROWS
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            `El máximo de componentes por importación es ${MAX_COMPONENT_ROWS}.`,
+        },
+        { status: 400 },
+      );
+    }
 
-    const existingById =
+    const [
+      productsSnapshot,
+      producersMap,
+      municipalitiesMap,
+    ] = await Promise.all([
+      adminDb
+        .collection(
+          PRODUCTS_COLLECTION,
+        )
+        .get(),
+      loadProducerMap(),
+      loadMunicipalityMap(),
+    ]);
+
+    const existingProducts =
       new Map<
         string,
-        FirebaseFirestore.QueryDocumentSnapshot
-      >(
-        snapshot.docs.map(
-          (document) => [
-            document.id,
-            document,
-          ],
-        ),
-      );
+        ProductDocument
+      >();
 
-    const existingCodes =
+    const existingByCode =
       new Map<
         string,
-        string
+        ProductDocument
+      >();
+
+    const productsByName =
+      new Map<
+        string,
+        ProductDocument[]
       >();
 
     for (
-      const document of snapshot.docs
+      const document of
+        productsSnapshot.docs
     ) {
+      const item = {
+        id: document.id,
+        data: document.data(),
+      };
+
+      existingProducts.set(
+        document.id,
+        item,
+      );
+
       const code =
         normalizeCode(
-          document.data().code,
+          item.data.code,
         );
 
       if (code) {
-        existingCodes.set(
+        existingByCode.set(
           code,
-          document.id,
+          item,
+        );
+      }
+
+      const name =
+        normalizeName(
+          item.data.nombre,
+        );
+
+      if (name) {
+        const list =
+          productsByName.get(
+            name,
+          ) ?? [];
+
+        list.push(item);
+
+        productsByName.set(
+          name,
+          list,
         );
       }
     }
 
-    const importedCodes =
-      new Map<
-        string,
-        number
-      >();
-
-    const productorRows =
-      new Map<
-        string,
-        number
-      >();
-
-    const operations: Array<{
-      action: Action;
-      id?: string;
-      data?: NormalizedProduct;
+    const normalizedProducts: Array<{
+      row: NormalizedRow;
       rowNumber: number;
     }> = [];
 
-    let created = 0;
-    let updated = 0;
-    let deleted = 0;
+    const normalizedCanastas: Array<{
+      row: NormalizedRow;
+      rowNumber: number;
+    }> = [];
+
+    const importedCodes =
+      new Map<string, number>();
+
+    /*
+     * ---------------------------------------------------------
+     * PRODUCTOS
+     * ---------------------------------------------------------
+     */
 
     for (
       let index = 0;
-      index < rows.length;
+      index < productRows.length;
       index += 1
     ) {
       const raw =
-        rows[index];
+        productRows[index];
 
       const rowNumber =
         index + 2;
@@ -715,386 +1160,625 @@ export async function POST(
         Array.isArray(raw)
       ) {
         throw new Error(
-          `La fila ${rowNumber} no tiene un formato válido.`,
+          `Productos - fila ${rowNumber}: formato inválido.`,
         );
       }
 
       const row =
-        raw as ProductRow;
-
-      const action =
-        getAction(
-          row.accion,
-        );
-
-      const id =
-        text(
-          row.id,
-          200,
-        );
-
-      /*
-       * ======================================================
-       * ELIMINAR
-       * ======================================================
-       */
-
-      if (
-        action ===
-        "ELIMINAR"
-      ) {
-        if (!id) {
-          throw new Error(
-            `Fila ${rowNumber}: ELIMINAR requiere un ID.`,
-          );
-        }
-
-        if (
-          !existingById.has(id)
-        ) {
-          throw new Error(
-            `Fila ${rowNumber}: el ID indicado no corresponde a un producto existente.`,
-          );
-        }
-
-        operations.push({
-          action,
-          id,
-          rowNumber,
-        });
-
-        deleted += 1;
-
-        continue;
-      }
-
-      /*
-       * ======================================================
-       * CREAR / ACTUALIZAR
-       * ======================================================
-       */
-
-      const data =
-        normalizeProduct(
-          row,
+        normalizeProductRow(
+          raw as ExcelRow,
           rowNumber,
         );
 
       if (
-        data.IdProductor
-      ) {
-        productorRows.set(
-          data.IdProductor,
-          rowNumber,
-        );
-      }
-
-      /*
-       * Validar componentes antes
-       * de ejecutar el Batch.
-       */
-      await validateComponents(
-        data.componentes,
-        rowNumber,
-      );
-
-      const normalizedCode =
-        normalizeCode(
-          data.code,
-        );
-
-      const previousRow =
-        importedCodes.get(
-          normalizedCode,
-        );
-
-      if (
-        previousRow !==
-        undefined
+        normalizeName(
+          row.categoria,
+        ) ===
+        normalizeName(
+          CANASTA_CATEGORY,
+        )
       ) {
         throw new Error(
-          `El código ${data.code} aparece repetido en las filas ${previousRow} y ${rowNumber}.`,
+          `Productos - fila ${rowNumber}: las canastas deben gestionarse desde la hoja Canastas.`,
+        );
+      }
+
+      const previous =
+        importedCodes.get(
+          row.code,
+        );
+
+      if (
+        previous !== undefined
+      ) {
+        throw new Error(
+          `El código ${row.code} está repetido en las filas ${previous} y ${rowNumber}.`,
         );
       }
 
       importedCodes.set(
-        normalizedCode,
+        row.code,
         rowNumber,
       );
 
-      const existingId =
-        existingCodes.get(
-          normalizedCode,
-        );
-
-      /*
-       * ======================================================
-       * CREAR
-       * ======================================================
-       */
-
-      if (
-        action ===
-        "CREAR"
-      ) {
-        if (
-          !data.IdProductor
-        ) {
-          throw new Error(
-            `Fila ${rowNumber}: CREAR requiere IdProductor.`,
-          );
-        }
-
-        if (existingId) {
-          throw new Error(
-            `Fila ${rowNumber}: ya existe el código ${data.code}.`,
-          );
-        }
-
-        operations.push({
-          action,
-          data,
-          rowNumber,
-        });
-
-        created += 1;
-
-        continue;
-      }
-
-      /*
-       * ======================================================
-       * ACTUALIZAR
-       * ======================================================
-       */
-
-      if (!id) {
-        throw new Error(
-          `Fila ${rowNumber}: ACTUALIZAR requiere un ID.`,
-        );
-      }
-
-      if (
-        !existingById.has(id)
-      ) {
-        throw new Error(
-          `Fila ${rowNumber}: no existe el producto con ID ${id}.`,
-        );
-      }
-
-      if (
-        existingId &&
-        existingId !== id
-      ) {
-        throw new Error(
-          `Fila ${rowNumber}: ya existe otro producto con el código ${data.code}.`,
-        );
-      }
-
-      operations.push({
-        action,
-        id,
-        data,
+      normalizedProducts.push({
+        row,
         rowNumber,
       });
-
-      updated += 1;
     }
 
     /*
-     * ========================================================
-     * VALIDAR PRODUCTORES
-     * ========================================================
+     * ---------------------------------------------------------
+     * CANASTAS
+     * ---------------------------------------------------------
      */
 
     for (
-      const [
-        productorId,
-        rowNumber,
-      ] of productorRows
+      let index = 0;
+      index < canastaRows.length;
+      index += 1
     ) {
-      await validateProductor(
-        productorId,
+      const raw =
+        canastaRows[index];
+
+      const rowNumber =
+        index + 2;
+
+      if (
+        !raw ||
+        typeof raw !== "object" ||
+        Array.isArray(raw)
+      ) {
+        throw new Error(
+          `Canastas - fila ${rowNumber}: formato inválido.`,
+        );
+      }
+
+      const row =
+        normalizeProductRow(
+          raw as ExcelRow,
+          rowNumber,
+          CANASTA_CATEGORY,
+        );
+
+      const previous =
+        importedCodes.get(
+          row.code,
+        );
+
+      if (
+        previous !== undefined
+      ) {
+        throw new Error(
+          `El código ${row.code} está repetido entre las hojas Productos y Canastas o dentro de ellas.`,
+        );
+      }
+
+      importedCodes.set(
+        row.code,
         rowNumber,
+      );
+
+      normalizedCanastas.push({
+        row,
+        rowNumber,
+      });
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * COMPONENTES
+     * ---------------------------------------------------------
+     */
+
+    const normalizedComponents =
+      componentRows.map(
+        (
+          raw,
+          index,
+        ) => {
+          if (
+            !raw ||
+            typeof raw !== "object" ||
+            Array.isArray(raw)
+          ) {
+            throw new Error(
+              `ComponentesCanastas - fila ${index + 2}: formato inválido.`,
+            );
+          }
+
+          return normalizeComponentRow(
+            raw as ExcelRow,
+            index + 2,
+          );
+        },
+      );
+
+    /*
+     * ---------------------------------------------------------
+     * PRODUCTORES Y MUNICIPIOS
+     * ---------------------------------------------------------
+     */
+
+    const resolvedProducts =
+      new Map<
+        string,
+        ResolvedProduct
+      >();
+
+    const allRows = [
+      ...normalizedProducts,
+      ...normalizedCanastas,
+    ];
+
+    for (
+      const item of allRows
+    ) {
+      const productor =
+        resolveCatalogItem(
+          producersMap,
+          item.row.nombreProductor,
+          "productor",
+          item.rowNumber,
+        );
+
+      const municipio =
+        resolveCatalogItem(
+          municipalitiesMap,
+          item.row.nombreMunicipio,
+          "municipio",
+          item.rowNumber,
+        );
+
+      resolvedProducts.set(
+        item.row.code,
+        {
+          row: item.row,
+          rowNumber:
+            item.rowNumber,
+          productorId:
+            productor.id,
+          municipioId:
+            municipio.id,
+        },
       );
     }
 
     /*
-     * ========================================================
-     * FIRESTORE BATCH
-     * ========================================================
+     * ---------------------------------------------------------
+     * IDs PLANIFICADOS
+     *
+     * Permite que una canasta nueva pueda utilizar un producto
+     * nuevo que también está dentro del mismo Excel.
+     * ---------------------------------------------------------
      */
 
-    const batch =
+    const plannedIds =
+      new Map<string, string>();
+
+    for (
+      const item of allRows
+    ) {
+      const existing =
+        existingByCode.get(
+          item.row.code,
+        );
+
+      if (existing) {
+        plannedIds.set(
+          item.row.code,
+          existing.id,
+        );
+      } else {
+        const ref =
+          adminDb
+            .collection(
+              PRODUCTS_COLLECTION,
+            )
+            .doc();
+
+        plannedIds.set(
+          item.row.code,
+          ref.id,
+        );
+      }
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * COMPONENTES POR CANASTA
+     * ---------------------------------------------------------
+     */
+
+    const componentsByCanasta =
+      new Map<
+        string,
+        ComponentReference[]
+      >();
+
+    for (
+      const component of
+        normalizedComponents
+    ) {
+      const canasta =
+        normalizedCanastas.find(
+          (item) =>
+            item.row.code ===
+            component.codigoCanasta,
+        );
+
+      const existingCanasta =
+        existingByCode.get(
+          component.codigoCanasta,
+        );
+
+      if (
+        !canasta &&
+        !existingCanasta
+      ) {
+        throw new Error(
+          `ComponentesCanastas - fila ${component.rowNumber}: la canasta "${component.codigoCanasta}" no existe en el archivo ni en Firebase.`,
+        );
+      }
+
+      if (
+        existingCanasta &&
+        normalizeName(
+          existingCanasta.data.categoria,
+        ) !==
+          normalizeName(
+            CANASTA_CATEGORY,
+          )
+      ) {
+        throw new Error(
+          `ComponentesCanastas - fila ${component.rowNumber}: "${component.codigoCanasta}" no corresponde a una canasta.`,
+        );
+      }
+
+      const productoCode =
+        normalizeCode(
+          component.producto,
+        );
+
+      if (
+        productoCode ===
+        component.codigoCanasta
+      ) {
+        throw new Error(
+          `ComponentesCanastas - fila ${component.rowNumber}: una canasta no puede contenerse a sí misma.`,
+        );
+      }
+
+      let productId =
+        plannedIds.get(
+          productoCode,
+        );
+
+      /*
+       * Compatibilidad:
+       * si no se encontró por código, se intenta por nombre.
+       */
+      if (!productId) {
+        const matches =
+          productsByName.get(
+            normalizeName(
+              component.producto,
+            ),
+          ) ?? [];
+
+        if (
+          matches.length === 0
+        ) {
+          throw new Error(
+            `ComponentesCanastas - fila ${component.rowNumber}: no existe el producto "${component.producto}".`,
+          );
+        }
+
+        if (
+          matches.length > 1
+        ) {
+          throw new Error(
+            `ComponentesCanastas - fila ${component.rowNumber}: existen varios productos llamados "${component.producto}". Use el Código del producto.`,
+          );
+        }
+
+        productId =
+          matches[0].id;
+      }
+
+      const canastaId =
+        plannedIds.get(
+          component.codigoCanasta,
+        ) ??
+        existingCanasta?.id;
+
+      if (
+        productId &&
+        canastaId &&
+        productId === canastaId
+      ) {
+        throw new Error(
+          `ComponentesCanastas - fila ${component.rowNumber}: una canasta no puede ser componente de sí misma.`,
+        );
+      }
+
+      const list =
+        componentsByCanasta.get(
+          component.codigoCanasta,
+        ) ?? [];
+
+      const duplicate =
+        list.some(
+          (item) =>
+            item.productoId ===
+            productId,
+        );
+
+      if (duplicate) {
+        throw new Error(
+          `ComponentesCanastas - fila ${component.rowNumber}: el producto "${component.producto}" está repetido dentro de la canasta ${component.codigoCanasta}.`,
+        );
+      }
+
+      list.push({
+        productoId:
+          productId,
+        cantidad:
+          component.cantidad,
+      });
+
+      componentsByCanasta.set(
+        component.codigoCanasta,
+        list,
+      );
+    }
+
+    /*
+     * Si una canasta existente no tiene filas de componentes
+     * en el Excel, conserva sus componentes actuales.
+     */
+    for (
+      const canasta of
+        normalizedCanastas
+    ) {
+      if (
+        componentsByCanasta.has(
+          canasta.row.code,
+        )
+      ) {
+        continue;
+      }
+
+      const existing =
+        existingByCode.get(
+          canasta.row.code,
+        );
+
+      if (existing) {
+        componentsByCanasta.set(
+          canasta.row.code,
+          getExistingComponents(
+            existing.data,
+          ),
+        );
+      } else {
+        throw new Error(
+          `Canasta ${canasta.row.code}: una canasta nueva debe tener al menos un componente en ComponentesCanastas.`,
+        );
+      }
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * OPERACIONES
+     * ---------------------------------------------------------
+     */
+
+    const operations:
+      ImportOperation[] = [];
+
+    let created = 0;
+    let updated = 0;
+    let deactivated = 0;
+    let unchanged = 0;
+
+    for (
+      const item of allRows
+    ) {
+      const existing =
+        existingByCode.get(
+          item.row.code,
+        );
+
+      if (
+        existing &&
+        normalizeName(
+          existing.data.categoria,
+        ) !==
+          normalizeName(
+            item.row.categoria,
+          )
+      ) {
+        throw new Error(
+          `Fila ${item.rowNumber}: el código ${item.row.code} no puede cambiar entre producto y canasta.`,
+        );
+      }
+
+      const resolved =
+        resolvedProducts.get(
+          item.row.code,
+        );
+
+      if (!resolved) {
+        throw new Error(
+          `No fue posible resolver el producto ${item.row.code}.`,
+        );
+      }
+
+      const isCanasta =
+        normalizeName(
+          resolved.row.categoria,
+        ) ===
+        normalizeName(
+          CANASTA_CATEGORY,
+        );
+
+      const components =
+        isCanasta
+          ? componentsByCanasta.get(
+              resolved.row.code,
+            ) ?? []
+          : undefined;
+
+      if (!existing) {
+        operations.push({
+          type: "CREATE",
+          id:
+            plannedIds.get(
+              resolved.row.code,
+            )!,
+          row: resolved,
+        });
+
+        created += 1;
+        continue;
+      }
+
+      const isSame =
+        sameProductData(
+          existing.data,
+          resolved.row,
+          resolved.productorId,
+          resolved.municipioId,
+          components,
+        );
+
+      if (isSame) {
+        unchanged += 1;
+        continue;
+      }
+
+      if (resolved.row.activo) {
+        operations.push({
+          type: "UPDATE",
+          id: existing.id,
+          row: resolved,
+        });
+
+        updated += 1;
+      } else {
+        operations.push({
+          type: "DEACTIVATE",
+          id: existing.id,
+          row: resolved,
+        });
+
+        deactivated += 1;
+      }
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * VALIDAR COMPONENTES DE CANASTAS
+     * ---------------------------------------------------------
+     */
+
+    for (
+      const canasta of
+        normalizedCanastas
+    ) {
+      const components =
+        componentsByCanasta.get(
+          canasta.row.code,
+        ) ?? [];
+
+      if (
+        components.length === 0
+      ) {
+        throw new Error(
+          `La canasta ${canasta.row.code} debe tener al menos un componente.`,
+        );
+      }
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * ESCRITURA FIRESTORE
+     * ---------------------------------------------------------
+     */
+
+    const batches:
+      FirebaseFirestore.WriteBatch[] =
+      [];
+
+    let currentBatch =
       adminDb.batch();
+
+    let currentBatchCount = 0;
+
+    const addOperation = (
+      callback: (
+        batch: FirebaseFirestore.WriteBatch,
+      ) => void,
+    ) => {
+      if (
+        currentBatchCount >= 450
+      ) {
+        batches.push(
+          currentBatch,
+        );
+
+        currentBatch =
+          adminDb.batch();
+
+        currentBatchCount = 0;
+      }
+
+      callback(
+        currentBatch,
+      );
+
+      currentBatchCount += 1;
+    };
 
     for (
       const operation of operations
     ) {
       /*
-       * ======================================================
-       * ELIMINAR
-       * ======================================================
-       *
-       * Se mantiene como eliminación lógica.
+       * IMPORTANTE:
+       * operation.row es ResolvedProduct.
+       * Los datos reales están en operation.row.row.
        */
-
-      if (
-        operation.action ===
-        "ELIMINAR"
-      ) {
-        const ref =
-          collection.doc(
-            operation.id!,
-          );
-
-        batch.update(
-          ref,
-          {
-            activo: false,
-
-            /*
-             * Se mantiene el nombre
-             * existente utilizado por
-             * esta API.
-             */
-            fechaCierre:
-              FieldValue.serverTimestamp(),
-
-            ultimaActualizacion:
-              FieldValue.serverTimestamp(),
-          },
-        );
-
-        continue;
-      }
-
-      /*
-       * ======================================================
-       * CREAR
-       * ======================================================
-       */
-
-      if (
-        operation.action ===
-        "CREAR"
-      ) {
-        const ref =
-          collection.doc();
-
-        const data =
-          operation.data!;
-
-        const createData:
-          Record<
-            string,
-            unknown
-          > = {
-          code:
-            data.code,
-
-          nombre:
-            data.nombre,
-
-          descripcion:
-            data.descripcion,
-
-          precio:
-            data.precio,
-
-          stock:
-            data.stock,
-
-          costoPcc:
-            data.costoPcc,
-
-          porcentajeLogistica:
-            data.porcentajeLogistica,
-
-          porcentajeTransporte:
-            data.porcentajeTransporte,
-
-          precioSugerido:
-            data.precioSugerido,
-
-          precioVenta:
-            data.precioVenta,
-
-          categoria:
-            data.categoria,
-
-          unidad:
-            data.unidad,
-
-          imgPath:
-            data.imgPath,
-
-          imageName:
-            data.imageName,
-
-          activo:
-            data.activo,
-
-          IdProductor:
-            data.IdProductor,
-
-          IdMunicipalidad:
-            data.IdMunicipalidad,
-
-          componentes:
-            data.componentes,
-
-          fechaCreacion:
-            FieldValue.serverTimestamp(),
-
-          ultimaActualizacion:
-            FieldValue.serverTimestamp(),
-
-          fechaCierre:
-            null,
-        };
-
-        batch.set(
-          ref,
-          createData,
-        );
-
-        continue;
-      }
-
-      /*
-       * ======================================================
-       * ACTUALIZAR
-       * ======================================================
-       */
-
-      const ref =
-        collection.doc(
-          operation.id!,
-        );
+      const resolved =
+        operation.row;
 
       const data =
-        operation.data!;
+        resolved.row;
 
-      const updateData:
-        Record<
-          string,
-          unknown
-        > = {
-        code:
-          data.code,
+      const isCanasta =
+        normalizeName(
+          data.categoria,
+        ) ===
+        normalizeName(
+          CANASTA_CATEGORY,
+        );
 
-        nombre:
-          data.nombre,
+      const componentes =
+        isCanasta
+          ? componentsByCanasta.get(
+              data.code,
+            ) ?? []
+          : [];
 
+      const firestoreData:
+        Record<string, unknown> = {
+        code: data.code,
+        nombre: data.nombre,
         descripcion:
           data.descripcion,
 
         precio:
           data.precio,
-
-        stock:
-          data.stock,
 
         costoPcc:
           data.costoPcc,
@@ -1111,111 +1795,172 @@ export async function POST(
         precioVenta:
           data.precioVenta,
 
+        stock:
+          data.stock,
+
         categoria:
           data.categoria,
 
         unidad:
           data.unidad,
 
-        imgPath:
-          data.imgPath,
-
-        imageName:
-          data.imageName,
-
         activo:
           data.activo,
 
-        IdMunicipalidad:
-          data.IdMunicipalidad,
+        IdProductor:
+          resolved.productorId,
 
-        componentes:
-          data.componentes,
+        IdMunicipalidad:
+          resolved.municipioId,
+
+        componentes,
 
         ultimaActualizacion:
           FieldValue.serverTimestamp(),
       };
 
-      /*
-       * Si el Excel trae productor,
-       * se actualiza.
-       *
-       * Si no lo trae, se conserva
-       * el productor existente.
-       */
-      if (
-        data.IdProductor
-      ) {
-        updateData.IdProductor =
-          data.IdProductor;
-      } else {
-        const currentProduct =
-          existingById.get(
-            operation.id!,
+      const ref =
+        adminDb
+          .collection(
+            PRODUCTS_COLLECTION,
+          )
+          .doc(
+            operation.id,
           );
 
-        const currentData =
-          currentProduct?.data() ??
-          {};
+      /*
+       * CREATE
+       */
+      if (
+        operation.type ===
+        "CREATE"
+      ) {
+        addOperation(
+          (writeBatch) => {
+            writeBatch.set(
+              ref,
+              {
+                ...firestoreData,
+                imgPath: "",
+                imageName: "",
+                fechaCreacion:
+                  FieldValue.serverTimestamp(),
+                fechaCierre:
+                  data.activo
+                    ? null
+                    : FieldValue.serverTimestamp(),
+              },
+            );
+          },
+        );
 
-        if (
-          currentData.IdProductor
-        ) {
-          updateData.IdProductor =
-            currentData.IdProductor;
-        }
+        continue;
       }
 
       /*
-       * Control de FechaCierre.
-       *
-       * Se conserva la misma lógica
-       * utilizada por el endpoint individual.
+       * DEACTIVATE
        */
-      const currentProduct =
-        existingById.get(
-          operation.id!,
+      if (
+        operation.type ===
+        "DEACTIVATE"
+      ) {
+        addOperation(
+          (writeBatch) => {
+            writeBatch.update(
+              ref,
+              {
+                ...firestoreData,
+                activo: false,
+                fechaCierre:
+                  FieldValue.serverTimestamp(),
+              },
+            );
+          },
         );
 
-      const currentData =
-        currentProduct?.data() ??
-        {};
-
-      const previousActivo =
-        currentData.activo !== false;
-
-      if (
-        previousActivo === true &&
-        data.activo === false
-      ) {
-        updateData.FechaCierre =
-          FieldValue.serverTimestamp();
-      } else if (
-        previousActivo === false &&
-        data.activo === true
-      ) {
-        updateData.FechaCierre =
-          null;
+        continue;
       }
 
-      batch.update(
-        ref,
-        updateData,
+      /*
+       * UPDATE
+       */
+      const existing =
+        existingProducts.get(
+          operation.id,
+        );
+
+      const wasInactive =
+        existing?.data?.activo ===
+        false;
+
+      addOperation(
+        (writeBatch) => {
+          const updateData:
+            Record<
+              string,
+              unknown
+            > = {
+            ...firestoreData,
+          };
+
+          /*
+           * Si estaba inactivo y vuelve a estar activo,
+           * se limpia la fecha de cierre.
+           */
+          if (
+            wasInactive &&
+            data.activo
+          ) {
+            updateData.fechaCierre =
+              null;
+          }
+
+          writeBatch.update(
+            ref,
+            updateData,
+          );
+        },
       );
     }
 
-    await batch.commit();
+    if (
+      currentBatchCount > 0
+    ) {
+      batches.push(
+        currentBatch,
+      );
+    }
+
+    for (
+      const batch of batches
+    ) {
+      await batch.commit();
+    }
 
     return NextResponse.json({
       success: true,
-
+      message:
+        "Importación validada y aplicada correctamente.",
       data: {
         created,
         updated,
-        deleted,
+        deactivated,
+        unchanged,
+        totalProcessed:
+          created +
+          updated +
+          deactivated +
+          unchanged,
+        componentsProcessed:
+          normalizedComponents.length,
       },
     });
   } catch (error) {
+    console.error(
+      "Error importando productos:",
+      error,
+    );
+
     return errorResponse(
       error,
     );

@@ -1,261 +1,198 @@
-import {
-  NextRequest,
-  NextResponse,
-} from "next/server";
-
-import { adminDb } from "@/lib/firebase-admin";
-import { requireAuthRole } from "@/lib/require-auth-role";
-
+import { NextResponse } from "next/server";
+import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import {
   generarPDFReparto,
   type RepartoPDFData,
 } from "@/lib/repartos/pdf";
+import { normalizeEstado } from "@/lib/pedidos/estados";
 
 export const runtime = "nodejs";
 
-/*
- * ============================================================
- * TIPOS
- * ============================================================
- */
+type Rol =
+  | "consumidor"
+  | "repartidor"
+  | "admin";
 
-interface ProductoRecibo {
-  productoId: string;
-  code: string;
-  nombre: string;
-  cantidad: number;
-  precioUnitario: number;
-  subtotal: number;
-  unidad: string;
-}
+type TipoEntrega =
+  | "domicilio"
+  | "recogida";
 
-interface ClienteRecibo {
-  id: string;
-  nombres: string;
-  apellidos: string;
-  nombreCompleto: string;
-  correo: string;
-  telefono: string;
-  direccion: string;
-}
-
-interface RepartidorRecibo {
-  id: string;
-  nombres: string;
-  apellidos: string;
-  nombreCompleto: string;
-  telefono: string;
-}
-
-interface MunicipalidadRecibo {
-  id: string;
-  nombre: string;
-}
-
-interface FirmaRecibo {
-  metodo: "manuscrita" | "texto";
-  valor: string | null;
-  recibidoPor: string | null;
-  fechaRecibido: string | null;
-}
-
-/*
- * ============================================================
- * FUNCIONES AUXILIARES
- * ============================================================
- */
-
-function limpiarTexto(
-  value: unknown,
-): string {
-  if (typeof value !== "string") {
-    return "";
-  }
-
-  return value
-    .replace(/_/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function numero(
-  value: unknown,
-): number {
-  if (
-    typeof value === "number" &&
-    Number.isFinite(value)
-  ) {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const parsed = Number(value);
-
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-
-  return 0;
-}
-
-function convertirFecha(
-  value: unknown,
+function tokenFrom(
+  request: Request,
 ): string | null {
-  if (!value) {
+  const value =
+    request.headers.get(
+      "authorization",
+    );
+
+  if (
+    !value?.startsWith(
+      "Bearer ",
+    )
+  ) {
     return null;
   }
 
-  /*
-   * Firestore Timestamp
-   */
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    "toDate" in value &&
-    typeof (
-      value as {
-        toDate?: unknown;
-      }
-    ).toDate === "function"
-  ) {
-    try {
-      const date = (
-        value as {
-          toDate: () => Date;
-        }
-      ).toDate();
+  const token =
+    value
+      .slice(7)
+      .trim();
 
-      if (
-        date instanceof Date &&
-        !Number.isNaN(
-          date.getTime(),
-        )
-      ) {
-        return date.toISOString();
-      }
-    } catch {
-      return null;
-    }
+  return token || null;
+}
+
+function normalizeRole(
+  value: unknown,
+): Rol {
+  if (
+    typeof value !== "string"
+  ) {
+    return "consumidor";
   }
 
-  /*
-   * Timestamp serializado
-   */
+  const role =
+    value
+      .trim()
+      .toLowerCase();
+
   if (
-    typeof value === "object" &&
-    value !== null &&
-    "seconds" in value
+    role === "admin"
   ) {
-    const seconds = numero(
-      (
-        value as {
-          seconds?: unknown;
-        }
-      ).seconds,
+    return "admin";
+  }
+
+  if (
+    role === "repartidor"
+  ) {
+    return "repartidor";
+  }
+
+  return "consumidor";
+}
+
+function normalizeTipoEntrega(
+  value: unknown,
+): TipoEntrega {
+  return value === "recogida"
+    ? "recogida"
+    : "domicilio";
+}
+
+function roleFromClaims(
+  claims: Record<
+    string,
+    unknown
+  >,
+): Rol | null {
+  const role =
+    claims.role ??
+    claims.Rol ??
+    claims.rol;
+
+  if (
+    role === "admin" ||
+    role === "repartidor"
+  ) {
+    return normalizeRole(
+      role,
     );
-
-    if (seconds > 0) {
-      const date = new Date(
-        seconds * 1000,
-      );
-
-      if (
-        !Number.isNaN(
-          date.getTime(),
-        )
-      ) {
-        return date.toISOString();
-      }
-    }
-  }
-
-  /*
-   * Fecha como string
-   */
-  if (typeof value === "string") {
-    const date = new Date(value);
-
-    if (
-      !Number.isNaN(
-        date.getTime(),
-      )
-    ) {
-      return date.toISOString();
-    }
-  }
-
-  /*
-   * Fecha como Date
-   */
-  if (value instanceof Date) {
-    if (
-      !Number.isNaN(
-        value.getTime(),
-      )
-    ) {
-      return value.toISOString();
-    }
   }
 
   return null;
 }
 
-function nombreCompleto(
-  nombres: unknown,
-  apellidos: unknown,
-): string {
-  return [
-    limpiarTexto(nombres),
-    limpiarTexto(apellidos),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .trim();
+async function authenticate(
+  request: Request,
+) {
+  const token =
+    tokenFrom(request);
+
+  if (!token) {
+    throw new Error(
+      "NO_AUTH",
+    );
+  }
+
+  const user =
+    await adminAuth.verifyIdToken(
+      token,
+    );
+
+  let role =
+    roleFromClaims(
+      user as Record<
+        string,
+        unknown
+      >,
+    );
+
+  if (!role) {
+    const snap =
+      await adminDb
+        .collection("usuarios")
+        .doc(user.uid)
+        .get();
+
+    if (
+      snap.exists
+    ) {
+      const data =
+        snap.data() as Record<
+          string,
+          unknown
+        >;
+
+      role =
+        normalizeRole(
+          data.Rol ??
+            data.rol ??
+            data.Role ??
+            data.role,
+        );
+    } else {
+      role = "consumidor";
+    }
+  }
+
+  return {
+    user,
+    role,
+  };
 }
 
 function errorResponse(
-  status: number,
-  error: string,
   message: string,
+  status: number,
 ) {
   return NextResponse.json(
     {
       success: false,
-      error,
       message,
     },
     { status },
   );
 }
 
-/*
- * ============================================================
- * GET /api/pedidos/[id]/recibo
- * ============================================================
- *
- * Permisos:
- *
- * admin:
- *   Puede consultar cualquier pedido.
- *
- * usuario:
- *   Solo puede consultar sus propios pedidos.
- *
- * repartidor:
- *   Solo puede consultar pedidos que tenga asignados.
- *
- * Adicionalmente:
- *
- *   El pedido debe estar en estado "entregado".
- *
- * El endpoint devuelve un PDF real generado mediante
- * generarPDFReparto().
- */
+function numberValue(
+  value: unknown,
+): number {
+  const number =
+    Number(
+      value ?? 0,
+    );
+
+  return Number.isFinite(
+    number,
+  )
+    ? number
+    : 0;
+}
 
 export async function GET(
-  request: NextRequest,
-  context: {
+  request: Request,
+  {
+    params,
+  }: {
     params: Promise<{
       id: string;
     }>;
@@ -263,315 +200,215 @@ export async function GET(
 ) {
   try {
     /*
-     * ========================================================
-     * 1. AUTENTICACIÓN
-     * ========================================================
+     * =====================================================
+     * AUTENTICACIÓN
+     * =====================================================
      */
 
-    const authenticatedUser =
-      await requireAuthRole(
+    const {
+      user,
+      role,
+    } =
+      await authenticate(
         request,
       );
 
-    const uid =
-      authenticatedUser.uid;
-
-    const role =
-      authenticatedUser.role;
-
-    /*
-     * ========================================================
-     * 2. ID DEL PEDIDO
-     * ========================================================
-     */
-
     const { id } =
-      await context.params;
+      await params;
 
     const pedidoId =
-      id?.trim();
+      id.trim();
 
     if (!pedidoId) {
       return errorResponse(
+        "El pedido es obligatorio.",
         400,
-        "INVALID_ID",
-        "No se proporcionó un ID de pedido válido.",
       );
     }
 
     /*
-     * ========================================================
-     * 3. OBTENER PEDIDO
-     * ========================================================
+     * =====================================================
+     * PEDIDO
+     * =====================================================
      */
-
-    const pedidoRef =
-      adminDb
-        .collection("pedidos")
-        .doc(pedidoId);
 
     const pedidoSnap =
-      await pedidoRef.get();
-
-    if (!pedidoSnap.exists) {
-      return errorResponse(
-        404,
-        "NOT_FOUND",
-        "El pedido solicitado no existe.",
-      );
-    }
-
-    const pedido =
-      pedidoSnap.data();
-
-    if (!pedido) {
-      return errorResponse(
-        400,
-        "INVALID_ORDER",
-        "Los datos del pedido no son válidos.",
-      );
-    }
-
-    /*
-     * ========================================================
-     * 4. AUTORIZACIÓN POR ROL
-     * ========================================================
-     */
-
-    const usuarioId =
-      typeof pedido.usuarioId === "string"
-        ? pedido.usuarioId.trim()
-        : "";
-
-    const repartidorId =
-      typeof pedido.repartidorId === "string"
-        ? pedido.repartidorId.trim()
-        : "";
-
-    /*
-     * ADMIN
-     *
-     * Puede consultar cualquier pedido.
-     */
-    if (role === "admin") {
-      // Permitido.
-    }
-
-    /*
-     * USUARIO
-     *
-     * Solo puede consultar sus propios pedidos.
-     */
-    else if (role === "consumidor") {
-      if (
-        !usuarioId ||
-        usuarioId !== uid
-      ) {
-        return errorResponse(
-          403,
-          "FORBIDDEN",
-          "No tienes permisos para consultar el recibo de este pedido.",
-        );
-      }
-    }
-
-    /*
-     * REPARTIDOR
-     *
-     * Solo puede consultar pedidos asignados a él.
-     */
-    else if (
-      role === "repartidor"
-    ) {
-      if (
-        !repartidorId ||
-        repartidorId !== uid
-      ) {
-        return errorResponse(
-          403,
-          "FORBIDDEN",
-          "No tienes permisos para consultar el recibo de este pedido.",
-        );
-      }
-    }
-
-    /*
-     * requireAuthRole() ya valida el rol,
-     * pero mantenemos esta protección defensiva.
-     */
-    else {
-      return errorResponse(
-        403,
-        "FORBIDDEN",
-        "No tienes permisos para consultar este pedido.",
-      );
-    }
-
-    /*
-     * ========================================================
-     * 5. VALIDAR ESTADO
-     * ========================================================
-     */
+      await adminDb
+        .collection("pedidos")
+        .doc(pedidoId)
+        .get();
 
     if (
-      pedido.estado !==
+      !pedidoSnap.exists
+    ) {
+      return errorResponse(
+        "El pedido no existe.",
+        404,
+      );
+    }
+
+    const data =
+      pedidoSnap.data();
+
+    if (!data) {
+      return errorResponse(
+        "El pedido no contiene información válida.",
+        409,
+      );
+    }
+
+    /*
+     * =====================================================
+     * AUTORIZACIÓN
+     * =====================================================
+     */
+
+    const isOwner =
+      data.usuarioId ===
+      user.uid;
+
+    const isAssignedDeliverer =
+      data.repartidorId ===
+      user.uid;
+
+    if (
+      role !== "admin" &&
+      !isOwner &&
+      !isAssignedDeliverer
+    ) {
+      return errorResponse(
+        "No tienes permiso para consultar este recibo.",
+        403,
+      );
+    }
+
+    /*
+     * =====================================================
+     * VALIDAR ESTADO
+     * =====================================================
+     */
+
+    const estado =
+      normalizeEstado(
+        data.estado,
+      );
+
+    if (
+      estado !==
       "entregado"
     ) {
       return errorResponse(
+        "El recibo solamente está disponible cuando el pedido ha sido entregado o completado.",
         409,
-        "NOT_DELIVERED",
-        "Este pedido todavía no cuenta con una entrega confirmada.",
       );
     }
 
     /*
-     * ========================================================
-     * 6. CLIENTE
-     * ========================================================
+     * =====================================================
+     * TIPO DE ENTREGA
+     * =====================================================
      */
 
-    let cliente: ClienteRecibo = {
-      id: usuarioId,
-      nombres: "",
-      apellidos: "",
-      nombreCompleto: "",
-      correo: "",
-      telefono: "",
-      direccion:
-        limpiarTexto(
-          pedido.direccionEntrega,
-        ),
-    };
+    const tipoEntrega =
+      normalizeTipoEntrega(
+        data.tipoEntrega,
+      );
+
+    /*
+     * =====================================================
+     * CLIENTE
+     * =====================================================
+     */
+
+    const usuarioId =
+      String(
+        data.usuarioId ??
+          "",
+      );
+
+    let cliente:
+      RepartoPDFData["cliente"] =
+        {
+          nombres: "",
+          apellidos: "",
+          correo: "",
+          telefono: "",
+          direccion: "",
+        };
 
     if (usuarioId) {
-      const usuarioSnap =
+      const clienteSnap =
         await adminDb
-          .collection("usuarios")
+          .collection(
+            "usuarios",
+          )
           .doc(usuarioId)
           .get();
 
-      if (usuarioSnap.exists) {
-        const usuario =
-          usuarioSnap.data();
-
-        if (usuario) {
-          const nombres =
-            limpiarTexto(
-              usuario.Nombres,
-            );
-
-          const apellidos =
-            limpiarTexto(
-              usuario.Apellidos,
-            );
-
-          cliente = {
-            id: usuarioId,
-
-            nombres,
-
-            apellidos,
-
-            nombreCompleto:
-              nombreCompleto(
-                nombres,
-                apellidos,
-              ),
-
-            correo:
-              limpiarTexto(
-                usuario.Correo,
-              ),
-
-            telefono:
-              limpiarTexto(
-                usuario.Telefono,
-              ),
-
-            direccion:
-              limpiarTexto(
-                pedido.direccionEntrega,
-              ) ||
-              limpiarTexto(
-                usuario.Direccion,
-              ),
-          };
-        }
-      }
-    }
-
-    /*
-     * ========================================================
-     * 7. REPARTIDOR
-     * ========================================================
-     */
-
-    let repartidor:
-      | RepartidorRecibo
-      | null = null;
-
-    if (repartidorId) {
-      const repartidorSnap =
-        await adminDb
-          .collection("usuarios")
-          .doc(repartidorId)
-          .get();
-
       if (
-        repartidorSnap.exists
+        clienteSnap.exists
       ) {
-        const repartidorData =
-          repartidorSnap.data();
+        const clienteData =
+          clienteSnap.data() as Record<
+            string,
+            unknown
+          >;
 
-        if (repartidorData) {
-          const nombres =
-            limpiarTexto(
-              repartidorData.Nombres,
-            );
+        cliente = {
+          nombres: String(
+            clienteData.Nombres ??
+              clienteData.nombres ??
+              "",
+          ),
 
-          const apellidos =
-            limpiarTexto(
-              repartidorData.Apellidos,
-            );
+          apellidos: String(
+            clienteData.Apellidos ??
+              clienteData.apellidos ??
+              "",
+          ),
 
-          repartidor = {
-            id: repartidorId,
+          correo: String(
+            clienteData.Correo ??
+              clienteData.correo ??
+              "",
+          ),
 
-            nombres,
+          telefono: String(
+            clienteData.Telefono ??
+              clienteData.telefono ??
+              "",
+          ),
 
-            apellidos,
-
-            nombreCompleto:
-              nombreCompleto(
-                nombres,
-                apellidos,
-              ),
-
-            telefono:
-              limpiarTexto(
-                repartidorData.Telefono,
-              ),
-          };
-        }
+          direccion: String(
+            clienteData.Direccion ??
+              clienteData.direccion ??
+              "",
+          ),
+        };
       }
     }
 
     /*
-     * ========================================================
-     * 8. MUNICIPALIDAD
-     * ========================================================
+     * =====================================================
+     * MUNICIPALIDAD
+     * =====================================================
      */
 
     let municipalidad:
-      | MunicipalidadRecibo
-      | null = null;
+      RepartoPDFData["municipalidad"] =
+        {
+          nombre: "",
+        };
 
     const municipalidadId =
-      limpiarTexto(
-        pedido.IdMunicipalidad,
+      String(
+        data.IdMunicipalidad ??
+          "",
       );
 
-    if (municipalidadId) {
+    if (
+      municipalidadId
+    ) {
       const municipalidadSnap =
         await adminDb
           .collection(
@@ -586,335 +423,306 @@ export async function GET(
         municipalidadSnap.exists
       ) {
         const municipalidadData =
-          municipalidadSnap.data();
+          municipalidadSnap.data() as Record<
+            string,
+            unknown
+          >;
+
+        municipalidad = {
+          nombre: String(
+            municipalidadData.Nombre ??
+              municipalidadData.nombre ??
+              "",
+          ),
+        };
+      }
+    }
+
+    /*
+     * =====================================================
+     * PUNTO DE RECOGIDA
+     * =====================================================
+     *
+     * Puede estar guardado como:
+     *
+     * puntoRecogida: {
+     *   id,
+     *   nombre,
+     *   direccion,
+     *   ...
+     * }
+     *
+     * o como:
+     *
+     * puntoRecogida: "ID"
+     */
+
+    const puntoRecogidaRaw:
+      unknown =
+        data.puntoRecogida ??
+        null;
+
+    let puntoRecogida:
+      RepartoPDFData["puntoRecogida"] =
+        null;
+
+    if (
+      puntoRecogidaRaw &&
+      typeof puntoRecogidaRaw ===
+        "object" &&
+      !Array.isArray(
+        puntoRecogidaRaw,
+      )
+    ) {
+      puntoRecogida =
+        puntoRecogidaRaw as NonNullable<
+          RepartoPDFData["puntoRecogida"]
+        >;
+    }
+
+    if (
+      tipoEntrega ===
+        "recogida" &&
+      typeof puntoRecogidaRaw ===
+        "string"
+    ) {
+      const puntoId =
+        puntoRecogidaRaw.trim();
+
+      if (puntoId) {
+        const puntoSnap =
+          await adminDb
+            .collection(
+              "lugaresRecogida",
+            )
+            .doc(puntoId)
+            .get();
 
         if (
-          municipalidadData
+          puntoSnap.exists
         ) {
-          municipalidad = {
-            id: municipalidadId,
-
-            nombre:
-              limpiarTexto(
-                municipalidadData.Nombre,
-              ),
+          puntoRecogida = {
+            id: puntoSnap.id,
+            ...puntoSnap.data(),
           };
         }
       }
     }
 
     /*
-     * ========================================================
-     * 9. PRODUCTOS
-     * ========================================================
+     * =====================================================
+     * REPARTIDOR
+     * =====================================================
+     *
+     * Los pedidos de recogida no tienen repartidor.
      */
 
-    const productos: ProductoRecibo[] =
-      Array.isArray(
-        pedido.productos,
-      )
-        ? pedido.productos.map(
-            (
-              producto: Record<
-                string,
-                unknown
-              >,
-            ) => ({
-              productoId:
-                limpiarTexto(
-                  producto.productoId,
-                ),
-
-              code:
-                limpiarTexto(
-                  producto.code,
-                ),
-
-              nombre:
-                limpiarTexto(
-                  producto.nombre,
-                ),
-
-              cantidad:
-                numero(
-                  producto.cantidad,
-                ),
-
-              precioUnitario:
-                numero(
-                  producto.precioUnitario,
-                ),
-
-              subtotal:
-                numero(
-                  producto.subtotal,
-                ),
-
-              unidad:
-                limpiarTexto(
-                  producto.unidad,
-                ),
-            }),
-          )
-        : [];
-
-    /*
-     * ========================================================
-     * 10. COSTOS
-     * ========================================================
-     */
-
-    const subtotal =
-      numero(
-        pedido.subtotal,
-      );
-
-    const total =
-      numero(
-        pedido.total ??
-          pedido.subtotal,
-      );
-
-    const entrega =
-      numero(
-        pedido.entrega,
-      );
-
-    const logistica =
-      numero(
-        pedido.logistica,
-      );
-
-    const almacenamiento =
-      numero(
-        pedido.almacenamiento,
-      );
-
-    /*
-     * ========================================================
-     * 11. FIRMA
-     * ========================================================
-     */
-
-    let firma:
-      | FirmaRecibo
-      | null = null;
+    let repartidor:
+      RepartoPDFData["repartidor"] =
+        null;
 
     if (
-      pedido.firma &&
-      typeof pedido.firma ===
-        "object"
+      tipoEntrega ===
+        "domicilio" &&
+      data.repartidorId
     ) {
-      const firmaData =
-        pedido.firma as Record<
-          string,
-          unknown
-        >;
-
-      const metodo =
-        firmaData.metodo;
+      const repartidorSnap =
+        await adminDb
+          .collection(
+            "usuarios",
+          )
+          .doc(
+            String(
+              data.repartidorId,
+            ),
+          )
+          .get();
 
       if (
-        metodo === "manuscrita" ||
-        metodo === "texto"
+        repartidorSnap.exists
       ) {
-        const valor =
-          typeof firmaData.valor ===
-          "string"
-            ? firmaData.valor
-            : null;
+        const repartidorData =
+          repartidorSnap.data() as Record<
+            string,
+            unknown
+          >;
 
-        const recibidoPor =
-          typeof firmaData.recibidoPor ===
-          "string"
-            ? limpiarTexto(
-                firmaData.recibidoPor,
-              )
-            : null;
+        repartidor = {
+          nombres: String(
+            repartidorData.Nombres ??
+              repartidorData.nombres ??
+              "",
+          ),
 
-        const fechaRecibido =
-          convertirFecha(
-            firmaData.fechaRecibido ??
-              pedido.fechaRecibido,
-          );
+          apellidos: String(
+            repartidorData.Apellidos ??
+              repartidorData.apellidos ??
+              "",
+          ),
 
-        /*
-         * Importante:
-         *
-         * Todas las propiedades se declaran
-         * explícitamente para evitar conflictos
-         * entre undefined y null.
-         */
-        firma = {
-          metodo,
+          correo: String(
+            repartidorData.Correo ??
+              repartidorData.correo ??
+              "",
+          ),
 
-          valor,
-
-          recibidoPor,
-
-          fechaRecibido,
+          telefono: String(
+            repartidorData.Telefono ??
+              repartidorData.telefono ??
+              "",
+          ),
         };
       }
     }
 
     /*
-     * ========================================================
-     * 12. FECHAS
-     * ========================================================
+     * =====================================================
+     * VENTA COMPLETADA
+     * =====================================================
      */
 
-    const fechaCreacion =
-      convertirFecha(
-        pedido.fechaCreacion,
-      );
-
-    const fechaRecibido =
-      convertirFecha(
-        pedido.fechaRecibido,
-      );
-
-    const fechaFirma =
-      pedido.firma &&
-      typeof pedido.firma ===
-        "object"
-        ? convertirFecha(
-            (
-              pedido.firma as Record<
-                string,
-                unknown
-              >
-            ).fechaRecibido ??
-              pedido.fechaRecibido,
-          )
-        : fechaRecibido;
+    const ventaCompletada =
+      data.ventaCompletada ===
+        true ||
+      estado ===
+        "entregado";
 
     /*
-     * ========================================================
-     * 13. MODALIDAD
-     * ========================================================
+     * =====================================================
+     * COSTOS
+     * =====================================================
      */
 
-    const modalidadEntrega =
-      pedido.modalidadEntrega ===
-        "recogida"
-        ? "recogida"
-        : "domicilio";
+    const subtotalProductos =
+      numberValue(
+        data.subtotal ??
+          data.subtotalProductos,
+      );
+
+    const entrega =
+      numberValue(
+        data.entrega,
+      );
+
+    const logistica =
+      numberValue(
+        data.logistica,
+      );
+
+    const almacenamiento =
+      numberValue(
+        data.almacenamiento,
+      );
+
+    const total =
+      numberValue(
+        data.total ??
+          subtotalProductos +
+            entrega +
+            logistica +
+            almacenamiento,
+      );
 
     /*
-     * ========================================================
-     * 14. DATOS PARA GENERAR PDF
-     * ========================================================
+     * =====================================================
+     * DATOS DEL PDF
+     * =====================================================
      */
 
     const pdfData:
       RepartoPDFData = {
-      id: pedidoSnap.id,
+        id: pedidoId,
 
-      pedido: {
-        id: pedidoSnap.id,
+        pedido: {
+          id: pedidoId,
 
-        productos,
+          productos:
+            Array.isArray(
+              data.productos,
+            )
+              ? data.productos
+              : [],
 
-        subtotal,
+          subtotal:
+            subtotalProductos,
 
-        total,
+          total,
 
-        estado: "entregado",
+          estado,
 
-        IdMunicipalidad:
-          municipalidadId,
+          IdMunicipalidad:
+            String(
+              data.IdMunicipalidad ??
+                "",
+            ),
 
-        direccionEntrega:
-          limpiarTexto(
-            pedido.direccionEntrega,
-          ),
+          direccionEntrega:
+            data.direccionEntrega ??
+            null,
 
-        fechaCreacion,
+          telefonoEntrega:
+            data.telefonoEntrega ??
+            null,
 
-        fechaRecibido,
-      },
+          fechaCreacion:
+            data.fechaCreacion,
 
-      cliente: {
-        nombres:
-          cliente.nombres,
+          fechaRecibido:
+            data.fechaRecibido,
 
-        apellidos:
-          cliente.apellidos,
+          completadoEn:
+            data.completadoEn,
 
-        correo:
-          cliente.correo,
+          tipoEntrega,
 
-        telefono:
-          cliente.telefono,
+          puntoRecogida,
 
-        direccion:
-          cliente.direccion,
-      },
+          ventaCompletada,
 
-      repartidor:
-        repartidor
-          ? {
-              nombres:
-                repartidor.nombres,
+          repartidorId:
+            data.repartidorId ??
+            null,
+        },
 
-              apellidos:
-                repartidor.apellidos,
+        cliente,
 
-              correo: "",
+        repartidor,
 
-              telefono:
-                repartidor.telefono,
-            }
-          : null,
+        municipalidad,
 
-      municipalidad: {
-        nombre:
-          municipalidad?.nombre ??
-          "No especificada",
-      },
+        puntoRecogida,
 
-      costos: {
-        subtotalProductos:
-          subtotal,
+        costos: {
+          subtotalProductos,
+          entrega,
+          logistica,
+          almacenamiento,
+          total,
+        },
 
-        entrega,
+        tipoEntrega,
 
-        logistica,
+        firma:
+          data.firma ??
+          null,
 
-        almacenamiento,
-
-        total,
-      },
-
-      modalidadEntrega,
-
-      firma: firma
-        ? {
-            metodo:
-              firma.metodo,
-
-            valor:
-              firma.valor,
-
-            recibidoPor:
-              firma.recibidoPor,
-
-            fechaRecibido:
-              firma.fechaRecibido,
-          }
-        : null,
-    };
+        ventaCompletada,
+      };
 
     /*
-     * ========================================================
-     * 15. GENERAR PDF
-     * ========================================================
+     * =====================================================
+     * GENERAR PDF
+     * =====================================================
      */
 
     const baseUrl =
-      request.nextUrl.origin;
+      process.env
+        .NEXT_PUBLIC_APP_URL ||
+      new URL(
+        request.url,
+      ).origin;
 
-    const pdfBytes =
+    const pdf =
       await generarPDFReparto(
         pdfData,
         {
@@ -923,29 +731,13 @@ export async function GET(
       );
 
     /*
-     * ========================================================
-     * 16. CONVERTIR Uint8Array -> Buffer
-     * ========================================================
-     *
-     * NextResponse puede presentar un conflicto de tipos
-     * con Uint8Array<ArrayBufferLike>.
-     *
-     * Buffer es aceptado correctamente en runtime Node.js.
-     */
-
-    const pdfBuffer =
-      Buffer.from(
-        pdfBytes,
-      );
-
-    /*
-     * ========================================================
-     * 17. RESPUESTA PDF
-     * ========================================================
+     * pdf-lib devuelve Uint8Array.
+     * Buffer lo convierte a un BodyInit
+     * compatible con NextResponse.
      */
 
     return new NextResponse(
-      pdfBuffer,
+      Buffer.from(pdf),
       {
         status: 200,
 
@@ -954,30 +746,18 @@ export async function GET(
             "application/pdf",
 
           "Content-Disposition":
-            `inline; filename="recibo-${pedidoSnap.id}.pdf"`,
-
-          "Content-Length":
-            pdfBuffer.length.toString(),
+            `inline; filename="recibo-${pedidoId}.pdf"`,
 
           "Cache-Control":
-            "private, no-store",
-
-          "X-Content-Type-Options":
-            "nosniff",
+            "no-store, max-age=0",
         },
       },
     );
   } catch (error) {
     console.error(
-      "Error generando recibo PDF:",
+      "Error generando recibo:",
       error,
     );
-
-    /*
-     * ========================================================
-     * ERRORES DE AUTENTICACIÓN
-     * ========================================================
-     */
 
     if (
       error instanceof Error &&
@@ -985,40 +765,14 @@ export async function GET(
         "NO_AUTH"
     ) {
       return errorResponse(
-        401,
-        "NO_AUTH",
         "Debes iniciar sesión.",
+        401,
       );
     }
-
-    /*
-     * ========================================================
-     * ERRORES DE AUTORIZACIÓN
-     * ========================================================
-     */
-
-    if (
-      error instanceof Error &&
-      error.message ===
-        "FORBIDDEN"
-    ) {
-      return errorResponse(
-        403,
-        "FORBIDDEN",
-        "No tienes permisos para consultar este recibo.",
-      );
-    }
-
-    /*
-     * ========================================================
-     * ERROR GENERAL
-     * ========================================================
-     */
 
     return errorResponse(
+      "No fue posible generar el recibo.",
       500,
-      "SERVER_ERROR",
-      "Ocurrió un error al generar el recibo PDF.",
     );
   }
 }

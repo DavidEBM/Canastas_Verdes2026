@@ -2,18 +2,6 @@
  * ============================================================
  * Tipos del módulo de Repartos
  * ============================================================
- *
- * Estos tipos representan el esquema actual de los documentos
- * almacenados en Firestore dentro de la colección "pedidos".
- *
- * Los datos adicionales del cliente y repartidor se obtendrán
- * posteriormente desde la colección "usuarios" y/o Firebase Auth.
- */
-
-/*
- * ============================================================
- * Estados
- * ============================================================
  */
 
 export interface Reparto {
@@ -36,6 +24,12 @@ export interface Reparto {
   resumen?: RepartoResumen;
 }
 
+/*
+ * ============================================================
+ * Estados
+ * ============================================================
+ */
+
 export const ESTADOS_REPARTO = [
   "pendiente",
   "asignado",
@@ -45,13 +39,6 @@ export const ESTADOS_REPARTO = [
 
 export type EstadoReparto =
   (typeof ESTADOS_REPARTO)[number];
-
-/*
- * Estados generales de un pedido.
- *
- * "cancelado" existe en pedidos, pero no pertenece al flujo
- * activo de repartos.
- */
 
 export const ESTADOS_PEDIDO = [
   "pendiente",
@@ -68,9 +55,6 @@ export type EstadoPedido =
  * ============================================================
  * Timestamp
  * ============================================================
- *
- * Firebase puede devolver timestamps de Firestore o valores
- * serializados por una API.
  */
 
 export interface FirestoreTimestampLike {
@@ -106,12 +90,35 @@ export interface ProductoPedido {
 
 /*
  * ============================================================
- * Pedido base
+ * Modalidad de entrega
+ * ============================================================
+ */
+
+export type ModalidadEntrega =
+  | "domicilio"
+  | "recogida";
+
+/*
+ * ============================================================
+ * Punto de recogida
  * ============================================================
  *
- * Corresponde directamente al documento:
- *
- * pedidos/{pedidoId}
+ * Es una copia de la información del punto existente al
+ * momento de crear el pedido.
+ */
+
+export interface PuntoRecogidaPedido {
+  nombre: string;
+
+  direccion: string;
+
+  municipio: string;
+}
+
+/*
+ * ============================================================
+ * Pedido base
+ * ============================================================
  */
 
 export interface Pedido {
@@ -129,9 +136,26 @@ export interface Pedido {
 
   reservaId: string;
 
+  /*
+   * Tipo de entrega seleccionado durante checkout.
+   */
+  tipoEntrega: ModalidadEntrega;
+
+  /*
+   * Datos utilizados únicamente para domicilio.
+   */
   IdMunicipalidad: string;
 
   direccionEntrega: string;
+
+  telefonoEntrega: string | null;
+
+  /*
+   * Datos utilizados únicamente para recogida.
+   */
+  IdPuntoRecogida: string | null;
+
+  puntoRecogida: PuntoRecogidaPedido | null;
 
   repartidorId: string | null;
 
@@ -155,9 +179,6 @@ export interface Pedido {
  * ============================================================
  * Información del cliente
  * ============================================================
- *
- * Esta información NO está actualmente dentro de "pedidos".
- * Se obtiene desde la información del usuario.
  */
 
 export interface ClienteReparto {
@@ -180,9 +201,6 @@ export interface ClienteReparto {
  * ============================================================
  * Información del repartidor
  * ============================================================
- *
- * El pedido únicamente almacena repartidorId.
- * El nombre y teléfono deberán resolverse mediante el usuario.
  */
 
 export interface RepartidorReparto {
@@ -203,10 +221,6 @@ export interface RepartidorReparto {
  * ============================================================
  * Información de municipalidad
  * ============================================================
- *
- * El pedido actualmente guarda únicamente IdMunicipalidad.
- * El nombre debe resolverse mediante la colección
- * "municipalidades".
  */
 
 export interface MunicipalidadReparto {
@@ -219,15 +233,6 @@ export interface MunicipalidadReparto {
  * ============================================================
  * Costos
  * ============================================================
- *
- * Actualmente el sistema solamente guarda:
- *
- * subtotal = suma de productos
- * total    = subtotal
- *
- * Dejamos los demás conceptos opcionales para poder incorporar
- * posteriormente entrega, logística y almacenamiento sin tener
- * que rediseñar todos los componentes.
  */
 
 export interface CostosReparto {
@@ -241,21 +246,6 @@ export interface CostosReparto {
 
   total: number;
 }
-
-/*
- * ============================================================
- * Modalidad de entrega
- * ============================================================
- *
- * Actualmente checkout solamente maneja entrega a domicilio.
- *
- * "recogida" queda contemplada para la futura implementación
- * de retiro en municipalidad/centro de distribución.
- */
-
-export type ModalidadEntrega =
-  | "domicilio"
-  | "recogida";
 
 /*
  * ============================================================
@@ -282,9 +272,6 @@ export interface FirmaRecibido {
  * ============================================================
  * Resumen para tarjetas colapsadas
  * ============================================================
- *
- * No necesitamos cargar/renderizar toda la información del
- * pedido en la tarjeta cuando está cerrada.
  */
 
 export interface RepartoResumen {
@@ -394,10 +381,6 @@ export interface ActualizarRepartoApiResponse {
  * ============================================================
  */
 
-/**
- * Comprueba si un estado pertenece al flujo activo
- * del módulo de repartos.
- */
 export function esEstadoReparto(
   estado: string,
 ): estado is EstadoReparto {
@@ -406,9 +389,6 @@ export function esEstadoReparto(
   ).includes(estado);
 }
 
-/**
- * Comprueba si un estado es un estado válido de pedido.
- */
 export function esEstadoPedido(
   estado: string,
 ): estado is EstadoPedido {

@@ -2,10 +2,12 @@ import type { Metadata, Viewport } from "next";
 
 import "./globals.css";
 
+import CookieConsent from "@/components/CookieConsent";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import AlliesCarousel from "@/components/layout/AlliesCarousel";
 import Cart from "@/components/tienda/Cart";
+import NotificationManager from "@/components/notifications/NotificationManager";
 import { CartProvider } from "@/hooks/useCart";
 
 export const metadata: Metadata = {
@@ -46,6 +48,12 @@ export default function RootLayout({
 
             {/* Carrito */}
             <Cart />
+
+            {/* Consentimiento de cookies */}
+            <CookieConsent />
+
+            {/* Notificaciones Web Push */}
+            <NotificationManager />
           </div>
         </CartProvider>
       </body>

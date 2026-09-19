@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { MapPin, Package, Truck } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
 
 import { useAuth } from "@/hooks/useAuth";
 import { useCart } from "@/hooks/useCart";
@@ -10,324 +10,239 @@ import { useCart } from "@/hooks/useCart";
 interface Municipality {
   id: string;
   nombre: string;
+  activo: boolean;
 }
 
-interface UserProfile {
+interface PuntoRecogida {
+  id: string;
+  nombre: string;
+  direccion: string;
+  municipio: string;
+  IdMunicipalidad: string;
+  horario: string;
+  telefono: string;
+  activo: boolean;
+  googleMapsUrl: string;
+  googleMapsEmbedUrl: string;
+}
+
+interface Profile {
   Nombres?: string;
   Apellidos?: string;
   Correo?: string;
   Telefono?: string;
   Direccion?: string;
-  Rol?: string;
 }
 
-interface ProfileApiResponse {
-  success?: boolean;
-  message?: string;
-  data?: UserProfile;
-}
-
-interface MunicipalitiesApiResponse {
-  success?: boolean;
-  message?: string;
-  data?: Municipality[];
-}
-
-interface OrderApiResponse {
-  success?: boolean;
-  message?: string;
-  data?: {
-    pedidoId?: string;
-  };
-}
-
-function price(value: number) {
-  return new Intl.NumberFormat("es-CO", {
-    style: "currency",
-    currency: "COP",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
-function normalizeText(value: unknown) {
-  if (typeof value !== "string") {
-    return "";
-  }
-
-  return value.replace(/_/g, " ").trim();
-}
+type TipoEntrega = "domicilio" | "recogida";
 
 export default function CheckoutPage() {
   const router = useRouter();
 
   const { user, loading: authLoading } = useAuth();
-  const { items, subtotal, clearCart } = useCart();
+  const { items, totalPrice, clearCart } = useCart();
 
-  const [municipalities, setMunicipalities] = useState<
-    Municipality[]
-  >([]);
+  const [municipalities, setMunicipalities] = useState<Municipality[]>([]);
+  const [puntosRecogida, setPuntosRecogida] = useState<PuntoRecogida[]>([]);
 
-  const [municipality, setMunicipality] =
-    useState("");
+  const [tipoEntrega, setTipoEntrega] =
+    useState<TipoEntrega>("domicilio");
+
+  const [municipality, setMunicipality] = useState("");
+  const [puntoRecogidaId, setPuntoRecogidaId] = useState("");
 
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
 
-  const [profileLoading, setProfileLoading] =
-    useState(true);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
-  const [
-    municipalitiesLoading,
-    setMunicipalitiesLoading,
-  ] = useState(true);
-
-  const [error, setError] = useState<string | null>(
-    null,
+  const selectedPunto = useMemo(
+    () =>
+      puntosRecogida.find(
+        (point) => point.id === puntoRecogidaId
+      ) ?? null,
+    [puntosRecogida, puntoRecogidaId]
   );
 
-  const [submitting, setSubmitting] =
-    useState(false);
-
-  /*
-   * =====================================================
-   * CARGAR PERFIL DEL USUARIO
-   * =====================================================
-   *
-   * La dirección se obtiene desde:
-   *
-   * usuarios/{UID}
-   *
-   * utilizando:
-   *
-   * GET /api/usuarios/perfil
-   */
   useEffect(() => {
+    if (authLoading) return;
+
     if (!user) {
-      setProfileLoading(false);
+      router.push("/login?redirect=/checkout");
       return;
     }
 
-    let cancelled = false;
-
-    const loadProfile = async () => {
+    async function loadData() {
       try {
-        setProfileLoading(true);
+        setLoading(true);
+        setError("");
 
-        const token = await user.getIdToken();
+        const token = await user!.getIdToken();
 
-        const response = await fetch(
-          "/api/usuarios/perfil",
-          {
-            method: "GET",
+        const [
+          profileResponse,
+          municipalitiesResponse,
+          pointsResponse,
+        ] = await Promise.all([
+          fetch("/api/usuarios/perfil", {
             headers: {
               Authorization: `Bearer ${token}`,
             },
             cache: "no-store",
-          },
-        );
+          }),
 
-        const payload: ProfileApiResponse =
-          await response.json();
+          fetch("/api/municipalidades/disponibles", {
+            cache: "no-store",
+          }),
 
-        if (!response.ok || !payload.success) {
+          fetch("/api/puntos-recogida", {
+            cache: "no-store",
+          }),
+        ]);
+
+        const profileResult = await profileResponse.json();
+        const municipalitiesResult =
+          await municipalitiesResponse.json();
+        const pointsResult =
+          await pointsResponse.json();
+
+        if (
+          !profileResponse.ok ||
+          !profileResult.success
+        ) {
           throw new Error(
-            payload.message ||
-              "No fue posible cargar tu perfil.",
+            profileResult.message ||
+              "No fue posible cargar tu perfil."
           );
         }
 
-        if (cancelled) {
-          return;
-        }
-
-        const profileAddress = normalizeText(
-  payload.data?.Direccion,
-);
-
-const profilePhone = normalizeText(
-  payload.data?.Telefono,
-);
-
-setAddress(profileAddress);
-setPhone(profilePhone);
-
-      } catch (caught) {
-        console.error(
-          "Error al cargar el perfil:",
-          caught,
-        );
-
-        if (!cancelled) {
-          setError(
-            caught instanceof Error
-              ? caught.message
-              : "No fue posible cargar tu perfil.",
+        if (
+          !municipalitiesResponse.ok ||
+          !municipalitiesResult.success
+        ) {
+          throw new Error(
+            municipalitiesResult.message ||
+              "No fue posible cargar las municipalidades."
           );
         }
-      } finally {
-        if (!cancelled) {
-          setProfileLoading(false);
+
+        if (
+          !pointsResponse.ok ||
+          !pointsResult.success
+        ) {
+          throw new Error(
+            pointsResult.message ||
+              "No fue posible cargar los puntos de recogida."
+          );
         }
-      }
-    };
 
-    loadProfile();
+        const profile: Profile =
+          profileResult.data ?? {};
 
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
-/*
- * =====================================================
- * CARGAR MUNICIPALIDADES
- * =====================================================
- *
- * Los usuarios normales pueden consultar únicamente
- * las municipalidades activas.
- *
- * NO usamos:
- *
- * GET /api/municipalidades
- *
- * porque esa ruta es exclusiva para administradores.
- *
- * Usamos:
- *
- * GET /api/municipalidades/disponibles
- *
- * El servidor consulta Firestore mediante Firebase Admin.
- */
-useEffect(() => {
-  if (!user) {
-    setMunicipalitiesLoading(false);
-    return;
-  }
+        const municipalityData: Municipality[] =
+          municipalitiesResult.data ?? [];
 
-  let cancelled = false;
+        const pointData: PuntoRecogida[] =
+          pointsResult.data ?? [];
 
-  const loadMunicipalities = async () => {
-    try {
-      setMunicipalitiesLoading(true);
+        setMunicipalities(municipalityData);
+        setPuntosRecogida(pointData);
 
-      const token = await user.getIdToken();
+        setAddress(profile.Direccion ?? "");
 
-      const response = await fetch(
-        "/api/municipalidades/disponibles",
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          cache: "no-store",
-        },
-      );
+        // El perfil puede guardar el teléfono como:
+        // +573001234567
+        // 573001234567
+        // 3001234567
+        const normalizedProfilePhone = (
+          profile.Telefono ?? ""
+        )
+          .replace(/^\+?57/, "")
+          .replace(/\D/g, "")
+          .slice(-10);
 
-      const payload: MunicipalitiesApiResponse =
-        await response.json();
+        setPhone(normalizedProfilePhone);
 
-      if (!response.ok || !payload.success) {
-        throw new Error(
-          payload.message ||
-            "No fue posible cargar las municipalidades.",
-        );
-      }
+        if (municipalityData.length === 1) {
+          setMunicipality(municipalityData[0].id);
+        }
+      } catch (err) {
+        console.error(err);
 
-      if (cancelled) {
-        return;
-      }
-
-      const activeMunicipalities =
-        Array.isArray(payload.data)
-          ? payload.data
-          : [];
-
-      setMunicipalities(activeMunicipalities);
-
-      /*
-       * Si solamente existe una municipalidad activa,
-       * se selecciona automáticamente.
-       */
-      if (activeMunicipalities.length === 1) {
-        setMunicipality(
-          activeMunicipalities[0].id,
-        );
-      }
-    } catch (caught) {
-      console.error(
-        "Error al cargar municipalidades:",
-        caught,
-      );
-
-      if (!cancelled) {
         setError(
-          caught instanceof Error
-            ? caught.message
-            : "No fue posible cargar las municipalidades.",
+          err instanceof Error
+            ? err.message
+            : "No fue posible cargar el checkout."
         );
-      }
-    } finally {
-      if (!cancelled) {
-        setMunicipalitiesLoading(false);
+      } finally {
+        setLoading(false);
       }
     }
-  };
 
-  loadMunicipalities();
+    loadData();
+  }, [authLoading, user, router]);
 
-  return () => {
-    cancelled = true;
-  };
-}, [user]);
+  useEffect(() => {
+    if (tipoEntrega !== "recogida") {
+      return;
+    }
 
-  /*
-   * =====================================================
-   * CONFIRMAR PEDIDO
-   * =====================================================
-   */
-  const submit = async (
-    event: React.FormEvent<HTMLFormElement>,
-  ) => {
+    if (
+      !selectedPunto &&
+      puntosRecogida.length > 0
+    ) {
+      setPuntoRecogidaId(
+        puntosRecogida[0].id
+      );
+    }
+  }, [
+    tipoEntrega,
+    selectedPunto,
+    puntosRecogida,
+  ]);
+
+  const normalizedPhone = phone.replace(/\D/g, "");
+
+  const validPhone =
+    normalizedPhone.length === 10;
+
+  const validAddress =
+    address.trim().length >= 5 &&
+    address.trim().length <= 300;
+
+  const canSubmit =
+    !submitting &&
+    items.length > 0 &&
+    (tipoEntrega === "domicilio"
+      ? Boolean(municipality) &&
+        validAddress &&
+        validPhone
+      : Boolean(selectedPunto));
+
+  async function handleSubmit(
+    event: FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
 
-    setError(null);
-
     if (!user) {
-      setError(
-        "Debes iniciar sesión para confirmar el pedido.",
-      );
+      setError("Debes iniciar sesión.");
       return;
     }
 
-    if (items.length === 0) {
-      setError("Tu cesta está vacía.");
-      return;
-    }
-
-    if (!municipality) {
+    if (!canSubmit) {
       setError(
-        "Selecciona una municipalidad de entrega.",
-      );
-      return;
-    }
-
-    const normalizedPhone = phone.replace(/\D/g, "");
-
-if (normalizedPhone.length !== 10) {
-  setError(
-    "Debes registrar un número de teléfono celular válido de 10 dígitos.",
-  );
-  return;
-}
-
-    if (!address.trim()) {
-      setError(
-        "No tienes una dirección registrada. Actualiza tu perfil antes de realizar el pedido.",
+        tipoEntrega === "domicilio"
+          ? "Completa todos los datos de entrega."
+          : "Selecciona un punto de recogida."
       );
       return;
     }
 
     try {
       setSubmitting(true);
+      setError("");
 
       const token = await user.getIdToken();
 
@@ -335,425 +250,485 @@ if (normalizedPhone.length !== 10) {
         "/api/pedidos/crear",
         {
           method: "POST",
+
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
+
           body: JSON.stringify({
             items: items.map((item) => ({
               productId: item.product.id,
               quantity: item.quantity,
             })),
 
-            /*
-             * IMPORTANTE:
-             *
-             * municipality contiene el ID del
-             * documento de Firestore.
-             *
-             * Ejemplo:
-             *
-             * ulEHyixirnvEX3nKbIV1
-             */
-            IdMunicipalidad: municipality,
+            tipoEntrega,
 
-            /*
-             * La dirección proviene del perfil.
-             */
-            direccionEntrega: address.trim(),
-            telefono: `+57${normalizedPhone}`,
+            IdMunicipalidad:
+              tipoEntrega === "domicilio"
+                ? municipality
+                : selectedPunto?.IdMunicipalidad ??
+                  null,
+
+            direccionEntrega:
+              tipoEntrega === "domicilio"
+                ? address.trim()
+                : null,
+
+            telefono:
+              tipoEntrega === "domicilio"
+                ? `+57${normalizedPhone}`
+                : null,
+
+            IdPuntoRecogida:
+              tipoEntrega === "recogida"
+                ? selectedPunto?.id ?? null
+                : null,
           }),
-        },
+        }
       );
 
-      const payload: OrderApiResponse =
-        await response.json();
+      const result = await response.json();
 
-      if (!response.ok || !payload.success) {
+      if (!response.ok || !result.success) {
         throw new Error(
-          payload.message ||
-            "No fue posible confirmar el pedido.",
+          result.message ||
+            "No fue posible crear el pedido."
+        );
+      }
+
+      const pedidoId =
+        result?.data?.pedidoId;
+
+      if (!pedidoId) {
+        throw new Error(
+          "El pedido fue creado, pero no se recibió su identificador."
         );
       }
 
       clearCart();
 
-      const pedidoId =
-        typeof payload.data?.pedidoId === "string"
-          ? payload.data.pedidoId
-          : "";
-
-      if (pedidoId) {
-        router.replace(
-          `/pedidos/${pedidoId}`,
-        );
-      } else {
-        router.replace("/pedidos");
-      }
-    } catch (caught) {
-      console.error(
-        "Error al confirmar pedido:",
-        caught,
+      // IMPORTANTE:
+      // La ruta correcta es /pedidos/[id]
+      // NO /pedido/[id]
+      router.push(
+        `/pedidos/${pedidoId}?success=1`
       );
+    } catch (err) {
+      console.error(err);
 
       setError(
-        caught instanceof Error
-          ? caught.message
-          : "No fue posible confirmar el pedido.",
+        err instanceof Error
+          ? err.message
+          : "No fue posible crear el pedido."
       );
     } finally {
       setSubmitting(false);
     }
-  };
+  }
 
-  /*
-   * =====================================================
-   * CARGANDO AUTENTICACIÓN
-   * =====================================================
-   */
-  if (authLoading) {
+  if (authLoading || loading) {
     return (
-      <main className="mx-auto max-w-3xl px-4 py-16">
-        <p className="text-sm text-[var(--muted)]">
-          Cargando checkout…
-        </p>
+      <main className="min-h-screen bg-[var(--surface)] px-4 py-12">
+        <div className="mx-auto max-w-4xl rounded-2xl border border-[var(--border)] bg-white p-8 text-center text-[var(--muted)]">
+          Cargando checkout...
+        </div>
       </main>
     );
   }
 
-  /*
-   * =====================================================
-   * USUARIO NO AUTENTICADO
-   * =====================================================
-   */
   if (!user) {
-    return (
-      <main className="mx-auto max-w-3xl px-4 py-16">
-        <h1 className="text-2xl font-bold text-[var(--foreground)]">
-          Inicia sesión para continuar
-        </h1>
-
-        <p className="mt-2 text-[var(--muted)]">
-          Necesitamos tu cuenta para reservar los
-          productos y registrar el pedido.
-        </p>
-
-        <Link
-          href="/login"
-          className="mt-6 inline-flex rounded-lg bg-[var(--primary)] px-5 py-3 font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
-        >
-          Iniciar sesión
-        </Link>
-      </main>
-    );
+    return null;
   }
 
-  /*
-   * =====================================================
-   * CESTA VACÍA
-   * =====================================================
-   */
-  if (items.length === 0) {
-    return (
-      <main className="mx-auto max-w-3xl px-4 py-16">
-        <h1 className="text-2xl font-bold text-[var(--foreground)]">
-          Tu cesta está vacía
-        </h1>
-
-        <p className="mt-2 text-[var(--muted)]">
-          Agrega productos antes de continuar
-          con el pedido.
-        </p>
-
-        <Link
-          href="/tienda"
-          className="mt-6 inline-flex rounded-lg bg-[var(--primary)] px-5 py-3 font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
-        >
-          Ir a la tienda
-        </Link>
-      </main>
-    );
-  }
-
-  const checkoutLoading =
-    profileLoading ||
-    municipalitiesLoading;
-
-  /*
-   * =====================================================
-   * CHECKOUT
-   * =====================================================
-   */
   return (
-    <main className="mx-auto max-w-5xl px-4 py-10 sm:py-14">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-[var(--foreground)]">
-          Confirmar pedido
-        </h1>
-
-        <p className="mt-2 text-sm text-[var(--muted)]">
-          Revisa los datos de entrega antes de
-          confirmar tu pedido.
-        </p>
-      </div>
-
+    <main className="min-h-screen bg-[var(--surface)] px-4 py-10">
       <form
-        onSubmit={submit}
-        className="grid gap-6 md:grid-cols-[1fr_0.8fr]"
+        onSubmit={handleSubmit}
+        className="mx-auto max-w-5xl"
       >
-        {/* ============================================
-            DATOS DE ENTREGA
-        ============================================ */}
-        <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
-          <h2 className="text-lg font-bold text-[var(--foreground)]">
-            Datos de entrega
-          </h2>
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-[var(--foreground)]">
+            Finalizar compra
+          </h1>
 
-          <div className="mt-5 space-y-5">
-            {/* MUNICIPALIDAD */}
-            <div>
-              <label
-                htmlFor="municipality"
-                className="block text-sm font-medium text-[var(--foreground)]"
-              >
-                Municipalidad
-              </label>
+          <p className="mt-2 text-[var(--muted)]">
+            Selecciona cómo deseas recibir tu pedido.
+          </p>
+        </div>
 
-              {municipalitiesLoading ? (
-                <div className="mt-2 rounded-lg border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--muted)]">
-                  Cargando municipalidades…
-                </div>
-              ) : municipalities.length ===
-                0 ? (
-                <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-700">
-                  No hay municipalidades activas
-                  disponibles para realizar el
-                  pedido.
-                </div>
-              ) : (
-                <>
-                  <select
-                    id="municipality"
-                    required
-                    value={municipality}
-                    onChange={(event) =>
-                      setMunicipality(
-                        event.target.value,
-                      )
-                    }
-                    className="mt-2 w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--secondary)]"
-                  >
-                    <option value="">
-                      Selecciona una municipalidad
-                    </option>
-
-                    {municipalities.map(
-                      (municipalityItem) => (
-                        <option
-                          key={municipalityItem.id}
-                          value={municipalityItem.id}
-                        >
-                          {municipalityItem.nombre}
-                        </option>
-                      ),
-                    )}
-                  </select>
-
-                  <p className="mt-2 text-xs text-[var(--muted)]">
-                    Selecciona el municipio donde
-                    deseas recibir tu pedido.
-                  </p>
-                </>
-              )}
-            </div>
-            {/* TELÉFONO */}
-<div>
-  <div className="flex items-center justify-between gap-3">
-    <label
-      htmlFor="phone"
-      className="block text-sm font-medium text-[var(--foreground)]"
-    >
-      Teléfono de contacto
-    </label>
-
-    <Link
-      href="/perfil"
-      className="text-xs font-semibold text-[var(--primary)] hover:underline"
-    >
-      Editar perfil
-    </Link>
-  </div>
-
-  <div className="mt-2 flex">
-    <span className="inline-flex items-center rounded-l-lg border border-r-0 border-[var(--border)] bg-gray-100 px-3 text-sm font-medium text-[var(--foreground)]">
-      +57
-    </span>
-
-    <input
-      id="phone"
-      type="tel"
-      inputMode="numeric"
-      autoComplete="tel"
-      value={phone.replace(/\D/g, "").slice(0, 10)}
-      onChange={(event) => {
-        const value = event.target.value
-          .replace(/\D/g, "")
-          .slice(0, 10);
-
-        setPhone(value);
-      }}
-      placeholder="3001234567"
-      maxLength={10}
-      required
-      className="w-full rounded-r-lg border border-[var(--border)] bg-white px-3 py-2.5 text-sm text-[var(--foreground)] outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--secondary)]"
-    />
-  </div>
-
-  {phone ? (
-    <p className="mt-2 text-xs text-[var(--muted)]">
-      Este número se obtuvo de tu perfil. Puedes
-      modificarlo si es necesario.
-    </p>
-  ) : (
-    <p className="mt-2 text-xs text-amber-700">
-      No tienes un número registrado. Ingresa un
-      número de 10 dígitos.
-    </p>
-  )}
-</div>
-
-            {/* DIRECCIÓN */}
-            <div>
-              <div className="flex items-center justify-between gap-3">
-                <label
-                  htmlFor="address"
-                  className="block text-sm font-medium text-[var(--foreground)]"
-                >
-                  Dirección de entrega
-                </label>
-
-                <Link
-                  href="/perfil"
-                  className="text-xs font-semibold text-[var(--primary)] hover:underline"
-                >
-                  Editar perfil
-                </Link>
-              </div>
-
-              {profileLoading ? (
-                <div className="mt-2 rounded-lg border border-[var(--border)] bg-white px-3 py-3 text-sm text-[var(--muted)]">
-                  Cargando dirección…
-                </div>
-              ) : address ? (
-                <textarea
-                  id="address"
-                  value={address}
-                  readOnly
-                  aria-readonly="true"
-                  className="mt-2 min-h-24 w-full resize-none rounded-lg border border-[var(--border)] bg-gray-50 px-3 py-2.5 text-sm text-[var(--foreground)] outline-none"
-                />
-              ) : (
-                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-4">
-                  <p className="text-sm text-amber-800">
-                    No tienes una dirección registrada
-                    en tu perfil.
-                  </p>
-
-                  <Link
-                    href="/perfil"
-                    className="mt-2 inline-block text-sm font-bold text-[var(--primary)] hover:underline"
-                  >
-                    Actualizar mi dirección
-                  </Link>
-                </div>
-              )}
-
-              {address && (
-                <p className="mt-2 text-xs text-[var(--muted)]">
-                  Esta dirección se obtiene
-                  automáticamente de tu perfil.
-                </p>
-              )}
-            </div>
+        {error && (
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            {error}
           </div>
-        </section>
+        )}
 
-        {/* ============================================
-            RESUMEN DEL PEDIDO
-        ============================================ */}
-        <aside className="h-fit rounded-xl border border-[var(--border)] bg-white p-5">
-          <h2 className="text-lg font-bold text-[var(--foreground)]">
-            Resumen del pedido
-          </h2>
+        <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+          <div className="space-y-6">
+            <section className="rounded-2xl border border-[var(--border)] bg-white p-6">
+              <h2 className="mb-4 text-lg font-semibold text-[var(--foreground)]">
+                Tipo de entrega
+              </h2>
 
-          <div className="mt-5 space-y-4">
-            {items.map((item) => (
-              <div
-                key={item.product.id}
-                className="flex justify-between gap-4 text-sm"
-              >
-                <div className="min-w-0">
-                  <p className="font-medium text-[var(--foreground)]">
-                    {item.product.nombre}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTipoEntrega("domicilio");
+                    setPuntoRecogidaId("");
+                  }}
+                  className={`rounded-xl border p-4 text-left transition ${
+                    tipoEntrega === "domicilio"
+                      ? "border-[var(--primary)] bg-[var(--surface)] ring-2 ring-[var(--secondary)]"
+                      : "border-[var(--border)] hover:border-[var(--primary)]"
+                  }`}
+                >
+                  <Truck
+                    size={22}
+                    className="mb-3 text-[var(--primary)]"
+                  />
+
+                  <p className="font-semibold text-[var(--foreground)]">
+                    Recibir en mi domicilio
                   </p>
 
-                  <p className="mt-1 text-xs text-[var(--muted)]">
-                    Cantidad: {item.quantity}
+                  <p className="mt-1 text-sm text-[var(--muted)]">
+                    Entregaremos tu pedido en la
+                    dirección registrada.
                   </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTipoEntrega("recogida");
+
+                    if (
+                      puntosRecogida.length === 1
+                    ) {
+                      setPuntoRecogidaId(
+                        puntosRecogida[0].id
+                      );
+                    }
+                  }}
+                  className={`rounded-xl border p-4 text-left transition ${
+                    tipoEntrega === "recogida"
+                      ? "border-[var(--primary)] bg-[var(--surface)] ring-2 ring-[var(--secondary)]"
+                      : "border-[var(--border)] hover:border-[var(--primary)]"
+                  }`}
+                >
+                  <MapPin
+                    size={22}
+                    className="mb-3 text-[var(--primary)]"
+                  />
+
+                  <p className="font-semibold text-[var(--foreground)]">
+                    Recoger en un punto
+                  </p>
+
+                  <p className="mt-1 text-sm text-[var(--muted)]">
+                    Recoge tu pedido en uno de
+                    nuestros puntos disponibles.
+                  </p>
+                </button>
+              </div>
+            </section>
+
+            {tipoEntrega === "domicilio" && (
+              <section className="rounded-2xl border border-[var(--border)] bg-white p-6">
+                <h2 className="mb-5 text-lg font-semibold text-[var(--foreground)]">
+                  Datos de entrega
+                </h2>
+
+                <div className="space-y-5">
+                  <div>
+                    <label
+                      htmlFor="municipality"
+                      className="mb-2 block text-sm font-medium text-[var(--foreground)]"
+                    >
+                      Municipio
+                    </label>
+
+                    <select
+                      id="municipality"
+                      value={municipality}
+                      onChange={(event) =>
+                        setMunicipality(
+                          event.target.value
+                        )
+                      }
+                      className="w-full rounded-xl border border-[var(--border)] bg-white px-4 py-3 text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+                    >
+                      <option value="">
+                        Selecciona un municipio
+                      </option>
+
+                      {municipalities.map(
+                        (municipio) => (
+                          <option
+                            key={municipio.id}
+                            value={municipio.id}
+                          >
+                            {municipio.nombre}
+                          </option>
+                        )
+                      )}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="address"
+                      className="mb-2 block text-sm font-medium text-[var(--foreground)]"
+                    >
+                      Dirección
+                    </label>
+
+                    <input
+                      id="address"
+                      type="text"
+                      value={address}
+                      onChange={(event) =>
+                        setAddress(
+                          event.target.value
+                        )
+                      }
+                      maxLength={300}
+                      className="w-full rounded-xl border border-[var(--border)] bg-white px-4 py-3 text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+                    />
+
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      Puedes modificar la dirección
+                      antes de confirmar el pedido.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="phone"
+                      className="mb-2 block text-sm font-medium text-[var(--foreground)]"
+                    >
+                      Teléfono
+                    </label>
+
+                    <div className="flex">
+                      <span className="flex items-center rounded-l-xl border border-r-0 border-[var(--border)] bg-[var(--surface)] px-4 text-sm text-[var(--muted)]">
+                        +57
+                      </span>
+
+                      <input
+                        id="phone"
+                        type="tel"
+                        inputMode="numeric"
+                        value={phone}
+                        onChange={(event) =>
+                          setPhone(
+                            event.target.value
+                              .replace(/\D/g, "")
+                              .slice(0, 10)
+                          )
+                        }
+                        maxLength={10}
+                        className="w-full rounded-r-xl border border-[var(--border)] bg-white px-4 py-3 text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+                        placeholder="3001234567"
+                      />
+                    </div>
+                  </div>
                 </div>
+              </section>
+            )}
 
-                <span className="shrink-0 font-medium text-[var(--foreground)]">
-                  {price(
-                    item.product.precio *
-                      item.quantity,
+            {tipoEntrega === "recogida" && (
+              <section className="rounded-2xl border border-[var(--border)] bg-white p-6">
+                <h2 className="mb-5 text-lg font-semibold text-[var(--foreground)]">
+                  Punto de recogida
+                </h2>
+
+                <div className="space-y-5">
+                  {puntosRecogida.length === 0 ? (
+                    <div className="rounded-xl bg-[var(--surface)] p-4 text-sm text-[var(--muted)]">
+                      No hay puntos de recogida
+                      disponibles actualmente.
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label
+                          htmlFor="pickupPoint"
+                          className="mb-2 block text-sm font-medium text-[var(--foreground)]"
+                        >
+                          Selecciona un punto
+                        </label>
+
+                        <select
+                          id="pickupPoint"
+                          value={puntoRecogidaId}
+                          onChange={(event) =>
+                            setPuntoRecogidaId(
+                              event.target.value
+                            )
+                          }
+                          className="w-full rounded-xl border border-[var(--border)] bg-white px-4 py-3 text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+                        >
+                          <option value="">
+                            Selecciona un punto de
+                            recogida
+                          </option>
+
+                          {puntosRecogida.map(
+                            (point) => (
+                              <option
+                                key={point.id}
+                                value={point.id}
+                              >
+                                {point.nombre} ·{" "}
+                                {point.municipio}
+                              </option>
+                            )
+                          )}
+                        </select>
+                      </div>
+
+                      {selectedPunto && (
+                        <div className="overflow-hidden rounded-xl border border-[var(--border)]">
+                          <div className="p-4">
+                            <div className="flex gap-3">
+                              <MapPin
+                                size={20}
+                                className="mt-0.5 shrink-0 text-[var(--primary)]"
+                              />
+
+                              <div>
+                                <p className="font-semibold text-[var(--foreground)]">
+                                  {
+                                    selectedPunto.nombre
+                                  }
+                                </p>
+
+                                <p className="mt-1 text-sm text-[var(--muted)]">
+                                  {
+                                    selectedPunto.direccion
+                                  }
+                                </p>
+
+                                {selectedPunto.horario && (
+                                  <p className="mt-2 text-sm text-[var(--muted)]">
+                                    {
+                                      selectedPunto.horario
+                                    }
+                                  </p>
+                                )}
+
+                                {selectedPunto.telefono && (
+                                  <p className="mt-1 text-sm text-[var(--muted)]">
+                                    {
+                                      selectedPunto.telefono
+                                    }
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {selectedPunto.googleMapsEmbedUrl && (
+                            <div className="h-64">
+                              <iframe
+                                key={selectedPunto.id}
+                                title={`Mapa de ${selectedPunto.nombre}`}
+                                src={
+                                  selectedPunto.googleMapsEmbedUrl
+                                }
+                                className="h-full w-full border-0"
+                                loading="lazy"
+                                referrerPolicy="no-referrer-when-downgrade"
+                                allowFullScreen
+                              />
+                            </div>
+                          )}
+
+                          {selectedPunto.googleMapsUrl && (
+                            <div className="p-4">
+                              <a
+                                href={
+                                  selectedPunto.googleMapsUrl
+                                }
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--primary)]"
+                              >
+                                <MapPin size={16} />
+                                Ver cómo llegar
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
                   )}
+                </div>
+              </section>
+            )}
+          </div>
+
+          <aside className="h-fit rounded-2xl border border-[var(--border)] bg-white p-6 lg:sticky lg:top-6">
+            <div className="mb-5 flex items-center gap-3">
+              <Package
+                size={22}
+                className="text-[var(--primary)]"
+              />
+
+              <h2 className="text-lg font-semibold text-[var(--foreground)]">
+                Resumen
+              </h2>
+            </div>
+
+            <div className="space-y-3 border-b border-[var(--border)] pb-5">
+              <div className="flex justify-between text-sm">
+                <span className="text-[var(--muted)]">
+                  Productos
+                </span>
+
+                <span className="font-medium text-[var(--foreground)]">
+                  {items.length}
                 </span>
               </div>
-            ))}
-          </div>
 
-          <div className="mt-5 flex justify-between border-t border-[var(--border)] pt-4 text-base font-bold text-[var(--foreground)]">
-            <span>Total</span>
+              <div className="flex justify-between text-sm">
+                <span className="text-[var(--muted)]">
+                  Entrega
+                </span>
 
-            <span>{price(subtotal)}</span>
-          </div>
-
-          {error && (
-            <div
-              role="alert"
-              className="mt-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
-            >
-              {error}
+                <span className="font-medium text-[var(--foreground)]">
+                  {tipoEntrega === "domicilio"
+                    ? "Domicilio"
+                    : "Recogida"}
+                </span>
+              </div>
             </div>
-          )}
 
-          <button
-            type="submit"
-            disabled={
-  submitting ||
-  checkoutLoading ||
-  !address.trim() ||
-  !municipality ||
-  phone.replace(/\D/g, "").length !== 10 ||
-  municipalities.length === 0
-}
-            className="mt-5 w-full rounded-lg bg-[var(--primary)] px-4 py-3 text-sm font-bold text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {submitting
-              ? "Confirmando…"
-              : checkoutLoading
-                ? "Cargando información…"
-                : "Confirmar y reservar"}
-          </button>
+            <div className="flex items-center justify-between py-5">
+              <span className="font-semibold text-[var(--foreground)]">
+                Total
+              </span>
 
-          <Link
-            href="/tienda"
-            className="mt-3 block text-center text-sm font-medium text-[var(--primary)] hover:underline"
-          >
-            Volver a la tienda
-          </Link>
-        </aside>
+              <span className="text-xl font-bold text-[var(--primary)]">
+                ${totalPrice.toLocaleString("es-CO")} COP
+              </span>
+            </div>
+
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="w-full rounded-xl bg-[var(--primary)] px-5 py-3 font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {submitting
+                ? "Procesando..."
+                : "Confirmar pedido"}
+            </button>
+          </aside>
+        </div>
       </form>
     </main>
   );
 }
+

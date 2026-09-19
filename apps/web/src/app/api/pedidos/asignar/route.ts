@@ -3,6 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 
 import { adminDb } from "@/lib/firebase-admin";
 import { requireAdmin } from "@/lib/require-admin";
+import { sendUserNotification } from "@/lib/send-user-notification";
 
 export const runtime = "nodejs";
 
@@ -92,10 +93,10 @@ function errorResponse(error: unknown) {
 
 export async function POST(request: Request) {
   try {
-    // Verifica el Bearer Token y usuarios/{UID}.Rol
     await requireAdmin(request);
 
-    const body: unknown = await request.json();
+    const body: unknown =
+      await request.json();
 
     if (
       !body ||
@@ -137,11 +138,8 @@ export async function POST(request: Request) {
     }
 
     /*
-     * El UID recibido corresponde al documento:
-     *
-     * usuarios/{UID}
-     *
-     * y el rol se encuentra en el campo Rol.
+     * Verificar que el usuario seleccionado
+     * realmente sea un repartidor.
      */
     const repartidorRef = adminDb
       .collection("usuarios")
@@ -167,7 +165,9 @@ export async function POST(request: Request) {
 
     const rol =
       typeof repartidorData.Rol === "string"
-        ? repartidorData.Rol.trim().toLowerCase()
+        ? repartidorData.Rol
+            .trim()
+            .toLowerCase()
         : "";
 
     if (rol !== "repartidor") {
@@ -181,6 +181,10 @@ export async function POST(request: Request) {
         .collection("pedidos")
         .doc(pedidoId);
 
+    /*
+     * La notificación se enviará después
+     * de que la transacción termine correctamente.
+     */
     const result =
       await adminDb.runTransaction(
         async (transaction) => {
@@ -218,6 +222,17 @@ export async function POST(request: Request) {
             );
           }
 
+          const usuarioId =
+            typeof data.usuarioId === "string"
+              ? data.usuarioId.trim()
+              : "";
+
+          if (!usuarioId) {
+            throw new Error(
+              "USUARIO_PEDIDO_INVALIDO",
+            );
+          }
+
           transaction.update(
             pedidoRef,
             {
@@ -236,16 +251,71 @@ export async function POST(request: Request) {
           return {
             pedidoId,
             repartidorId,
-            estado: "asignado",
+            usuarioId,
+            estado: "asignado" as const,
           };
         },
       );
 
+    /*
+     * La transacción ya terminó correctamente.
+     * Ahora enviamos la notificación al consumidor.
+     *
+     * Si el usuario no tiene notificaciones activadas,
+     * el pedido igualmente queda asignado.
+     */
+    let notificacion = {
+      enviados: 0,
+      fallidos: 0,
+    };
+
+    try {
+      notificacion =
+        await sendUserNotification({
+          userId: result.usuarioId,
+          title:
+            "Tu pedido fue asignado",
+          body:
+            `Tu pedido #${result.pedidoId} ya tiene un repartidor asignado. Pronto comenzará el reparto.`,
+          url: "/dashboard/pedidos",
+          tag: `pedido-asignado-${result.pedidoId}`,
+        });
+    } catch (notificationError) {
+      /*
+       * Un error de notificación no debe
+       * deshacer la asignación del pedido.
+       */
+      console.error(
+        "Error enviando notificación de asignación:",
+        notificationError,
+      );
+    }
+
     return NextResponse.json({
       success: true,
-      data: result,
+      data: {
+        pedidoId: result.pedidoId,
+        repartidorId: result.repartidorId,
+        estado: result.estado,
+      },
+      notification: notificacion,
     });
   } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message ===
+        "USUARIO_PEDIDO_INVALIDO"
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "El pedido no tiene un consumidor asociado.",
+        },
+        { status: 400 },
+      );
+    }
+
     return errorResponse(error);
   }
 }

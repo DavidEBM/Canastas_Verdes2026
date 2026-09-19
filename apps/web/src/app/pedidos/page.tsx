@@ -1,37 +1,90 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useState,
-} from "react";
-
-import Image from "next/image";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
+import {
+  ArrowLeft,
+  CalendarDays,
+  ExternalLink,
+  FileText,
+  MapPin,
+  Package,
+  Phone,
+  Truck,
+  X,
+} from "lucide-react";
 
 import { useAuth } from "@/hooks/useAuth";
-
-import type {
-  EstadoPedido,
-  Pedido,
-} from "@/lib/repartos/types";
-
-/*
- * ============================================================
- * CONFIGURACIÓN
- * ============================================================
- */
+import type { Pedido } from "@/lib/repartos/types";
 
 const EMPTY_ORDERS_IMAGE =
-  "/images/logos/basket.svg";
+  "/images/logos/logo-canastas-verdes.svg";
 
-/*
- * ============================================================
- * ESTADOS
- * ============================================================
- */
+type TipoEntrega = "domicilio" | "recogida";
 
-const estadoLabels: Record<EstadoPedido, string> = {
+interface PuntoRecogidaPedido {
+  nombre: string;
+  direccion: string;
+  municipio: string;
+}
+
+type ProductoPedido = Pedido["productos"][number] & {
+  productoId?: string;
+  IdProducto?: string;
+
+  nombre?: string;
+  Nombre?: string;
+
+  cantidad?: number;
+  Cantidad?: number;
+
+  precioUnitario?: number;
+  precio?: number;
+  Precio?: number;
+
+  subtotal?: number;
+  Subtotal?: number;
+
+  unidad?: string;
+  Unidad?: string;
+
+  presentacionCantidad?: number;
+  presentacionNombre?: string;
+
+  imagen?: string;
+  imgPath?: string;
+};
+
+type PedidoUsuario = Pedido & {
+  tipoEntrega?: TipoEntrega | null;
+  TipoEntrega?: TipoEntrega | null;
+
+  telefonoEntrega?: string;
+  telefono?: string;
+
+  IdPuntoRecogida?: string;
+  idPuntoRecogida?: string;
+
+  puntoRecogida?: PuntoRecogidaPedido | null;
+  PuntoRecogida?: PuntoRecogidaPedido | null;
+
+  IdMunicipalidad?: string;
+  idMunicipalidad?: string;
+
+  nombreCliente?: string;
+};
+
+interface PedidosApiResponse {
+  success?: boolean;
+  message?: string;
+  data?: PedidoUsuario[];
+}
+
+const ESTADO_LABELS: Record<
+  PedidoUsuario["estado"],
+  string
+> = {
   pendiente: "Pendiente",
   asignado: "Asignado",
   en_camino: "En camino",
@@ -39,436 +92,398 @@ const estadoLabels: Record<EstadoPedido, string> = {
   cancelado: "Cancelado",
 };
 
-/*
- * ============================================================
- * FORMATEADORES
- * ============================================================
- */
+function getEstadoClasses(
+  estado: PedidoUsuario["estado"],
+): string {
+  switch (estado) {
+    case "entregado":
+      return "bg-green-100 text-green-800";
 
-function formatMoney(value: number) {
+    case "en_camino":
+      return "bg-blue-100 text-blue-800";
+
+    case "asignado":
+      return "bg-purple-100 text-purple-800";
+
+    case "cancelado":
+      return "bg-red-100 text-red-800";
+
+    case "pendiente":
+    default:
+      return "bg-amber-100 text-amber-800";
+  }
+}
+
+function getTipoEntrega(
+  pedido: PedidoUsuario,
+): TipoEntrega | null {
+  return (
+    pedido.tipoEntrega ??
+    pedido.TipoEntrega ??
+    null
+  );
+}
+
+function getTipoEntregaLabel(
+  tipoEntrega: TipoEntrega | null,
+): string {
+  switch (tipoEntrega) {
+    case "domicilio":
+      return "A domicilio";
+
+    case "recogida":
+      return "Recogida en punto";
+
+    default:
+      return "No especificada";
+  }
+}
+
+function getTipoEntregaClasses(
+  tipoEntrega: TipoEntrega | null,
+): string {
+  switch (tipoEntrega) {
+    case "domicilio":
+      return "bg-blue-100 text-blue-800";
+
+    case "recogida":
+      return "bg-green-100 text-green-800";
+
+    default:
+      return "bg-gray-100 text-gray-700";
+  }
+}
+
+function formatCurrency(value: unknown): string {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return "$0";
+  }
+
   return new Intl.NumberFormat("es-CO", {
     style: "currency",
     currency: "COP",
     maximumFractionDigits: 0,
-  }).format(value || 0);
+  }).format(number);
 }
 
-function formatDate(value: unknown) {
+function formatDate(value: unknown): string {
   if (!value) {
-    return "—";
+    return "Fecha no disponible";
   }
 
-  /*
-   * Firestore Timestamp serializado
-   */
-  if (
+  let date: Date | null = null;
+
+  if (value instanceof Date) {
+    date = value;
+  } else if (typeof value === "string") {
+    const parsed = new Date(value);
+
+    if (!Number.isNaN(parsed.getTime())) {
+      date = parsed;
+    }
+  } else if (
     typeof value === "object" &&
-    value !== null &&
-    "seconds" in value
+    value !== null
   ) {
-    const seconds = Number(
-      (
-        value as {
-          seconds?: number;
-        }
-      ).seconds,
+    const firebaseValue = value as {
+      seconds?: number;
+      _seconds?: number;
+      toDate?: () => Date;
+    };
+
+    if (
+      typeof firebaseValue.toDate === "function"
+    ) {
+      const parsed = firebaseValue.toDate();
+
+      if (!Number.isNaN(parsed.getTime())) {
+        date = parsed;
+      }
+    } else if (
+      typeof firebaseValue.seconds === "number"
+    ) {
+      date = new Date(
+        firebaseValue.seconds * 1000,
+      );
+    } else if (
+      typeof firebaseValue._seconds === "number"
+    ) {
+      date = new Date(
+        firebaseValue._seconds * 1000,
+      );
+    }
+  }
+
+  if (!date) {
+    return "Fecha no disponible";
+  }
+
+  return new Intl.DateTimeFormat("es-CO", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function getGoogleMapsUrl(
+  punto: PuntoRecogidaPedido,
+): string {
+  const query = [
+    punto.nombre,
+    punto.direccion,
+    punto.municipio,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+    query,
+  )}`;
+}
+
+function getDeliveryDescription(
+  pedido: PedidoUsuario,
+): string {
+  const tipoEntrega = getTipoEntrega(pedido);
+
+  if (tipoEntrega === "domicilio") {
+    return (
+      pedido.direccionEntrega ||
+      "Dirección no especificada"
     );
-
-    if (!Number.isNaN(seconds)) {
-      return new Date(
-        seconds * 1000,
-      ).toLocaleString("es-CO", {
-        dateStyle: "medium",
-        timeStyle: "short",
-      });
-    }
   }
 
-  if (typeof value === "string") {
-    const date = new Date(value);
-
-    if (!Number.isNaN(date.getTime())) {
-      return date.toLocaleString("es-CO", {
-        dateStyle: "medium",
-        timeStyle: "short",
-      });
-    }
+  if (
+    tipoEntrega === "recogida" &&
+    pedido.puntoRecogida
+  ) {
+    return pedido.puntoRecogida.nombre;
   }
 
-  return "—";
+  return "Información no disponible";
 }
 
-function getStatusClasses(
-  estado: EstadoPedido,
-) {
-  switch (estado) {
-    case "entregado":
-      return "bg-green-100 text-green-800 border-green-200";
+function getProductoNombre(
+  producto: ProductoPedido,
+): string {
+  return (
+    producto.nombre ??
+    producto.Nombre ??
+    "Producto"
+  );
+}
 
-    case "cancelado":
-      return "bg-red-100 text-red-800 border-red-200";
+function getProductoCantidad(
+  producto: ProductoPedido,
+): number {
+  const cantidad = Number(
+    producto.cantidad ??
+      producto.Cantidad ??
+      0,
+  );
 
-    case "en_camino":
-      return "bg-blue-100 text-blue-800 border-blue-200";
+  return Number.isFinite(cantidad)
+    ? cantidad
+    : 0;
+}
 
-    case "asignado":
-      return "bg-yellow-100 text-yellow-800 border-yellow-200";
+function getProductoPrecio(
+  producto: ProductoPedido,
+): number {
+  const precio = Number(
+    producto.precioUnitario ??
+      producto.precio ??
+      producto.Precio ??
+      0,
+  );
 
-    case "pendiente":
-    default:
-      return "bg-gray-100 text-gray-700 border-gray-200";
+  return Number.isFinite(precio)
+    ? precio
+    : 0;
+}
+
+function getProductoSubtotal(
+  producto: ProductoPedido,
+): number {
+  const subtotal = Number(
+    producto.subtotal ??
+      producto.Subtotal ??
+      getProductoCantidad(producto) *
+        getProductoPrecio(producto),
+  );
+
+  return Number.isFinite(subtotal)
+    ? subtotal
+    : 0;
+}
+
+function getProductoPresentacion(
+  producto: ProductoPedido,
+): string {
+  const cantidad = Number(
+    producto.presentacionCantidad,
+  );
+
+  const nombre =
+    producto.presentacionNombre
+      ?.toString()
+      .trim();
+
+  if (
+    Number.isFinite(cantidad) &&
+    cantidad > 0 &&
+    nombre
+  ) {
+    return `${cantidad} ${nombre}`;
   }
+
+  if (nombre) {
+    return nombre;
+  }
+
+  const unidad =
+    producto.unidad ??
+    producto.Unidad ??
+    "";
+
+  return unidad.toString().trim();
 }
 
-/*
- * ============================================================
- * RESPUESTA API
- * ============================================================
- */
+function getPedidoProductos(
+  pedido: PedidoUsuario,
+): ProductoPedido[] {
+  const productos =
+    pedido.productos ?? [];
 
-interface PedidosApiResponse {
-  success?: boolean;
-  message?: string;
-  data?: Pedido[];
+  return productos as ProductoPedido[];
 }
 
-/*
- * ============================================================
- * COMPONENTE
- * ============================================================
- */
+function getPedidoTotal(
+  pedido: PedidoUsuario,
+): number {
+  const total = Number(pedido.total ?? 0);
+
+  if (
+    Number.isFinite(total) &&
+    total > 0
+  ) {
+    return total;
+  }
+
+  return getPedidoProductos(pedido).reduce(
+    (sum, producto) =>
+      sum + getProductoSubtotal(producto),
+    0,
+  );
+}
 
 export default function PedidosPage() {
-  const {
-    user,
-    loading: authLoading,
-  } = useAuth();
+  const { user, loading: authLoading } =
+    useAuth();
 
-  const [pedidos, setPedidos] =
-    useState<Pedido[]>([]);
-
-  const [pedidoSeleccionado, setPedidoSeleccionado] =
-    useState<Pedido | null>(null);
+  const [pedidos, setPedidos] = useState<
+    PedidoUsuario[]
+  >([]);
 
   const [loading, setLoading] =
     useState(true);
 
-  const [error, setError] =
-    useState<string | null>(null);
+  const [error, setError] = useState("");
 
-  const [reciboLoading, setReciboLoading] =
-    useState<string | null>(null);
+  const [selectedPedido, setSelectedPedido] =
+    useState<PedidoUsuario | null>(null);
 
-  /*
-   * ==========================================================
-   * API
-   * ==========================================================
-   */
+  useEffect(() => {
+    let cancelled = false;
 
-  const api = useCallback(
-    async (path: string) => {
+    async function cargarPedidos() {
+      if (authLoading) {
+        return;
+      }
+
       if (!user) {
-        throw new Error(
-          "Debes iniciar sesión.",
-        );
-      }
+        if (!cancelled) {
+          setPedidos([]);
+          setLoading(false);
+        }
 
-      const token =
-        await user.getIdToken(true);
-
-      const response = await fetch(
-        path,
-        {
-          method: "GET",
-          headers: {
-            Authorization:
-              `Bearer ${token}`,
-          },
-          cache: "no-store",
-        },
-      );
-
-      let result: unknown;
-
-      try {
-        result =
-          await response.json();
-      } catch {
-        throw new Error(
-          "El servidor devolvió una respuesta inválida.",
-        );
-      }
-
-      if (!response.ok) {
-        const message =
-          result &&
-          typeof result === "object" &&
-          "message" in result &&
-          typeof result.message === "string"
-            ? result.message
-            : "No fue posible cargar los pedidos.";
-
-        throw new Error(message);
-      }
-
-      return result as PedidosApiResponse;
-    },
-    [user],
-  );
-
-  /*
-   * ==========================================================
-   * CARGAR PEDIDOS
-   * ==========================================================
-   */
-
-  const loadPedidos = useCallback(
-    async () => {
-      if (!user) {
-        setPedidos([]);
-        setLoading(false);
         return;
       }
 
       try {
         setLoading(true);
-        setError(null);
-
-        const result =
-          await api("/api/pedidos");
-
-        if (
-          !result ||
-          !Array.isArray(result.data)
-        ) {
-          throw new Error(
-            "La respuesta de pedidos no tiene un formato válido.",
-          );
-        }
-
-        /*
-         * ====================================================
-         * FILTRO DEFENSIVO
-         * ====================================================
-         *
-         * El servidor DEBE garantizar que un usuario normal
-         * solamente reciba sus propios pedidos.
-         *
-         * Este filtro adicional evita que un pedido ajeno
-         * llegue a renderizarse aunque la API tuviera un
-         * problema de filtrado.
-         */
-
-        const misPedidos =
-          result.data.filter(
-            (pedido) =>
-              pedido.usuarioId ===
-              user.uid,
-          );
-
-        setPedidos(misPedidos);
-      } catch (caught) {
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : "No fue posible cargar tus pedidos.",
-        );
-        setPedidos([]);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [api, user],
-  );
-
-  useEffect(() => {
-    if (!authLoading) {
-      loadPedidos();
-    }
-  }, [
-    authLoading,
-    loadPedidos,
-  ]);
-
-  /*
-   * ==========================================================
-   * ABRIR PDF DEL RECIBO
-   * ==========================================================
-   *
-   * El PDF se genera exclusivamente en:
-   *
-   * /api/pedidos/[id]/recibo
-   *
-   * utilizando generarPDFReparto().
-   */
-
-  const abrirRecibo = useCallback(
-    async (pedido: Pedido) => {
-      if (!user) {
-        return;
-      }
-
-      /*
-       * El recibo solamente existe cuando
-       * el pedido ha sido entregado.
-       */
-      if (pedido.estado !== "entregado") {
-        return;
-      }
-
-      /*
-       * Comprobación defensiva adicional.
-       */
-      if (pedido.usuarioId !== user.uid) {
-        setError(
-          "No tienes permiso para acceder a este recibo.",
-        );
-        return;
-      }
-
-      try {
-        setReciboLoading(
-          pedido.id,
-        );
+        setError("");
 
         const token =
           await user.getIdToken(true);
 
-        const response =
-          await fetch(
-            `/api/pedidos/${encodeURIComponent(
-              pedido.id,
-            )}/recibo`,
-            {
-              method: "GET",
-              headers: {
-                Authorization:
-                  `Bearer ${token}`,
-              },
-              cache: "no-store",
+        const response = await fetch(
+          "/api/pedidos",
+          {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
             },
-          );
+            cache: "no-store",
+          },
+        );
+
+        const result =
+          (await response.json()) as PedidosApiResponse;
 
         if (!response.ok) {
-          let message =
-            "No fue posible generar el recibo.";
-
-          try {
-            const result =
-              await response.json();
-
-            if (
-              result &&
-              typeof result === "object" &&
-              "message" in result &&
-              typeof result.message ===
-                "string"
-            ) {
-              message =
-                result.message;
-            }
-          } catch {
-            /*
-             * La respuesta no era JSON.
-             */
-          }
-
-          throw new Error(message);
-        }
-
-        const contentType =
-          response.headers.get(
-            "content-type",
-          );
-
-        if (
-          !contentType?.includes(
-            "application/pdf",
-          )
-        ) {
           throw new Error(
-            "El servidor no devolvió un archivo PDF válido.",
+            result.message ||
+              "No fue posible cargar tus pedidos.",
           );
         }
 
-        const pdfBlob =
-          await response.blob();
+        const pedidosUsuario = (
+          result.data ?? []
+        ).filter(
+          (pedido) =>
+            pedido.usuarioId === user.uid,
+        );
 
-        const pdfUrl =
-          URL.createObjectURL(
-            pdfBlob,
-          );
-
-        const ventana =
-          window.open(
-            pdfUrl,
-            "_blank",
-            "noopener,noreferrer",
-          );
-
-        /*
-         * Algunos navegadores bloquean window.open.
-         */
-        if (!ventana) {
-          const link =
-            document.createElement(
-              "a",
-            );
-
-          link.href = pdfUrl;
-          link.target = "_blank";
-          link.rel =
-            "noopener noreferrer";
-
-          document.body.appendChild(
-            link,
-          );
-
-          link.click();
-
-          link.remove();
+        if (!cancelled) {
+          setPedidos(pedidosUsuario);
         }
+      } catch (err) {
+        console.error(
+          "Error cargando pedidos:",
+          err,
+        );
 
-        /*
-         * Dejamos tiempo al navegador para
-         * consumir el Blob antes de liberarlo.
-         */
-        window.setTimeout(() => {
-          URL.revokeObjectURL(
-            pdfUrl,
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "No fue posible cargar tus pedidos.",
           );
-        }, 60_000);
-      } catch (caught) {
-        const message =
-          caught instanceof Error
-            ? caught.message
-            : "No fue posible abrir el recibo.";
-
-        setError(message);
+        }
       } finally {
-        setReciboLoading(null);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
-    },
-    [user],
-  );
+    }
 
-  /*
-   * ==========================================================
-   * ESTADOS DE CARGA
-   * ==========================================================
-   */
+    void cargarPedidos();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, authLoading]);
 
   if (authLoading || loading) {
     return (
-      <main className="min-h-[calc(100dvh-4rem)] bg-[var(--surface)]">
-        <div className="mx-auto flex min-h-[500px] max-w-7xl items-center justify-center px-4">
-          <div className="text-center">
-            <div
-              className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-[var(--secondary)] border-t-[var(--primary)]"
-              aria-label="Cargando"
-            />
+      <main className="min-h-screen bg-[var(--surface)] px-4 py-10">
+        <div className="mx-auto max-w-5xl">
+          <div className="rounded-2xl border border-[var(--border)] bg-white p-8 text-center shadow-sm">
+            <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-[var(--border)] border-t-[var(--primary)]" />
 
-            <p className="mt-4 text-sm font-medium text-[var(--muted)]">
+            <p className="text-sm text-[var(--muted)]">
               Cargando tus pedidos...
             </p>
           </div>
@@ -477,580 +492,745 @@ export default function PedidosPage() {
     );
   }
 
-  /*
-   * ==========================================================
-   * SIN SESIÓN
-   * ==========================================================
-   */
-
   if (!user) {
     return (
-      <main className="min-h-[calc(100dvh-4rem)] bg-[var(--surface)]">
-        <div className="mx-auto flex min-h-[600px] max-w-3xl items-center justify-center px-4 py-16">
-          <section className="w-full rounded-[var(--radius-xl)] border border-[var(--border)] bg-white p-8 text-center shadow-sm sm:p-12">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[var(--secondary)]">
-              <svg
-                viewBox="0 0 24 24"
-                className="h-8 w-8 text-[var(--primary)]"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-              >
-                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <path d="M12 2v8" />
-                <path d="m9 7 3 3 3-3" />
-              </svg>
-            </div>
+      <main className="min-h-screen bg-[var(--surface)] px-4 py-10">
+        <div className="mx-auto max-w-3xl">
+          <div className="rounded-2xl border border-[var(--border)] bg-white p-8 text-center shadow-sm">
+            <Package
+              size={48}
+              className="mx-auto mb-4 text-[var(--primary)]"
+            />
 
-            <h1 className="mt-6 text-2xl font-bold text-[var(--foreground)]">
-              Inicia sesión para ver tus pedidos
+            <h1 className="text-2xl font-bold text-[var(--foreground)]">
+              Mis pedidos
             </h1>
 
-            <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-[var(--muted)]">
-              Aquí podrás consultar tus compras,
-              estados y recibos.
+            <p className="mt-2 text-sm text-[var(--muted)]">
+              Debes iniciar sesión para
+              consultar tus pedidos.
             </p>
 
-            <Link
+            <a
               href="/login"
-              className="mt-7 inline-flex rounded-[var(--radius-md)] bg-[var(--primary)] px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+              className="mt-6 inline-flex items-center justify-center rounded-xl bg-[var(--primary)] px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
             >
               Iniciar sesión
-            </Link>
-          </section>
+            </a>
+          </div>
         </div>
       </main>
     );
   }
-
-  /*
-   * ==========================================================
-   * ERROR
-   * ==========================================================
-   */
 
   if (error) {
     return (
-      <main className="min-h-[calc(100dvh-4rem)] bg-[var(--surface)]">
-        <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-          <div
-            role="alert"
-            className="rounded-[var(--radius-lg)] border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700"
-          >
-            <p className="font-semibold">
-              No fue posible cargar tus pedidos.
-            </p>
+      <main className="min-h-screen bg-[var(--surface)] px-4 py-10">
+        <div className="mx-auto max-w-3xl">
+          <div className="rounded-2xl border border-red-200 bg-white p-8 text-center shadow-sm">
+            <X
+              size={48}
+              className="mx-auto mb-4 text-red-500"
+            />
 
-            <p className="mt-1">
+            <h1 className="text-2xl font-bold text-[var(--foreground)]">
+              No fue posible cargar tus pedidos
+            </h1>
+
+            <p className="mt-2 text-sm text-red-600">
               {error}
             </p>
 
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setError(null);
-                  loadPedidos();
-                }}
-                className="rounded-lg bg-red-700 px-4 py-2 font-semibold text-white transition hover:bg-red-800"
-              >
-                Intentar nuevamente
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  setError(null)
-                }
-                className="rounded-lg border border-red-300 bg-white px-4 py-2 font-semibold text-red-700 transition hover:bg-red-100"
-              >
-                Cerrar
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() =>
+                window.location.reload()
+              }
+              className="mt-6 inline-flex items-center justify-center rounded-xl bg-[var(--primary)] px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
+            >
+              Intentar nuevamente
+            </button>
           </div>
         </div>
       </main>
     );
   }
 
-  /*
-   * ==========================================================
-   * SIN PEDIDOS
-   * ==========================================================
-   */
+  return (
+    <main className="min-h-screen bg-[var(--surface)] px-4 py-8 md:px-6 md:py-10">
+      <div className="mx-auto max-w-5xl">
+        <div className="mb-8">
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-[var(--secondary)] p-3 text-[var(--primary)]">
+              <Package size={26} />
+            </div>
 
-  if (pedidos.length === 0) {
-    return (
-      <main className="min-h-[calc(100dvh-4rem)] bg-[var(--surface)]">
-        <div className="mx-auto flex min-h-[650px] max-w-7xl items-center justify-center px-4 py-16 sm:px-6 lg:px-8">
-          <section className="flex w-full max-w-2xl flex-col items-center rounded-[var(--radius-xl)] border border-[var(--border)] bg-white px-6 py-12 text-center shadow-sm sm:px-12 sm:py-16">
-            <div className="relative h-48 w-48 sm:h-64 sm:w-64">
+            <div>
+              <h1 className="text-2xl font-bold text-[var(--foreground)] md:text-3xl">
+                Mis pedidos
+              </h1>
+
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                Consulta el estado y los detalles
+                de tus compras.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {pedidos.length === 0 ? (
+          <div className="rounded-2xl border border-[var(--border)] bg-white px-6 py-12 text-center shadow-sm">
+            <div className="mx-auto mb-5 flex h-28 w-28 items-center justify-center rounded-full bg-[var(--surface)]">
               <Image
                 src={EMPTY_ORDERS_IMAGE}
-                alt="Canastas Verdes"
-                fill
-                priority
-                className="object-contain"
+                alt="Sin pedidos"
+                width={90}
+                height={90}
+                className="h-20 w-20 object-contain"
               />
             </div>
 
-            <h1 className="mt-8 text-2xl font-bold tracking-tight text-[var(--foreground)] sm:text-3xl">
-              Aún no has hecho tu primer pedido
-            </h1>
+            <h2 className="text-xl font-bold text-[var(--foreground)]">
+              Aún no tienes pedidos
+            </h2>
 
-            <p className="mt-3 max-w-lg text-base leading-7 text-[var(--muted)]">
-              Anímate y prueba la frescura del campo.
+            <p className="mx-auto mt-2 max-w-md text-sm text-[var(--muted)]">
+              Cuando realices una compra,
+              aquí podrás consultar toda la
+              información de tu pedido.
             </p>
 
-            <Link
+            <a
               href="/tienda"
-              className="mt-8 inline-flex items-center justify-center rounded-[var(--radius-md)] bg-[var(--primary)] px-7 py-3 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:opacity-90"
+              className="mt-6 inline-flex items-center justify-center rounded-xl bg-[var(--primary)] px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
             >
-              Explorar la tienda
-            </Link>
-          </section>
-        </div>
-      </main>
-    );
-  }
-
-  /*
-   * ==========================================================
-   * PEDIDOS
-   * ==========================================================
-   */
-
-  return (
-    <main className="min-h-[calc(100dvh-4rem)] bg-[var(--surface)]">
-      <section className="border-b border-[var(--border)] bg-white">
-        <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-          <p className="text-sm font-bold uppercase tracking-wider text-[var(--primary)]">
-            Canastas Verdes
-          </p>
-
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-[var(--foreground)] sm:text-4xl">
-            Mis pedidos
-          </h1>
-
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)] sm:text-base">
-            Consulta el estado de tus compras y
-            accede al recibo de cada pedido.
-          </p>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-6 flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm text-[var(--muted)]">
-              Pedidos realizados
-            </p>
-
-            <p className="text-2xl font-bold text-[var(--foreground)]">
-              {pedidos.length}
-            </p>
+              Ir a la tienda
+            </a>
           </div>
+        ) : (
+          <div className="space-y-5">
+            {pedidos.map((pedido) => {
+              const tipoEntrega =
+                getTipoEntrega(pedido);
 
-          <Link
-            href="/tienda"
-            className="rounded-[var(--radius-md)] border border-[var(--primary)] px-4 py-2.5 text-sm font-semibold text-[var(--primary)] transition hover:bg-[var(--secondary)]"
-          >
-            Seguir comprando
-          </Link>
-        </div>
+              const productos =
+                getPedidoProductos(pedido);
 
-        <div className="grid gap-5">
-          {pedidos.map((pedido) => {
-            const puedeVerRecibo =
-              pedido.estado ===
-              "entregado";
+              return (
+                <article
+                  key={pedido.id}
+                  className="overflow-hidden rounded-2xl border border-[var(--border)] bg-white shadow-sm"
+                >
+                  <div className="border-b border-[var(--border)] bg-[var(--surface)] px-5 py-4 md:px-6">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link
+                            href={`/pedidos/${pedido.id}?success=1`}
+                            className="text-sm font-bold text-[var(--primary)] underline-offset-2 transition hover:underline"
+                          >
+                            Pedido #
+                            {pedido.id.slice(
+                              0,
+                              8,
+                            )}
+                          </Link>
 
-            const cargandoRecibo =
-              reciboLoading ===
-              pedido.id;
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${getEstadoClasses(
+                              pedido.estado,
+                            )}`}
+                          >
+                            {
+                              ESTADO_LABELS[
+                                pedido.estado
+                              ]
+                            }
+                          </span>
+                        </div>
 
-            return (
-              <article
-                key={pedido.id}
-                className="overflow-hidden rounded-[var(--radius-xl)] border border-[var(--border)] bg-white shadow-sm transition hover:shadow-md"
-              >
-                <div className="flex flex-col gap-4 border-b border-[var(--border)] p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <h2 className="font-bold text-[var(--foreground)]">
-                        Pedido #
-                        {pedido.id.slice(
-                          0,
-                          8,
-                        )}
+                        <div className="mt-1 flex items-center gap-2 text-xs text-[var(--muted)]">
+                          <CalendarDays
+                            size={14}
+                          />
+
+                          <span>
+                            {formatDate(
+                              pedido.fechaCreacion,
+                            )}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="text-left md:text-right">
+                        <p className="text-xs text-[var(--muted)]">
+                          Total
+                        </p>
+
+                        <p className="text-lg font-bold text-[var(--primary)]">
+                          {formatCurrency(
+                            getPedidoTotal(
+                              pedido,
+                            ),
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-5 p-5 md:p-6">
+                    <div>
+                      <h2 className="mb-3 text-sm font-semibold text-[var(--foreground)]">
+                        Productos
                       </h2>
 
-                      <span
-                        className={`rounded-full border px-3 py-1 text-xs font-bold ${getStatusClasses(
-                          pedido.estado,
-                        )}`}
-                      >
-                        {
-                          estadoLabels[
-                            pedido.estado
-                          ]
-                        }
-                      </span>
-                    </div>
-
-                    <p className="mt-2 text-sm text-[var(--muted)]">
-                      {formatDate(
-                        pedido.fechaCreacion,
-                      )}
-                    </p>
-                  </div>
-
-                  <div className="sm:text-right">
-                    <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-                      Total
-                    </p>
-
-                    <p className="mt-1 text-xl font-bold text-[var(--primary)]">
-                      {formatMoney(
-                        pedido.total,
-                      )}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid gap-5 p-5 sm:grid-cols-[1fr_auto] sm:p-6">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">
-                      Productos
-                    </p>
-
-                    <div className="mt-3 space-y-2">
-                      {pedido.productos
-                        .slice(0, 3)
-                        .map(
+                      <div className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)]">
+                        {productos.map(
                           (
                             producto,
-                          ) => (
-                            <div
-                              key={`${pedido.id}-${producto.productoId}`}
-                              className="flex items-center justify-between gap-4 text-sm"
-                            >
-                              <span className="min-w-0 truncate text-[var(--foreground)]">
-                                {
-                                  producto.nombre
-                                }
-                              </span>
+                            index,
+                          ) => {
+                            const presentacion =
+                              getProductoPresentacion(
+                                producto,
+                              );
 
-                              <span className="shrink-0 font-medium text-[var(--muted)]">
-                                ×{" "}
-                                {
-                                  producto.cantidad
-                                }
-                              </span>
-                            </div>
-                          ),
+                            return (
+                              <div
+                                key={`${pedido.id}-${producto.productoId ?? producto.IdProducto ?? index}`}
+                                className="flex items-center justify-between gap-4 p-4"
+                              >
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-medium text-[var(--foreground)]">
+                                    {getProductoNombre(
+                                      producto,
+                                    )}
+                                  </p>
+
+                                  <p className="mt-1 text-xs text-[var(--muted)]">
+                                    Cantidad:{" "}
+                                    {getProductoCantidad(
+                                      producto,
+                                    )}
+
+                                    {presentacion
+                                      ? ` · ${presentacion}`
+                                      : ""}
+                                  </p>
+                                </div>
+
+                                <p className="shrink-0 text-sm font-semibold text-[var(--foreground)]">
+                                  {formatCurrency(
+                                    getProductoSubtotal(
+                                      producto,
+                                    ),
+                                  )}
+                                </p>
+                              </div>
+                            );
+                          },
                         )}
+                      </div>
+                    </div>
 
-                      {pedido.productos
-                        .length > 3 && (
-                        <p className="pt-1 text-xs font-medium text-[var(--primary)]">
-                          +{" "}
-                          {pedido
-                            .productos
-                            .length -
-                            3}{" "}
-                          producto(s) más
+                    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          {tipoEntrega ===
+                          "recogida" ? (
+                            <MapPin
+                              size={18}
+                              className="text-[var(--primary)]"
+                            />
+                          ) : (
+                            <Truck
+                              size={18}
+                              className="text-[var(--primary)]"
+                            />
+                          )}
+
+                          <h2 className="text-sm font-semibold text-[var(--foreground)]">
+                            Entrega
+                          </h2>
+                        </div>
+
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${getTipoEntregaClasses(
+                            tipoEntrega,
+                          )}`}
+                        >
+                          {getTipoEntregaLabel(
+                            tipoEntrega,
+                          )}
+                        </span>
+                      </div>
+
+                      {tipoEntrega ===
+                      "domicilio" ? (
+                        <div className="space-y-2">
+                          <div className="flex items-start gap-2">
+                            <MapPin
+                              size={16}
+                              className="mt-0.5 shrink-0 text-[var(--muted)]"
+                            />
+
+                            <p className="text-sm text-[var(--foreground)]">
+                              {pedido.direccionEntrega ||
+                                "Dirección no especificada"}
+                            </p>
+                          </div>
+
+                          {(pedido.telefonoEntrega ||
+                            pedido.telefono) && (
+                            <div className="flex items-center gap-2">
+                              <Phone
+                                size={16}
+                                className="shrink-0 text-[var(--muted)]"
+                              />
+
+                              <p className="text-sm text-[var(--foreground)]">
+                                {pedido.telefonoEntrega ||
+                                  pedido.telefono}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      ) : tipoEntrega ===
+                          "recogida" &&
+                        pedido.puntoRecogida ? (
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                              Punto de recogida
+                            </p>
+
+                            <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">
+                              {
+                                pedido
+                                  .puntoRecogida
+                                  .nombre
+                              }
+                            </p>
+                          </div>
+
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex min-w-0 items-start gap-2">
+                              <MapPin
+                                size={16}
+                                className="mt-0.5 shrink-0 text-[var(--muted)]"
+                              />
+
+                              <div className="min-w-0">
+                                <p className="text-sm text-[var(--foreground)]">
+                                  {
+                                    pedido
+                                      .puntoRecogida
+                                      .direccion
+                                  }
+                                </p>
+
+                                {pedido
+                                  .puntoRecogida
+                                  .municipio && (
+                                  <p className="mt-1 text-xs text-[var(--muted)]">
+                                    {
+                                      pedido
+                                        .puntoRecogida
+                                        .municipio
+                                    }
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            <a
+                              href={getGoogleMapsUrl(
+                                pedido.puntoRecogida,
+                              )}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-xs font-semibold text-[var(--primary)] transition hover:bg-[var(--secondary)]"
+                            >
+                              <ExternalLink
+                                size={14}
+                              />
+
+                              <span>
+                                Ver en Maps
+                              </span>
+                            </a>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-[var(--muted)]">
+                          Información de entrega
+                          no disponible.
                         </p>
                       )}
                     </div>
 
-                    <p className="mt-4 text-sm text-[var(--muted)]">
-                      <span className="font-semibold text-[var(--foreground)]">
-                        Entrega:
-                      </span>{" "}
-                      {pedido.direccionEntrega ||
-                        "No especificada"}
-                    </p>
-                  </div>
+                    <div className="flex flex-col gap-3 border-t border-[var(--border)] pt-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="text-xs text-[var(--muted)]">
+                        <span className="font-medium">
+                          {getDeliveryDescription(
+                            pedido,
+                          )}
+                        </span>
+                      </div>
 
-                  <div className="flex flex-col justify-center gap-2 sm:min-w-[190px]">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPedidoSeleccionado(
-                          pedido,
-                        )
-                      }
-                      className="rounded-[var(--radius-md)] bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
-                    >
-                      Ver pedido
-                    </button>
-
-                    {puedeVerRecibo && (
                       <button
                         type="button"
                         onClick={() =>
-                          abrirRecibo(
+                          setSelectedPedido(
                             pedido,
                           )
                         }
-                        disabled={
-                          cargandoRecibo
-                        }
-                        className="rounded-[var(--radius-md)] border border-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-[var(--primary)] transition hover:bg-[var(--secondary)] disabled:cursor-not-allowed disabled:opacity-60"
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--primary)] px-4 py-2.5 text-sm font-semibold text-[var(--primary)] transition hover:bg-[var(--secondary)]"
                       >
-                        {cargandoRecibo
-                          ? "Generando recibo..."
-                          : "Ver recibo PDF"}
+                        <FileText size={16} />
+
+                        Ver detalles
                       </button>
-                    )}
-
-                    {!puedeVerRecibo && (
-                      <p className="px-2 text-center text-xs leading-5 text-[var(--muted)]">
-                        El recibo estará disponible
-                        cuando el pedido sea
-                        entregado.
-                      </p>
-                    )}
+                    </div>
                   </div>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      </section>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
-      {/*
-       * ========================================================
-       * MODAL DETALLE DEL PEDIDO
-       * ========================================================
-       */}
-
-      {pedidoSeleccionado && (
+      {selectedPedido && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="receipt-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
           onMouseDown={(event) => {
             if (
               event.target ===
               event.currentTarget
             ) {
-              setPedidoSeleccionado(
-                null,
-              );
+              setSelectedPedido(null);
             }
           }}
         >
-          <div className="max-h-[90dvh] w-full max-w-3xl overflow-y-auto rounded-[var(--radius-xl)] bg-white shadow-2xl">
-            <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-[var(--border)] bg-white p-5 sm:p-6">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-white px-5 py-4 md:px-6">
               <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-[var(--primary)]">
-                  Canastas Verdes
-                </p>
-
-                <h2
-                  id="receipt-title"
-                  className="mt-1 text-xl font-bold text-[var(--foreground)] sm:text-2xl"
-                >
-                  Pedido #
-                  {pedidoSeleccionado.id.slice(
-                    0,
-                    8,
-                  )}
+                <h2 className="text-lg font-bold text-[var(--foreground)]">
+                  Detalles del pedido
                 </h2>
 
-                <p className="mt-1 text-sm text-[var(--muted)]">
-                  {formatDate(
-                    pedidoSeleccionado.fechaCreacion,
-                  )}
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  #{selectedPedido.id}
                 </p>
               </div>
 
               <button
                 type="button"
                 onClick={() =>
-                  setPedidoSeleccionado(
-                    null,
-                  )
+                  setSelectedPedido(null)
                 }
-                aria-label="Cerrar detalle"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xl text-[var(--muted)] transition hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+                className="rounded-lg p-2 text-[var(--muted)] transition hover:bg-[var(--surface)] hover:text-[var(--foreground)]"
+                aria-label="Cerrar detalles"
               >
-                ×
+                <X size={20} />
               </button>
-            </header>
+            </div>
 
-            <div className="p-5 sm:p-6">
+            <div className="space-y-5 p-5 md:p-6">
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="rounded-lg bg-[var(--surface)] p-4">
-                  <p className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">
+                <div className="rounded-xl border border-[var(--border)] p-4">
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                     Estado
                   </p>
 
                   <span
-                    className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-bold ${getStatusClasses(
-                      pedidoSeleccionado.estado,
+                    className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getEstadoClasses(
+                      selectedPedido.estado,
                     )}`}
                   >
                     {
-                      estadoLabels[
-                        pedidoSeleccionado.estado
+                      ESTADO_LABELS[
+                        selectedPedido.estado
                       ]
                     }
                   </span>
                 </div>
 
-                <div className="rounded-lg bg-[var(--surface)] p-4">
-                  <p className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">
-                    Dirección de entrega
+                <div className="rounded-xl border border-[var(--border)] p-4">
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                    Tipo de entrega
                   </p>
 
-                  <p className="mt-2 text-sm font-medium text-[var(--foreground)]">
-                    {pedidoSeleccionado.direccionEntrega ||
-                      "No especificada"}
-                  </p>
+                  <span
+                    className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getTipoEntregaClasses(
+                      getTipoEntrega(
+                        selectedPedido,
+                      ),
+                    )}`}
+                  >
+                    {getTipoEntregaLabel(
+                      getTipoEntrega(
+                        selectedPedido,
+                      ),
+                    )}
+                  </span>
                 </div>
 
-                <div className="rounded-lg bg-[var(--surface)] p-4">
-                  <p className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">
+                <div className="rounded-xl border border-[var(--border)] p-4">
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                     Municipalidad
                   </p>
 
-                  <p className="mt-2 text-sm font-medium text-[var(--foreground)]">
-                    {pedidoSeleccionado.IdMunicipalidad ||
+                  <p className="text-sm font-medium text-[var(--foreground)]">
+                    {selectedPedido.IdMunicipalidad ||
+                      selectedPedido.idMunicipalidad ||
                       "No especificada"}
                   </p>
                 </div>
 
-                <div className="rounded-lg bg-[var(--surface)] p-4">
-                  <p className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">
+                <div className="rounded-xl border border-[var(--border)] p-4">
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                     Actualización
                   </p>
 
-                  <p className="mt-2 text-sm font-medium text-[var(--foreground)]">
+                  <p className="text-sm font-medium text-[var(--foreground)]">
                     {formatDate(
-                      pedidoSeleccionado.ultimaActualizacion,
+                      selectedPedido.ultimaActualizacion,
                     )}
                   </p>
                 </div>
               </div>
 
-              <div className="mt-6 overflow-hidden rounded-lg border border-[var(--border)]">
-                <div className="hidden grid-cols-[1fr_auto_auto_auto] gap-4 bg-[var(--surface)] px-4 py-3 text-xs font-bold uppercase tracking-wide text-[var(--muted)] sm:grid">
-                  <span>Producto</span>
-                  <span>Cantidad</span>
-                  <span>Precio</span>
-                  <span>Subtotal</span>
-                </div>
+              {getTipoEntrega(
+                selectedPedido,
+              ) === "domicilio" && (
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <Truck
+                      size={18}
+                      className="text-[var(--primary)]"
+                    />
 
-                {pedidoSeleccionado.productos.map(
-                  (producto) => (
-                    <div
-                      key={`${pedidoSeleccionado.id}-${producto.productoId}`}
-                      className="grid gap-3 border-t border-[var(--border)] px-4 py-4 first:border-t-0 sm:grid-cols-[1fr_auto_auto_auto] sm:items-center sm:gap-4"
-                    >
+                    <h3 className="text-sm font-semibold text-[var(--foreground)]">
+                      Información de domicilio
+                    </h3>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                        Dirección
+                      </p>
+
+                      <p className="mt-1 text-sm text-[var(--foreground)]">
+                        {selectedPedido.direccionEntrega ||
+                          "No especificada"}
+                      </p>
+                    </div>
+
+                    {(selectedPedido.telefonoEntrega ||
+                      selectedPedido.telefono) && (
                       <div>
-                        <p className="font-semibold text-[var(--foreground)]">
-                          {
-                            producto.nombre
-                          }
+                        <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                          Teléfono de entrega
                         </p>
 
-                        {producto.code && (
-                          <p className="mt-0.5 text-xs text-[var(--muted)]">
-                            Código:{" "}
+                        <p className="mt-1 flex items-center gap-2 text-sm text-[var(--foreground)]">
+                          <Phone size={15} />
+
+                          {selectedPedido.telefonoEntrega ||
+                            selectedPedido.telefono}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {getTipoEntrega(
+                selectedPedido,
+              ) === "recogida" &&
+                selectedPedido.puntoRecogida && (
+                  <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <MapPin
+                          size={18}
+                          className="text-[var(--primary)]"
+                        />
+
+                        <h3 className="text-sm font-semibold text-[var(--foreground)]">
+                          Punto de recogida
+                        </h3>
+                      </div>
+
+                      <a
+                        href={getGoogleMapsUrl(
+                          selectedPedido.puntoRecogida,
+                        )}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-xs font-semibold text-[var(--primary)] transition hover:bg-[var(--secondary)]"
+                      >
+                        <ExternalLink
+                          size={14}
+                        />
+
+                        Ver en Maps
+                      </a>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                          Nombre del punto
+                        </p>
+
+                        <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">
+                          {
+                            selectedPedido
+                              .puntoRecogida
+                              .nombre
+                          }
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                          Ubicación
+                        </p>
+
+                        <p className="mt-1 flex items-start gap-2 text-sm text-[var(--foreground)]">
+                          <MapPin
+                            size={16}
+                            className="mt-0.5 shrink-0 text-[var(--primary)]"
+                          />
+
+                          {
+                            selectedPedido
+                              .puntoRecogida
+                              .direccion
+                          }
+                        </p>
+                      </div>
+
+                      {selectedPedido
+                        .puntoRecogida
+                        .municipio && (
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                            Municipio
+                          </p>
+
+                          <p className="mt-1 text-sm text-[var(--foreground)]">
                             {
-                              producto.code
+                              selectedPedido
+                                .puntoRecogida
+                                .municipio
                             }
                           </p>
-                        )}
-                      </div>
+                        </div>
+                      )}
 
-                      <div className="text-sm text-[var(--muted)]">
-                        {
-                          producto.cantidad
-                        }{" "}
-                        {
-                          producto.unidad
-                        }
-                      </div>
+                      {(selectedPedido.IdPuntoRecogida ||
+                        selectedPedido.idPuntoRecogida) && (
+                        <div>
+                          <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                            ID del punto
+                          </p>
 
-                      <div className="text-sm font-medium">
-                        {formatMoney(
-                          producto.precioUnitario,
-                        )}
-                      </div>
-
-                      <div className="font-bold text-[var(--foreground)]">
-                        {formatMoney(
-                          producto.subtotal,
-                        )}
-                      </div>
+                          <p className="mt-1 text-xs text-[var(--muted)]">
+                            {selectedPedido.IdPuntoRecogida ||
+                              selectedPedido.idPuntoRecogida}
+                          </p>
+                        </div>
+                      )}
                     </div>
-                  ),
+                  </div>
                 )}
-              </div>
 
-              <div className="mt-6 ml-auto max-w-sm">
-                <div className="flex justify-between py-2 text-sm text-[var(--muted)]">
-                  <span>
-                    Subtotal
-                  </span>
+              <div>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-[var(--foreground)]">
+                    Productos
+                  </h3>
 
-                  <span className="font-medium text-[var(--foreground)]">
-                    {formatMoney(
-                      pedidoSeleccionado.subtotal,
+                  <span className="text-sm font-bold text-[var(--primary)]">
+                    {formatCurrency(
+                      getPedidoTotal(
+                        selectedPedido,
+                      ),
                     )}
                   </span>
                 </div>
 
-                <div className="flex justify-between border-t border-[var(--border)] pt-3 text-lg font-bold">
-                  <span>Total</span>
+                <div className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)]">
+                  {getPedidoProductos(
+                    selectedPedido,
+                  ).map(
+                    (producto, index) => {
+                      const presentacion =
+                        getProductoPresentacion(
+                          producto,
+                        );
 
-                  <span className="text-[var(--primary)]">
-                    {formatMoney(
-                      pedidoSeleccionado.total,
-                    )}
-                  </span>
+                      return (
+                        <div
+                          key={`${selectedPedido.id}-detail-${producto.productoId ?? producto.IdProducto ?? index}`}
+                          className="flex items-center justify-between gap-4 p-4"
+                        >
+                          <div>
+                            <p className="text-sm font-medium text-[var(--foreground)]">
+                              {getProductoNombre(
+                                producto,
+                              )}
+                            </p>
+
+                            <p className="mt-1 text-xs text-[var(--muted)]">
+                              {getProductoCantidad(
+                                producto,
+                              )}
+
+                              {presentacion
+                                ? ` · ${presentacion}`
+                                : ""}
+
+                              {" × "}
+
+                              {formatCurrency(
+                                getProductoPrecio(
+                                  producto,
+                                ),
+                              )}
+                            </p>
+                          </div>
+
+                          <p className="text-sm font-semibold text-[var(--foreground)]">
+                            {formatCurrency(
+                              getProductoSubtotal(
+                                producto,
+                              ),
+                            )}
+                          </p>
+                        </div>
+                      );
+                    },
+                  )}
                 </div>
               </div>
 
-              <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <div className="flex justify-end border-t border-[var(--border)] pt-4">
                 <button
                   type="button"
                   onClick={() =>
-                    setPedidoSeleccionado(
-                      null,
-                    )
+                    setSelectedPedido(null)
                   }
-                  className="rounded-[var(--radius-md)] border border-[var(--border)] px-5 py-2.5 text-sm font-semibold text-[var(--foreground)] transition hover:bg-[var(--surface)]"
+                  className="inline-flex items-center gap-2 rounded-xl bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
                 >
+                  <ArrowLeft size={16} />
+
                   Cerrar
                 </button>
-
-                {pedidoSeleccionado.estado ===
-                  "entregado" && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      abrirRecibo(
-                        pedidoSeleccionado,
-                      )
-                    }
-                    disabled={
-                      reciboLoading ===
-                      pedidoSeleccionado.id
-                    }
-                    className="rounded-[var(--radius-md)] bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {reciboLoading ===
-                    pedidoSeleccionado.id
-                      ? "Generando recibo..."
-                      : "Abrir recibo PDF"}
-                  </button>
-                )}
               </div>
             </div>
           </div>

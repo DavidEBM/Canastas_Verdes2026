@@ -18,11 +18,28 @@ function jsonError(message: string, status: number) {
   );
 }
 
-/*
- * =========================================================
- * GET
- * =========================================================
- */
+function getErrorResponse(error: unknown, fallback: string) {
+  console.error(fallback, error);
+
+  if (error instanceof Error) {
+    switch (error.message) {
+      case "AUTH_REQUIRED":
+        return jsonError("Debes iniciar sesión.", 401);
+
+      case "ADMIN_REQUIRED":
+        return jsonError(
+          "Solo un administrador puede gestionar municipalidades.",
+          403,
+        );
+    }
+  }
+
+  return jsonError(fallback, 500);
+}
+
+/* =========================================================
+   GET
+========================================================= */
 
 export async function GET(request: Request) {
   try {
@@ -32,68 +49,50 @@ export async function GET(request: Request) {
       .collection(COLLECTION)
       .get();
 
-    const data = snapshot.docs.map((doc) => {
-      const value = doc.data();
+    const data = snapshot.docs
+      .map((doc) => {
+        const value = doc.data();
 
-      return {
-        id: doc.id,
-        nombre:
-          typeof value.Nombre === "string"
-            ? value.Nombre
-            : "",
-        activo:
-          value.Activo !== false,
-        fechaCreacion:
-          value.creacion ?? null,
-        ultimaActualizacion:
-          value.actualizacion ?? null,
-        clausura:
-          value.clausura ?? null,
-      };
-    });
+        return {
+          id: doc.id,
+          nombre:
+            typeof value.Nombre === "string"
+              ? value.Nombre
+              : "",
+          activo: value.Activo !== false,
+          fechaCreacion:
+            value.creacion ?? null,
+          ultimaActualizacion:
+            value.actualizacion ?? null,
+          clausura:
+            value.clausura ?? null,
+        };
+      })
+      .sort((a, b) =>
+        a.nombre.localeCompare(
+          b.nombre,
+          "es",
+          {
+            sensitivity: "base",
+          },
+        ),
+      );
 
     return NextResponse.json({
       success: true,
       data,
     });
   } catch (error) {
-    console.error(
-      "Error obteniendo municipalidades:",
+    return getErrorResponse(
       error,
-    );
-
-    if (
-      error instanceof Error &&
-      error.message === "AUTH_REQUIRED"
-    ) {
-      return jsonError(
-        "Debes iniciar sesión.",
-        401,
-      );
-    }
-
-    if (
-      error instanceof Error &&
-      error.message === "ADMIN_REQUIRED"
-    ) {
-      return jsonError(
-        "Solo un administrador puede gestionar municipalidades.",
-        403,
-      );
-    }
-
-    return jsonError(
       "No fue posible cargar las municipalidades.",
-      500,
     );
   }
 }
 
-/*
- * =========================================================
- * POST
- * =========================================================
- */
+/* =========================================================
+   POST
+========================================================= */
 
 export async function POST(request: Request) {
   try {
@@ -126,25 +125,23 @@ export async function POST(request: Request) {
       .collection(COLLECTION)
       .get();
 
-    const duplicate = snapshot.docs.some(
-      (doc) => {
-        const data = doc.data();
+    const duplicate = snapshot.docs.some((doc) => {
+      const data = doc.data();
 
-        const existingName =
-          typeof data.Nombre === "string"
-            ? data.Nombre.trim().toLowerCase()
-            : "";
+      const existingName =
+        typeof data.Nombre === "string"
+          ? data.Nombre.trim().toLowerCase()
+          : "";
 
-        return (
-          existingName ===
-          nombre.toLowerCase()
-        );
-      },
-    );
+      return (
+        existingName === nombre.toLowerCase() &&
+        data.Activo !== false
+      );
+    });
 
     if (duplicate) {
       return jsonError(
-        "Ya existe una municipalidad con ese nombre.",
+        "Ya existe una municipalidad activa con ese nombre.",
         409,
       );
     }
@@ -175,34 +172,9 @@ export async function POST(request: Request) {
       { status: 201 },
     );
   } catch (error) {
-    console.error(
-      "Error creando municipalidad:",
+    return getErrorResponse(
       error,
-    );
-
-    if (
-      error instanceof Error &&
-      error.message === "AUTH_REQUIRED"
-    ) {
-      return jsonError(
-        "Debes iniciar sesión.",
-        401,
-      );
-    }
-
-    if (
-      error instanceof Error &&
-      error.message === "ADMIN_REQUIRED"
-    ) {
-      return jsonError(
-        "Solo un administrador puede gestionar municipalidades.",
-        403,
-      );
-    }
-
-    return jsonError(
       "No fue posible crear la municipalidad.",
-      500,
     );
   }
 }

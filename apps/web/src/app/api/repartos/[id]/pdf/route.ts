@@ -11,6 +11,7 @@ import type {
   ClienteReparto,
   MunicipalidadReparto,
   Pedido,
+  PuntoRecogidaPedido,
   RepartidorReparto,
 } from "@/lib/repartos/types";
 
@@ -118,14 +119,6 @@ function normalizarRol(
   return "usuario";
 }
 
-/*
- * Obtiene el rol desde los Custom Claims.
- *
- * Se soportan:
- *   role
- *   Rol
- *   rol
- */
 function obtenerRolDesdeClaims(
   decoded: Record<string, unknown>,
 ): Rol | null {
@@ -144,14 +137,6 @@ function obtenerRolDesdeClaims(
   return null;
 }
 
-/*
- * Obtiene el rol desde:
- *
- * usuarios/{uid}.Rol
- *
- * Este es el esquema actualmente utilizado
- * por Canastas Verdes.
- */
 async function obtenerRolDesdeFirestore(
   uid: string,
 ): Promise<Rol> {
@@ -296,9 +281,6 @@ export async function GET(
       );
     }
 
-    /*
-     * Verificar token de Firebase.
-     */
     const decoded =
       await adminAuth.verifyIdToken(
         token,
@@ -308,12 +290,6 @@ export async function GET(
      * ========================================================
      * AUTORIZACIÓN
      * ========================================================
-     *
-     * Primero intentamos Custom Claims.
-     *
-     * Si no existen, usamos el campo Rol de:
-     *
-     * usuarios/{uid}
      */
 
     let role =
@@ -331,10 +307,6 @@ export async function GET(
         );
     }
 
-    /*
-     * Solo admin y repartidor pueden
-     * generar recibos.
-     */
     if (
       role !== "admin" &&
       role !== "repartidor"
@@ -402,12 +374,6 @@ export async function GET(
      * ========================================================
      * SEGURIDAD DEL REPARTIDOR
      * ========================================================
-     *
-     * Un repartidor solo puede generar
-     * recibos de sus propios pedidos.
-     *
-     * Un administrador puede consultar
-     * cualquier pedido.
      */
 
     if (
@@ -710,8 +676,8 @@ export async function GET(
                 item.unidad ??
                   item.presentacion,
               ),
-              
-              IdProductor:
+
+            IdProductor:
               normalizarTexto(
                 item.IdProductor,
               ),
@@ -766,6 +732,70 @@ export async function GET(
 
     /*
      * ========================================================
+     * DATOS DE ENTREGA
+     * ========================================================
+     */
+
+    const tipoEntrega =
+      pedidoData.tipoEntrega ===
+      "recogida"
+        ? "recogida"
+        : "domicilio";
+
+    const telefonoEntrega =
+      normalizarTexto(
+        pedidoData.telefonoEntrega,
+      );
+
+    const IdPuntoRecogida =
+      typeof pedidoData.IdPuntoRecogida ===
+      "string"
+        ? pedidoData.IdPuntoRecogida
+        : "";
+
+    /*
+     * ========================================================
+     * PUNTO DE RECOGIDA
+     * ========================================================
+     */
+
+    const puntoRecogida:
+      | PuntoRecogidaPedido
+      | null =
+      pedidoData.puntoRecogida &&
+      typeof pedidoData.puntoRecogida ===
+        "object"
+        ? (() => {
+            const data =
+              pedidoData.puntoRecogida as Record<
+                string,
+                unknown
+              >;
+
+            return {
+              nombre:
+                normalizarTexto(
+                  data.nombre ??
+                    data.Nombre,
+                ),
+
+              direccion:
+                normalizarTexto(
+                  data.direccion ??
+                    data.Direccion,
+                ),
+
+              municipio:
+                normalizarTexto(
+                  data.municipio ??
+                    data.Municipio,
+                ),
+            };
+          })()
+        : null;
+
+    /*
+     * ========================================================
      * PEDIDO NORMALIZADO
      * ========================================================
      */
@@ -804,6 +834,14 @@ export async function GET(
             pedidoData.direccionEntrega,
           ),
 
+        tipoEntrega,
+
+        telefonoEntrega,
+
+        IdPuntoRecogida,
+
+        puntoRecogida,
+
         repartidorId,
 
         fechaCreacion:
@@ -818,18 +856,6 @@ export async function GET(
           pedidoData.fechaCancelacion ??
           null,
       };
-
-    /*
-     * ========================================================
-     * MODALIDAD
-     * ========================================================
-     */
-
-    const modalidadEntrega =
-      pedidoData.modalidadEntrega ===
-      "recogida"
-        ? "recogida"
-        : "domicilio";
 
     /*
      * ========================================================
@@ -862,7 +888,7 @@ export async function GET(
 
         municipalidad,
 
-        modalidadEntrega,
+        tipoEntrega,
 
         costos: {
           subtotalProductos,
@@ -907,10 +933,6 @@ export async function GET(
       error,
     );
 
-    /*
-     * Si Firebase rechazó el token, devolvemos
-     * explícitamente un error de autenticación.
-     */
     if (
       error instanceof Error &&
       error.message

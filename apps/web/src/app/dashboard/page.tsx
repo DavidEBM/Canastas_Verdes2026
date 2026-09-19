@@ -29,6 +29,12 @@ const adminSections = [
       "Gestionar asignaciones y estados de entrega.",
   },
   {
+    href: "/dashboard/lugares-recogida",
+    title: "Lugares de recogida",
+    description:
+      "Crear, editar, activar y administrar los puntos disponibles para recogida.",
+  },
+  {
     href: "/dashboard/estadisticas",
     title: "Estadísticas",
     description:
@@ -164,4 +170,3 @@ export default function DashboardPage() {
     </main>
   );
 }
-

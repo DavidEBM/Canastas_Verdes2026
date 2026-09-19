@@ -35,6 +35,9 @@ export default function TiendaPage() {
   const [loading, setLoading] =
     useState(true);
 
+  const [refreshing, setRefreshing] =
+    useState(false);
+
   const [error, setError] =
     useState<string | null>(null);
 
@@ -61,9 +64,14 @@ export default function TiendaPage() {
   ========================================================= */
 
   const loadProducts = useCallback(
-    async () => {
+    async (isRefresh = false) => {
       try {
-        setLoading(true);
+        if (isRefresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
+
         setError(null);
 
         const response = await fetch(
@@ -109,7 +117,11 @@ export default function TiendaPage() {
           "No fue posible cargar los productos. Intenta nuevamente.",
         );
       } finally {
-        setLoading(false);
+        if (isRefresh) {
+          setRefreshing(false);
+        } else {
+          setLoading(false);
+        }
       }
     },
     [],
@@ -250,7 +262,7 @@ export default function TiendaPage() {
         document.visibilityState ===
         "visible"
       ) {
-        void loadProducts();
+        void loadProducts(true);
         void loadMunicipalities();
       }
     };
@@ -387,6 +399,15 @@ export default function TiendaPage() {
 
     // Siempre vuelve al comportamiento predeterminado.
     setHideOutOfStock(true);
+  };
+
+  /* =========================================================
+     Actualización manual
+  ========================================================= */
+
+  const handleRefresh = () => {
+    void loadProducts(true);
+    void loadMunicipalities();
   };
 
   /* =========================================================
@@ -629,14 +650,11 @@ export default function TiendaPage() {
 
           <button
             type="button"
-            onClick={() => {
-              void loadProducts();
-              void loadMunicipalities();
-            }}
-            disabled={loading}
-            className="self-start rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)] disabled:opacity-50 sm:self-auto"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="self-start rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 sm:self-auto"
           >
-            {loading
+            {refreshing
               ? "Actualizando..."
               : "Actualizar productos"}
           </button>
@@ -651,13 +669,13 @@ export default function TiendaPage() {
 
               <button
                 type="button"
-                onClick={() => {
-                  void loadProducts();
-                  void loadMunicipalities();
-                }}
-                className="self-start rounded-md bg-white px-3 py-2 text-xs font-semibold text-red-700 shadow-sm sm:self-auto"
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="self-start rounded-md bg-white px-3 py-2 text-xs font-semibold text-red-700 shadow-sm disabled:cursor-not-allowed disabled:opacity-50 sm:self-auto"
               >
-                Reintentar
+                {refreshing
+                  ? "Actualizando..."
+                  : "Reintentar"}
               </button>
             </div>
           </div>

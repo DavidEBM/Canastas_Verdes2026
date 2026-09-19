@@ -338,13 +338,13 @@ export default function DashboardUsuariosPage() {
       {/* Información */}
       <div className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
         <p className="text-sm text-[var(--foreground)]">
-          Los roles se almacenan en la
-          colección
-          <strong> usuarios </strong>
-          de Firestore, utilizando el campo
-          <strong> Rol</strong>. Los cambios se
-          aplican directamente sobre el usuario
-          seleccionado.
+          Entiendase por
+          <strong> Consumidor </strong>
+          a los clientes y usuarios de la web que pueden crear su perfil y realizar pedidos.<br />
+          Entiendase por<strong> Repartidor </strong>
+          a aquellos encargados de entregas para domicilios o encargados de los lugares de entregas presenciales en los almacenes de recogida.<br />
+          Entiendase por<strong> Administrador </strong>
+          a todos los encargados con permisos para crear, modificar, eliminar, asignar pedidos, gestionar roles, lugares, productos y etc.
         </p>
       </div>
 

@@ -10,6 +10,14 @@ interface CheckoutItem {
   quantity: number;
 }
 
+type TipoEntrega = "domicilio" | "recogida";
+
+interface PickupPointSnapshot {
+  nombre: string;
+  direccion: string;
+  municipio: string;
+}
+
 function tokenFrom(request: Request): string | null {
   const value = request.headers.get("authorization");
 
@@ -85,6 +93,24 @@ function errorResponse(
   );
 }
 
+function cleanString(value: unknown): string {
+  return typeof value === "string"
+    ? value.trim()
+    : "";
+}
+
+function getNumber(
+  value: unknown,
+): number | null {
+  const number = Number(value);
+
+  if (!Number.isFinite(number)) {
+    return null;
+  }
+
+  return number;
+}
+
 export async function POST(request: Request) {
   try {
     /*
@@ -121,33 +147,105 @@ export async function POST(request: Request) {
 
     const input = body as {
       items?: unknown;
+      tipoEntrega?: unknown;
       IdMunicipalidad?: unknown;
       direccionEntrega?: unknown;
+      telefono?: unknown;
+      IdPuntoRecogida?: unknown;
     };
 
     const items = parseItems(input.items);
 
-    const municipality =
-      typeof input.IdMunicipalidad === "string"
-        ? input.IdMunicipalidad.trim()
-        : "";
+    const tipoEntrega = cleanString(
+      input.tipoEntrega,
+    ) as TipoEntrega;
 
-    const address =
-      typeof input.direccionEntrega === "string"
-        ? input.direccionEntrega.trim()
-        : "";
+    if (
+      tipoEntrega !== "domicilio" &&
+      tipoEntrega !== "recogida"
+    ) {
+      return errorResponse(
+        "El tipo de entrega no es válido.",
+        400,
+      );
+    }
+
+    const municipality = cleanString(
+      input.IdMunicipalidad,
+    );
 
     if (
       !items ||
       !municipality ||
-      municipality.length > 150 ||
-      address.length < 5 ||
-      address.length > 300
+      municipality.length > 150
     ) {
       return errorResponse(
-        "Revisa los productos y los datos de entrega.",
+        "Revisa los productos y la municipalidad.",
         400,
       );
+    }
+
+    const address = cleanString(
+      input.direccionEntrega,
+    );
+
+    const telefono = cleanString(
+      input.telefono,
+    );
+
+    const pickupPointId = cleanString(
+      input.IdPuntoRecogida,
+    );
+
+    /*
+     * ================================================
+     * Validación específica de entrega
+     * ================================================
+     */
+
+    if (tipoEntrega === "domicilio") {
+      if (
+        address.length < 5 ||
+        address.length > 300
+      ) {
+        return errorResponse(
+          "La dirección de entrega no es válida.",
+          400,
+        );
+      }
+
+      if (
+        telefono &&
+        !/^\+57\d{10}$/.test(telefono)
+      ) {
+        return errorResponse(
+          "El número de teléfono no es válido. Debe tener el formato +57 seguido de 10 dígitos.",
+          400,
+        );
+      }
+
+      if (pickupPointId) {
+        return errorResponse(
+          "No debes seleccionar un punto de recogida para una entrega a domicilio.",
+          400,
+        );
+      }
+    }
+
+    if (tipoEntrega === "recogida") {
+      if (!pickupPointId) {
+        return errorResponse(
+          "Debes seleccionar un punto de recogida.",
+          400,
+        );
+      }
+
+      if (address || telefono) {
+        return errorResponse(
+          "Los datos de domicilio no corresponden a una recogida.",
+          400,
+        );
+      }
     }
 
     /*
@@ -172,16 +270,136 @@ export async function POST(request: Request) {
 
     const result = await adminDb.runTransaction(
       async (transaction) => {
+        /*
+         * ==========================================
+         * Validar municipalidad
+         * ==========================================
+         */
+
+        const municipalityRef = adminDb
+          .collection("municipalidades")
+          .doc(municipality);
+
+        const municipalitySnapshot =
+          await transaction.get(
+            municipalityRef,
+          );
+
+        if (!municipalitySnapshot.exists) {
+          throw new Error(
+            "MUNICIPALITY_NOT_FOUND",
+          );
+        }
+
+        const municipalityData =
+          municipalitySnapshot.data() ?? {};
+
+        const municipalityActive =
+          municipalityData.Activo !== false;
+
+        if (!municipalityActive) {
+          throw new Error(
+            "MUNICIPALITY_INACTIVE",
+          );
+        }
+
+        const municipalityName =
+          typeof municipalityData.Nombre ===
+          "string"
+            ? municipalityData.Nombre.trim()
+            : "";
+
+        if (!municipalityName) {
+          throw new Error(
+            "MUNICIPALITY_INVALID",
+          );
+        }
+
+        /*
+         * ==========================================
+         * Validar punto de recogida
+         * ==========================================
+         */
+
+        let pickupPoint:
+          | PickupPointSnapshot
+          | null = null;
+
+        if (tipoEntrega === "recogida") {
+          const pickupRef = adminDb
+            .collection("puntosRecogida")
+            .doc(pickupPointId);
+
+          const pickupSnapshot =
+            await transaction.get(
+              pickupRef,
+            );
+
+          if (!pickupSnapshot.exists) {
+            throw new Error(
+              "PICKUP_POINT_NOT_FOUND",
+            );
+          }
+
+          const pickupData =
+            pickupSnapshot.data() ?? {};
+
+          if (pickupData.activo === false) {
+            throw new Error(
+              "PICKUP_POINT_INACTIVE",
+            );
+          }
+
+          const pickupMunicipality =
+            cleanString(
+              pickupData.IdMunicipalidad,
+            );
+
+          if (
+            !pickupMunicipality ||
+            pickupMunicipality !== municipality
+          ) {
+            throw new Error(
+              "PICKUP_POINT_MUNICIPALITY_MISMATCH",
+            );
+          }
+
+          const pickupName = cleanString(
+            pickupData.nombre,
+          );
+
+          const pickupAddress = cleanString(
+            pickupData.direccion,
+          );
+
+          if (
+            !pickupName ||
+            !pickupAddress
+          ) {
+            throw new Error(
+              "PICKUP_POINT_INVALID",
+            );
+          }
+
+          pickupPoint = {
+            nombre: pickupName,
+            direccion: pickupAddress,
+            municipio: municipalityName,
+          };
+        }
+
+        /*
+         * ==========================================
+         * Leer productos
+         * ==========================================
+         */
+
         const productRefs = items.map(
           (item) =>
             adminDb
               .collection("productos")
               .doc(item.productId),
         );
-
-        /*
-         * Leer primero todos los productos.
-         */
 
         const productSnapshots = [];
 
@@ -227,6 +445,10 @@ export async function POST(request: Request) {
             );
           }
 
+          const productName =
+            cleanString(product.nombre) ||
+            item.productId;
+
           const stock = Number(
             product.stock ?? 0,
           );
@@ -246,19 +468,13 @@ export async function POST(request: Request) {
 
           if (product.activo !== true) {
             throw new Error(
-              `El producto "${String(
-                product.nombre ??
-                  item.productId,
-              )}" no está disponible.`,
+              `El producto "${productName}" no está disponible.`,
             );
           }
 
           if (stock < item.quantity) {
             throw new Error(
-              `No hay stock suficiente para ${String(
-                product.nombre ??
-                  item.productId,
-              )}.`,
+              `No hay stock suficiente para ${productName}.`,
             );
           }
 
@@ -276,41 +492,75 @@ export async function POST(request: Request) {
 
           subtotal += lineSubtotal;
 
-          productos.push({
-            productoId:
-              item.productId,
+          /*
+           * ========================================
+           * Presentación del producto
+           * ========================================
+           *
+           * Se guarda una copia de la presentación
+           * actual para que el pedido conserve la
+           * información que tenía al momento de
+           * comprar.
+           */
 
-            code: String(
-              product.code ?? "",
+          const presentacionCantidad =
+            getNumber(
+              product.presentacionCantidad,
+            );
+
+          const presentacionNombre =
+            cleanString(
+              product.presentacionNombre,
+            );
+
+          const unidad =
+            cleanString(product.unidad);
+
+          const productoPedido: Record<
+            string,
+            unknown
+          > = {
+            productoId: item.productId,
+
+            code: cleanString(
+              product.code,
             ),
 
-            nombre: String(
-              product.nombre ?? "",
+            nombre: productName,
+
+            cantidad: item.quantity,
+
+            precioUnitario: precio,
+
+            subtotal: lineSubtotal,
+
+            unidad,
+
+            IdProductor: cleanString(
+              product.IdProductor,
             ),
 
-            cantidad:
-              item.quantity,
-
-            precioUnitario:
-              precio,
-
-            subtotal:
-              lineSubtotal,
-
-            unidad: String(
-              product.unidad ?? "",
+            IdMunicipalidad: cleanString(
+              product.IdMunicipalidad,
             ),
+          };
 
-            IdProductor: String(
-              product.IdProductor ?? "",
-            ),
+          if (
+            presentacionCantidad !== null &&
+            presentacionCantidad > 0
+          ) {
+            productoPedido.presentacionCantidad =
+              presentacionCantidad;
+          }
 
-            IdMunicipalidad:
-              String(
-                product.IdMunicipalidad ??
-                  "",
-              ),
-          });
+          if (presentacionNombre) {
+            productoPedido.presentacionNombre =
+              presentacionNombre;
+          }
+
+          productos.push(
+            productoPedido,
+          );
         }
 
         /*
@@ -383,8 +633,7 @@ export async function POST(request: Request) {
         transaction.set(
           pedidoRef,
           {
-            usuarioId:
-              user.uid,
+            usuarioId: user.uid,
 
             productos,
 
@@ -392,20 +641,37 @@ export async function POST(request: Request) {
 
             total: subtotal,
 
-            estado:
-              "pendiente",
+            estado: "pendiente",
 
             reservaId:
               reservationRef.id,
+
+            tipoEntrega,
 
             IdMunicipalidad:
               municipality,
 
             direccionEntrega:
-              address,
+              tipoEntrega === "domicilio"
+                ? address
+                : null,
 
-            repartidorId:
-              null,
+            telefonoEntrega:
+              tipoEntrega === "domicilio"
+                ? telefono || null
+                : null,
+
+            IdPuntoRecogida:
+              tipoEntrega === "recogida"
+                ? pickupPointId
+                : null,
+
+            puntoRecogida:
+              tipoEntrega === "recogida"
+                ? pickupPoint
+                : null,
+
+            repartidorId: null,
 
             fechaCreacion:
               FieldValue.serverTimestamp(),
@@ -413,8 +679,7 @@ export async function POST(request: Request) {
             ultimaActualizacion:
               FieldValue.serverTimestamp(),
 
-            fechaCancelacion:
-              null,
+            fechaCancelacion: null,
           },
         );
 
@@ -422,18 +687,25 @@ export async function POST(request: Request) {
           pedidoId:
             pedidoRef.id,
 
-          total:
-            subtotal,
+          total: subtotal,
         };
       },
     );
+
+    /*
+     * ================================================
+     * Respuesta exitosa
+     * ================================================
+     */
 
     return NextResponse.json(
       {
         success: true,
         data: result,
       },
-      { status: 201 },
+      {
+        status: 201,
+      },
     );
   } catch (error) {
     console.error(
@@ -443,6 +715,48 @@ export async function POST(request: Request) {
 
     if (error instanceof Error) {
       switch (error.message) {
+        case "MUNICIPALITY_NOT_FOUND":
+          return errorResponse(
+            "La municipalidad seleccionada no existe.",
+            409,
+          );
+
+        case "MUNICIPALITY_INACTIVE":
+          return errorResponse(
+            "La municipalidad seleccionada está inactiva.",
+            409,
+          );
+
+        case "MUNICIPALITY_INVALID":
+          return errorResponse(
+            "La municipalidad seleccionada no es válida.",
+            409,
+          );
+
+        case "PICKUP_POINT_NOT_FOUND":
+          return errorResponse(
+            "El punto de recogida seleccionado no existe.",
+            409,
+          );
+
+        case "PICKUP_POINT_INACTIVE":
+          return errorResponse(
+            "El punto de recogida seleccionado no está disponible.",
+            409,
+          );
+
+        case "PICKUP_POINT_MUNICIPALITY_MISMATCH":
+          return errorResponse(
+            "El punto de recogida no pertenece a la municipalidad seleccionada.",
+            409,
+          );
+
+        case "PICKUP_POINT_INVALID":
+          return errorResponse(
+            "El punto de recogida seleccionado no tiene información válida.",
+            409,
+          );
+
         case "PRODUCT_NOT_FOUND":
           return errorResponse(
             "Uno de los productos ya no existe.",

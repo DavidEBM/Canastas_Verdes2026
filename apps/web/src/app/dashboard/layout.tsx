@@ -39,6 +39,10 @@ const adminNavigation: NavigationItem[] = [
     href: "/dashboard/municipalidades",
   },
   {
+  label: "Lugares de recogida",
+  href: "/dashboard/lugares-recogida",
+  },
+  {
     label: "Usuarios",
     href: "/dashboard/usuarios",
   },

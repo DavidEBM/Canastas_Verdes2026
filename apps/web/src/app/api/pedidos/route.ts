@@ -1,18 +1,54 @@
 import { NextResponse } from "next/server";
+
 import { adminDb } from "@/lib/firebase-admin";
 import { requireAuthRole } from "@/lib/require-auth-role";
+import {
+  normalizeEstado,
+} from "@/lib/pedidos/estados";
 
 export const runtime = "nodejs";
 
-const ESTADOS = [
-  "pendiente",
-  "asignado",
-  "en_camino",
-  "entregado",
-  "cancelado",
+const TIPOS_ENTREGA = [
+  "domicilio",
+  "recogida",
 ] as const;
 
-type EstadoPedido = (typeof ESTADOS)[number];
+type TipoEntrega =
+  (typeof TIPOS_ENTREGA)[number];
+
+type PedidoListado = Record<
+  string,
+  unknown
+> & {
+  id: string;
+  usuarioId?: string;
+  repartidorId?: string | null;
+  estado:
+    | "pendiente"
+    | "asignado"
+    | "en_camino"
+    | "entregado"
+    | "cancelado";
+  tipoEntrega: TipoEntrega;
+  fechaCreacion: string | null;
+  ultimaActualizacion: string | null;
+  fechaEntrega: string | null;
+  fechaCancelacion: string | null;
+  usuarioNombre: string;
+  repartidorNombre: string;
+};
+
+function normalizeTipoEntrega(
+  value: unknown,
+): TipoEntrega {
+  if (
+    value === "recogida"
+  ) {
+    return "recogida";
+  }
+
+  return "domicilio";
+}
 
 function errorResponse(
   message: string,
@@ -23,36 +59,18 @@ function errorResponse(
       success: false,
       message,
     },
-    { status },
+    {
+      status,
+    },
   );
-}
-
-function normalizeEstado(
-  value: unknown,
-): EstadoPedido | null {
-  if (
-    typeof value === "string" &&
-    ESTADOS.includes(
-      value as EstadoPedido,
-    )
-  ) {
-    return value as EstadoPedido;
-  }
-
-  return null;
 }
 
 function limpiarNombre(
   value: unknown,
 ): string {
-  if (typeof value !== "string") {
-    return "";
-  }
-
-  return value
-    .replace(/_/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return typeof value === "string"
+    ? value.trim()
+    : "";
 }
 
 function normalizeDate(
@@ -62,82 +80,73 @@ function normalizeDate(
     value &&
     typeof value === "object" &&
     "toDate" in value &&
-    typeof value.toDate === "function"
+    typeof (
+      value as {
+        toDate?: unknown;
+      }
+    ).toDate === "function"
   ) {
-    const date = value.toDate();
-
-    if (
-      date instanceof Date &&
-      !Number.isNaN(date.getTime())
-    ) {
-      return date.toISOString();
+    try {
+      return (
+        value as {
+          toDate: () => Date;
+        }
+      )
+        .toDate()
+        .toISOString();
+    } catch {
+      return null;
     }
   }
 
   if (
-    value instanceof Date &&
-    !Number.isNaN(value.getTime())
+    value instanceof Date
   ) {
     return value.toISOString();
+  }
+
+  if (
+    typeof value === "string"
+  ) {
+    return value;
   }
 
   return null;
 }
 
 function mapPedido(
-  document: FirebaseFirestore.QueryDocumentSnapshot,
-) {
-  const data = document.data();
-
+  id: string,
+  data: Record<
+    string,
+    unknown
+  >,
+): PedidoListado {
   return {
-    id: document.id,
+    ...data,
+
+    id,
 
     usuarioId:
-      typeof data.usuarioId === "string"
+      typeof data.usuarioId ===
+      "string"
         ? data.usuarioId
-        : "",
-
-    productos:
-      Array.isArray(data.productos)
-        ? data.productos
-        : [],
-
-    subtotal:
-      typeof data.subtotal === "number"
-        ? data.subtotal
-        : 0,
-
-    total:
-      typeof data.total === "number"
-        ? data.total
-        : 0,
-
-    estado:
-      normalizeEstado(data.estado) ??
-      "pendiente",
-
-    reservaId:
-      typeof data.reservaId === "string"
-        ? data.reservaId
-        : null,
-
-    IdMunicipalidad:
-      typeof data.IdMunicipalidad ===
-      "string"
-        ? data.IdMunicipalidad
-        : "",
-
-    direccionEntrega:
-      typeof data.direccionEntrega ===
-      "string"
-        ? data.direccionEntrega
-        : "",
+        : undefined,
 
     repartidorId:
       typeof data.repartidorId ===
-      "string"
+        "string"
         ? data.repartidorId
         : null,
+
+    estado:
+      normalizeEstado(
+        data.estado,
+      ) ?? "pendiente",
+
+    tipoEntrega:
+      normalizeTipoEntrega(
+        data.tipoEntrega,
+      ),
 
     fechaCreacion:
       normalizeDate(
@@ -149,9 +158,24 @@ function mapPedido(
         data.ultimaActualizacion,
       ),
 
+    fechaEntrega:
+      normalizeDate(
+        data.fechaEntrega,
+      ),
+
     fechaCancelacion:
       normalizeDate(
         data.fechaCancelacion,
+      ),
+
+    usuarioNombre:
+      limpiarNombre(
+        data.usuarioNombre,
+      ),
+
+    repartidorNombre:
+      limpiarNombre(
+        data.repartidorNombre,
       ),
   };
 }
@@ -160,243 +184,110 @@ export async function GET(
   request: Request,
 ) {
   try {
-    /*
-     * ============================================================
-     * AUTENTICACIÓN Y ROL
-     * ============================================================
-     */
+    const auth =
+      await requireAuthRole(
+        request,
+      );
 
-    const authenticatedUser =
-      await requireAuthRole(request);
-
-    const uid =
-      authenticatedUser.uid;
-
-    const role =
-      authenticatedUser.role;
-
-    const url = new URL(
-      request.url,
-    );
+    const url =
+      new URL(
+        request.url,
+      );
 
     const estadoParam =
       url.searchParams.get(
         "estado",
       );
 
-    const estado = estadoParam
-      ? normalizeEstado(
-          estadoParam,
-        )
-      : null;
+    const estadoFiltro =
+      estadoParam
+        ? normalizeEstado(
+            estadoParam,
+          )
+        : null;
 
     if (
       estadoParam &&
-      !estado
+      !estadoFiltro
     ) {
       return errorResponse(
-        "El estado solicitado no es válido.",
+        "El estado indicado no es válido.",
         400,
       );
     }
 
-    /*
-     * ============================================================
-     * OBTENER PEDIDOS SEGÚN EL ROL
-     * ============================================================
-     *
-     * admin:
-     *   puede consultar todos.
-     *
-     * usuario:
-     *   solamente pedidos creados por ese usuario.
-     *
-     * repartidor:
-     *   solamente pedidos asignados a ese repartidor.
-     */
+    const snapshot =
+      await adminDb
+        .collection("pedidos")
+        .get();
 
-    let pedidosQuery:
-      FirebaseFirestore.Query =
-      adminDb.collection("pedidos");
+    const pedidos =
+      snapshot.docs
+        .map(
+          (doc) =>
+            mapPedido(
+              doc.id,
+              doc.data(),
+            ),
+        )
+        .filter(
+          (pedido) => {
+            if (
+              estadoFiltro &&
+              pedido.estado !==
+                estadoFiltro
+            ) {
+              return false;
+            }
 
-    if (role === "consumidor") {
-      pedidosQuery =
-        pedidosQuery.where(
-          "usuarioId",
-          "==",
-          uid,
-        );
-    }
+            if (
+              auth.role ===
+              "consumidor"
+            ) {
+              return (
+                pedido.usuarioId ===
+                auth.uid
+              );
+            }
 
-    if (role === "repartidor") {
-      pedidosQuery =
-        pedidosQuery.where(
-          "repartidorId",
-          "==",
-          uid,
-        );
-    }
+            if (
+              auth.role ===
+              "repartidor"
+            ) {
+              return (
+                pedido.repartidorId ===
+                auth.uid
+              );
+            }
 
-    const pedidosSnapshot =
-      await pedidosQuery.get();
+            return true;
+          },
+        )
+        .sort(
+          (
+            a,
+            b,
+          ) => {
+            const dateA =
+              a.fechaCreacion
+                ? new Date(
+                    a.fechaCreacion,
+                  ).getTime()
+                : 0;
 
-    const pedidosBase =
-      pedidosSnapshot.docs.map(
-        mapPedido,
-      );
+            const dateB =
+              b.fechaCreacion
+                ? new Date(
+                    b.fechaCreacion,
+                  ).getTime()
+                : 0;
 
-    /*
-     * ============================================================
-     * OBTENER USUARIOS NECESARIOS
-     * ============================================================
-     *
-     * Como la consulta ya está restringida
-     * por rol, solamente resolvemos los
-     * usuarios pertenecientes a esos pedidos.
-     */
-
-    const usuarioIds = [
-      ...new Set(
-        pedidosBase
-          .map(
-            (pedido) =>
-              pedido.usuarioId,
-          )
-          .filter(Boolean),
-      ),
-    ];
-
-    const usuariosMap =
-      new Map<
-        string,
-        string
-      >();
-
-    if (
-      usuarioIds.length > 0
-    ) {
-      const referencias =
-        usuarioIds.map(
-          (uid) =>
-            adminDb
-              .collection(
-                "usuarios",
-              )
-              .doc(uid),
-        );
-
-      const usuarios =
-        await adminDb.getAll(
-          ...referencias,
-        );
-
-      usuarios.forEach(
-        (
-          snapshot,
-          index,
-        ) => {
-          if (
-            !snapshot.exists
-          ) {
-            return;
-          }
-
-          const data =
-            snapshot.data();
-
-          if (!data) {
-            return;
-          }
-
-          const nombres =
-            limpiarNombre(
-              data.Nombres,
+            return (
+              dateB -
+              dateA
             );
-
-          const apellidos =
-            limpiarNombre(
-              data.Apellidos,
-            );
-
-          const nombreCompleto =
-            `${nombres} ${apellidos}`.trim();
-
-          if (
-            nombreCompleto
-          ) {
-            usuariosMap.set(
-              usuarioIds[index],
-              nombreCompleto,
-            );
-          }
-        },
-      );
-    }
-
-    /*
-     * ============================================================
-     * AGREGAR NOMBRE DEL CLIENTE
-     * ============================================================
-     */
-
-    let pedidos =
-      pedidosBase.map(
-        (pedido) => ({
-          ...pedido,
-
-          nombreCliente:
-            usuariosMap.get(
-              pedido.usuarioId,
-            ) ??
-            "Cliente no identificado",
-        }),
-      );
-
-    /*
-     * ============================================================
-     * FILTRO POR ESTADO
-     * ============================================================
-     */
-
-    if (estado) {
-      pedidos =
-        pedidos.filter(
-          (pedido) =>
-            pedido.estado ===
-            estado,
+          },
         );
-    }
-
-    /*
-     * ============================================================
-     * MÁS RECIENTES PRIMERO
-     * ============================================================
-     */
-
-    pedidos.sort(
-      (a, b) => {
-        if (
-          !a.fechaCreacion
-        ) {
-          return 1;
-        }
-
-        if (
-          !b.fechaCreacion
-        ) {
-          return -1;
-        }
-
-        return (
-          new Date(
-            b.fechaCreacion,
-          ).getTime() -
-          new Date(
-            a.fechaCreacion,
-          ).getTime()
-        );
-      },
-    );
 
     return NextResponse.json({
       success: true,
@@ -409,29 +300,31 @@ export async function GET(
     );
 
     if (
-      error instanceof Error &&
-      error.message ===
+      error instanceof Error
+    ) {
+      if (
+        error.message ===
         "NO_AUTH"
-    ) {
-      return errorResponse(
-        "Debes iniciar sesión.",
-        401,
-      );
-    }
+      ) {
+        return errorResponse(
+          "Debes iniciar sesión.",
+          401,
+        );
+      }
 
-    if (
-      error instanceof Error &&
-      error.message ===
+      if (
+        error.message ===
         "FORBIDDEN"
-    ) {
-      return errorResponse(
-        "No tienes permisos para consultar pedidos.",
-        403,
-      );
+      ) {
+        return errorResponse(
+          "No tienes permiso para consultar estos pedidos.",
+          403,
+        );
+      }
     }
 
     return errorResponse(
-      "No fue posible cargar los pedidos.",
+      "No fue posible obtener los pedidos.",
       500,
     );
   }

@@ -37,6 +37,16 @@ interface Municipalidad {
   nombre: string;
 }
 
+interface PuntoRecogida {
+  id?: string;
+  nombre?: string;
+  direccion?: string;
+  telefono?: string;
+  horario?: string;
+  googleMapsUrl?: string;
+  IdMunicipalidad?: string;
+}
+
 interface Costos {
   subtotalProductos: number;
   entrega: number;
@@ -59,9 +69,16 @@ interface Pedido {
   total: number;
   estado: string;
   IdMunicipalidad: string;
-  direccionEntrega: string;
+  direccionEntrega?: string | null;
+  telefonoEntrega?: string | null;
   fechaCreacion?: unknown;
   fechaRecibido?: unknown;
+  completadoEn?: unknown;
+  tipoEntrega?: "domicilio" | "recogida";
+  IdPuntoRecogida?: string | null;
+  puntoRecogida?: PuntoRecogida | null;
+  ventaCompletada?: boolean;
+  repartidorId?: string | null;
 }
 
 export interface RepartoPDFData {
@@ -70,11 +87,22 @@ export interface RepartoPDFData {
   cliente: Cliente;
   repartidor: Repartidor | null;
   municipalidad: Municipalidad;
+  puntoRecogida?: PuntoRecogida | null;
   costos: Costos;
-  modalidadEntrega:
-    | "domicilio"
-    | "recogida";
+
+  /**
+   * Nombre principal utilizado por el PDF.
+   */
+  tipoEntrega?: "domicilio" | "recogida";
+
+  /**
+   * Compatibilidad con rutas que todavía envían
+   * modalidadEntrega.
+   */
+  modalidadEntrega?: "domicilio" | "recogida";
+
   firma: Firma | null;
+  ventaCompletada?: boolean;
 }
 
 const PAGE_WIDTH = 595.28;
@@ -114,124 +142,67 @@ const GRAY = rgb(
   105 / 255,
 );
 
-const WHITE = rgb(
-  1,
-  1,
-  1,
-);
+const WHITE = rgb(1, 1, 1);
 
-/*
- * ==========================================================
- * FORMATO MONETARIO
- * ==========================================================
- */
-
-function money(
-  value: number,
-) {
-  return new Intl.NumberFormat(
-    "es-CO",
-    {
-      style: "currency",
-      currency: "COP",
-      maximumFractionDigits: 0,
-    },
-  ).format(value || 0);
+function money(value: number) {
+  return new Intl.NumberFormat("es-CO", {
+    style: "currency",
+    currency: "COP",
+    maximumFractionDigits: 0,
+  }).format(value || 0);
 }
 
-/*
- * ==========================================================
- * TEXTO
- * ==========================================================
- */
-
-function cleanText(
-  value: unknown,
-) {
+function cleanText(value: unknown) {
   return String(value ?? "")
     .replace(/_/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-/*
- * ==========================================================
- * FECHAS
- * ==========================================================
- */
-
-function dateValue(
-  value: unknown,
-): Date | null {
+function dateValue(value: unknown): Date | null {
   if (!value) {
     return null;
   }
 
   if (
-    typeof value ===
-      "object" &&
+    typeof value === "object" &&
     value !== null &&
     "seconds" in value
   ) {
-    const seconds =
-      Number(
-        (
-          value as {
-            seconds: number;
-          }
-        ).seconds,
-      );
+    const seconds = Number(
+      (
+        value as {
+          seconds: number;
+        }
+      ).seconds,
+    );
 
-    if (
-      !Number.isNaN(
-        seconds,
-      )
-    ) {
-      return new Date(
-        seconds * 1000,
-      );
+    if (!Number.isNaN(seconds)) {
+      return new Date(seconds * 1000);
     }
   }
 
-  const date =
-    new Date(
-      value as
-        | string
-        | number
-        | Date,
-    );
+  const date = new Date(
+    value as string | number | Date,
+  );
 
-  return Number.isNaN(
-    date.getTime(),
-  )
+  return Number.isNaN(date.getTime())
     ? null
     : date;
 }
 
-function formatDate(
-  value: unknown,
-) {
-  const date =
-    dateValue(value);
+function formatDate(value: unknown) {
+  const date = dateValue(value);
 
   if (!date) {
     return "Sin fecha";
   }
 
-  return new Intl.DateTimeFormat(
-    "es-CO",
-    {
-      dateStyle: "medium",
-      timeStyle: "short",
-    },
-  ).format(date);
+  return new Intl.DateTimeFormat("es-CO", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
 }
-
-/*
- * ==========================================================
- * NOMBRE
- * ==========================================================
- */
 
 function fullName(
   person:
@@ -244,26 +215,12 @@ function fullName(
     return "No asignado";
   }
 
-  return (
-    `${cleanText(
-      person.nombres,
-    )} ${cleanText(
-      person.apellidos,
-    )}`
-      .replace(
-        /\s+/g,
-        " ",
-      )
-      .trim() ||
-    "Sin nombre"
-  );
+  return `${cleanText(person.nombres)} ${cleanText(
+    person.apellidos,
+  )}`
+    .replace(/\s+/g, " ")
+    .trim() || "Sin nombre";
 }
-
-/*
- * ==========================================================
- * WRAPPING
- * ==========================================================
- */
 
 function wrapText(
   text: string,
@@ -271,26 +228,20 @@ function wrapText(
   size: number,
   maxWidth: number,
 ) {
-  const clean =
-    cleanText(text);
+  const clean = cleanText(text);
 
   if (!clean) {
     return [""];
   }
 
-  const words =
-    clean.split(" ");
-
-  const lines: string[] =
-    [];
-
+  const words = clean.split(" ");
+  const lines: string[] = [];
   let current = "";
 
   for (const word of words) {
-    const candidate =
-      current
-        ? `${current} ${word}`
-        : word;
+    const candidate = current
+      ? `${current} ${word}`
+      : word;
 
     if (
       font.widthOfTextAtSize(
@@ -298,15 +249,10 @@ function wrapText(
         size,
       ) <= maxWidth
     ) {
-      current =
-        candidate;
+      current = candidate;
       continue;
     }
 
-    /*
-     * Si una palabra individual es demasiado
-     * grande, intentamos dividirla por caracteres.
-     */
     if (!current) {
       let partial = "";
 
@@ -320,49 +266,30 @@ function wrapText(
             size,
           ) <= maxWidth
         ) {
-          partial =
-            candidatePart;
+          partial = candidatePart;
         } else {
           if (partial) {
-            lines.push(
-              partial,
-            );
+            lines.push(partial);
           }
 
           partial = char;
         }
       }
 
-      current =
-        partial;
-
+      current = partial;
       continue;
     }
 
-    lines.push(
-      current,
-    );
-
-    current =
-      word;
+    lines.push(current);
+    current = word;
   }
 
   if (current) {
-    lines.push(
-      current,
-    );
+    lines.push(current);
   }
 
-  return lines.length
-    ? lines
-    : [""];
+  return lines.length ? lines : [""];
 }
-
-/*
- * ==========================================================
- * TEXTO NORMAL
- * ==========================================================
- */
 
 function drawText(
   page: PDFPage,
@@ -373,25 +300,14 @@ function drawText(
   size: number,
   color = DARK,
 ) {
-  page.drawText(
-    cleanText(text),
-    {
-      x,
-      y,
-      size,
-      font,
-      color,
-    },
-  );
+  page.drawText(cleanText(text), {
+    x,
+    y,
+    size,
+    font,
+    color,
+  });
 }
-
-/*
- * ==========================================================
- * TEXTO ALINEADO A LA DERECHA
- * ==========================================================
- *
- * rightX representa el borde derecho permitido.
- */
 
 function drawRightText(
   page: PDFPage,
@@ -402,8 +318,7 @@ function drawRightText(
   size: number,
   color = DARK,
 ) {
-  const clean =
-    cleanText(text);
+  const clean = cleanText(text);
 
   const width =
     font.widthOfTextAtSize(
@@ -411,24 +326,14 @@ function drawRightText(
       size,
     );
 
-  page.drawText(
-    clean,
-    {
-      x:
-        rightX - width,
-      y,
-      size,
-      font,
-      color,
-    },
-  );
+  page.drawText(clean, {
+    x: rightX - width,
+    y,
+    size,
+    font,
+    color,
+  });
 }
-
-/*
- * ==========================================================
- * CAJAS
- * ==========================================================
- */
 
 function drawBox(
   page: PDFPage,
@@ -444,8 +349,7 @@ function drawBox(
     width,
     height,
     color,
-    borderColor:
-      BORDER,
+    borderColor: BORDER,
     borderWidth: 0.7,
   });
 }
@@ -458,52 +362,31 @@ function drawLine(
   y2: number,
 ) {
   page.drawLine({
-    start: {
-      x: x1,
-      y: y1,
-    },
-    end: {
-      x: x2,
-      y: y2,
-    },
+    start: { x: x1, y: y1 },
+    end: { x: x2, y: y2 },
     thickness: 0.7,
     color: BORDER,
   });
 }
 
-/*
- * ==========================================================
- * PÁGINAS
- * ==========================================================
- */
-
 function addPage(
   pdf: PDFDocument,
 ): PDFPage {
-  const page =
-    pdf.addPage([
-      PAGE_WIDTH,
-      PAGE_HEIGHT,
-    ]);
+  const page = pdf.addPage([
+    PAGE_WIDTH,
+    PAGE_HEIGHT,
+  ]);
 
   page.drawRectangle({
     x: 0,
-    y:
-      PAGE_HEIGHT - 7,
-    width:
-      PAGE_WIDTH,
+    y: PAGE_HEIGHT - 7,
+    width: PAGE_WIDTH,
     height: 7,
     color: PRIMARY,
   });
 
   return page;
 }
-
-/*
- * ==========================================================
- * HEADER
- * ==========================================================
- */
 
 function drawHeader(
   page: PDFPage,
@@ -534,9 +417,7 @@ function drawHeader(
   drawText(
     page,
     `Pedido #${data.id}`,
-    PAGE_WIDTH -
-      MARGIN_X -
-      150,
+    PAGE_WIDTH - MARGIN_X - 150,
     PAGE_HEIGHT - 62,
     bold,
     11,
@@ -548,9 +429,7 @@ function drawHeader(
     `Estado: ${cleanText(
       data.pedido.estado,
     )}`,
-    PAGE_WIDTH -
-      MARGIN_X -
-      150,
+    PAGE_WIDTH - MARGIN_X - 150,
     PAGE_HEIGHT - 80,
     regular,
     9,
@@ -561,17 +440,57 @@ function drawHeader(
     page,
     MARGIN_X,
     PAGE_HEIGHT - 94,
-    PAGE_WIDTH -
-      MARGIN_X,
+    PAGE_WIDTH - MARGIN_X,
     PAGE_HEIGHT - 94,
   );
 }
 
-/*
- * ==========================================================
- * FOOTER
- * ==========================================================
- */
+function drawCompletedStamp(
+  page: PDFPage,
+  bold: PDFFont,
+) {
+  const stampWidth = 190;
+  const stampHeight = 48;
+
+  const x =
+    PAGE_WIDTH -
+    MARGIN_X -
+    stampWidth;
+
+  const y =
+    PAGE_HEIGHT -
+    145;
+
+  page.drawRectangle({
+    x,
+    y,
+    width: stampWidth,
+    height: stampHeight,
+    color: LIGHT_GREEN,
+    borderColor: PRIMARY,
+    borderWidth: 2,
+  });
+
+  drawText(
+    page,
+    "✓ VENTA COMPLETADA",
+    x + 14,
+    y + 27,
+    bold,
+    12,
+    PRIMARY,
+  );
+
+  drawText(
+    page,
+    "CANASTAS VERDES",
+    x + 14,
+    y + 11,
+    bold,
+    8,
+    DARK,
+  );
+}
 
 function drawFooter(
   page: PDFPage,
@@ -583,8 +502,7 @@ function drawFooter(
     page,
     MARGIN_X,
     35,
-    PAGE_WIDTH -
-      MARGIN_X,
+    PAGE_WIDTH - MARGIN_X,
     35,
   );
 
@@ -601,20 +519,13 @@ function drawFooter(
   drawRightText(
     page,
     `Página ${pageNumber} de ${totalPages}`,
-    PAGE_WIDTH -
-      MARGIN_X,
+    PAGE_WIDTH - MARGIN_X,
     21,
     regular,
     7,
     GRAY,
   );
 }
-
-/*
- * ==========================================================
- * TÍTULOS
- * ==========================================================
- */
 
 function drawSectionTitle(
   page: PDFPage,
@@ -635,15 +546,6 @@ function drawSectionTitle(
   return y - 17;
 }
 
-/*
- * ==========================================================
- * CAJA DE INFORMACIÓN
- * ==========================================================
- *
- * Ahora la altura se calcula después de envolver
- * las líneas, evitando que el texto sobresalga.
- */
-
 function drawInfoBox(
   page: PDFPage,
   title: string,
@@ -656,19 +558,18 @@ function drawInfoBox(
 ) {
   const lineHeight = 13;
   const paddingX = 10;
+
   const contentWidth =
-    width -
-    paddingX * 2;
+    width - paddingX * 2;
 
   const wrappedLines =
-    lines.flatMap(
-      (line) =>
-        wrapText(
-          line,
-          regular,
-          8,
-          contentWidth,
-        ),
+    lines.flatMap((line) =>
+      wrapText(
+        line,
+        regular,
+        8,
+        contentWidth,
+      ),
     );
 
   const height =
@@ -694,8 +595,7 @@ function drawInfoBox(
     PRIMARY,
   );
 
-  let lineY =
-    y - 33;
+  let lineY = y - 33;
 
   for (const line of wrappedLines) {
     drawText(
@@ -708,18 +608,11 @@ function drawInfoBox(
       DARK,
     );
 
-    lineY -=
-      lineHeight;
+    lineY -= lineHeight;
   }
 
   return height;
 }
-
-/*
- * ==========================================================
- * FIRMA
- * ==========================================================
- */
 
 async function addSignature(
   pdf: PDFDocument,
@@ -740,17 +633,14 @@ async function addSignature(
   }
 
   if (
-    firma.metodo ===
-      "manuscrita" &&
+    firma.metodo === "manuscrita" &&
     firma.valor.startsWith(
       "data:image/",
     )
   ) {
     try {
       const base64 =
-        firma.valor.split(
-          ",",
-        )[1];
+        firma.valor.split(",")[1];
 
       if (!base64) {
         return;
@@ -768,55 +658,40 @@ async function addSignature(
         firma.valor.includes(
           "image/jpeg",
         )
-          ? await pdf.embedJpg(
-              bytes,
-            )
-          : await pdf.embedPng(
-              bytes,
-            );
+          ? await pdf.embedJpg(bytes)
+          : await pdf.embedPng(bytes);
 
-      const scale =
-        Math.min(
-          width /
-            image.width,
-          height /
-            image.height,
-        );
+      const scale = Math.min(
+        width / image.width,
+        height / image.height,
+      );
 
       const imageWidth =
-        image.width *
-        scale;
+        image.width * scale;
 
       const imageHeight =
-        image.height *
-        scale;
+        image.height * scale;
 
-      page.drawImage(
-        image,
-        {
-          x:
-            x +
-            (width -
-              imageWidth) /
-              2,
-          y:
-            y +
-            (height -
-              imageHeight) /
-              2,
-          width:
-            imageWidth,
-          height:
-            imageHeight,
-        },
-      );
+      page.drawImage(image, {
+        x:
+          x +
+          (width - imageWidth) /
+            2,
+
+        y:
+          y +
+          (height - imageHeight) /
+            2,
+
+        width: imageWidth,
+        height: imageHeight,
+      });
     } catch {
       drawText(
         page,
         "Firma manuscrita registrada",
         x + 10,
-        y +
-          height / 2,
+        y + height / 2,
         regular,
         8,
         GRAY,
@@ -826,22 +701,16 @@ async function addSignature(
     return;
   }
 
-  if (
-    firma.metodo ===
-    "texto"
-  ) {
-    const lines =
-      wrapText(
-        firma.valor,
-        regular,
-        10,
-        width - 20,
-      );
+  if (firma.metodo === "texto") {
+    const lines = wrapText(
+      firma.valor,
+      regular,
+      10,
+      width - 20,
+    );
 
     let textY =
-      y +
-      height -
-      25;
+      y + height - 25;
 
     for (const line of lines.slice(
       0,
@@ -872,12 +741,6 @@ async function addSignature(
   }
 }
 
-/*
- * ==========================================================
- * GENERADOR PDF
- * ==========================================================
- */
-
 export async function generarPDFReparto(
   data: RepartoPDFData,
   options?: {
@@ -898,15 +761,26 @@ export async function generarPDFReparto(
     );
 
   /*
-   * ========================================================
+   * =====================================================
+   * MODALIDAD DE ENTREGA
+   * =====================================================
+   */
+
+  const tipoEntrega =
+    data.tipoEntrega ??
+    data.modalidadEntrega ??
+    data.pedido.tipoEntrega ??
+    "domicilio";
+
+  /*
+   * =====================================================
    * QR
-   * ========================================================
+   * =====================================================
    */
 
   const baseUrl =
     options?.baseUrl ||
-    process.env
-      .NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
     "http://localhost:3000";
 
   const verificationUrl =
@@ -921,17 +795,14 @@ export async function generarPDFReparto(
     await QRCode.toDataURL(
       verificationUrl,
       {
-        errorCorrectionLevel:
-          "M",
+        errorCorrectionLevel: "M",
         margin: 1,
         width: 300,
       },
     );
 
   const qrBase64 =
-    qrDataUrl.split(
-      ",",
-    )[1];
+    qrDataUrl.split(",")[1];
 
   const qrBytes =
     Uint8Array.from(
@@ -942,18 +813,15 @@ export async function generarPDFReparto(
     );
 
   const qrImage =
-    await pdf.embedPng(
-      qrBytes,
-    );
+    await pdf.embedPng(qrBytes);
 
   /*
-   * ========================================================
+   * =====================================================
    * PRIMERA PÁGINA
-   * ========================================================
+   * =====================================================
    */
 
-  let page =
-    addPage(pdf);
+  let page = addPage(pdf);
 
   drawHeader(
     page,
@@ -962,13 +830,27 @@ export async function generarPDFReparto(
     regular,
   );
 
+  const ventaCompletada =
+    data.ventaCompletada === true ||
+    data.pedido.ventaCompletada ===
+      true ||
+    data.pedido.estado ===
+      "entregado";
+
+  if (ventaCompletada) {
+    drawCompletedStamp(
+      page,
+      bold,
+    );
+  }
+
   let y =
     PAGE_HEIGHT - 120;
 
   /*
-   * ========================================================
+   * =====================================================
    * CLIENTE / ENTREGA
-   * ========================================================
+   * =====================================================
    */
 
   const columnGap = 12;
@@ -988,20 +870,18 @@ export async function generarPDFReparto(
     `Correo: ${
       cleanText(
         data.cliente?.correo,
-      ) ||
-      "No registrado"
+      ) || "No registrado"
     }`,
 
     `Teléfono: ${
       cleanText(
         data.cliente?.telefono,
-      ) ||
-      "No registrado"
+      ) || "No registrado"
     }`,
   ];
 
   if (
-    data.modalidadEntrega ===
+    tipoEntrega ===
     "domicilio"
   ) {
     clienteLines.push(
@@ -1011,8 +891,7 @@ export async function generarPDFReparto(
             .direccionEntrega,
         ) ||
         cleanText(
-          data.cliente
-            ?.direccion,
+          data.cliente?.direccion,
         ) ||
         "No registrada"
       }`,
@@ -1022,27 +901,24 @@ export async function generarPDFReparto(
   const entregaLines = [
     `Municipio: ${
       cleanText(
-        data.municipalidad
-          ?.nombre,
-      ) ||
-      "No registrado"
+        data.municipalidad?.nombre,
+      ) || "No registrado"
     }`,
 
-    `Modalidad: ${
-      data.modalidadEntrega ===
+    `Tipo de entrega: ${
+      tipoEntrega ===
       "recogida"
         ? "Recogida"
         : "Domicilio"
     }`,
 
     `Creado: ${formatDate(
-      data.pedido
-        .fechaCreacion,
+      data.pedido.fechaCreacion,
     )}`,
   ];
 
   if (
-    data.modalidadEntrega ===
+    tipoEntrega ===
     "domicilio"
   ) {
     entregaLines.push(
@@ -1050,10 +926,74 @@ export async function generarPDFReparto(
         cleanText(
           data.pedido
             .direccionEntrega,
+        ) || "No registrada"
+      }`,
+    );
+  }
+
+  if (
+    tipoEntrega ===
+    "recogida"
+  ) {
+    entregaLines.push(
+      `Punto de recogida: ${
+        cleanText(
+          data.puntoRecogida
+            ?.nombre,
+        ) ||
+        cleanText(
+          data.pedido
+            .puntoRecogida
+            ?.nombre,
+        ) ||
+        "No especificado"
+      }`,
+    );
+
+    entregaLines.push(
+      `Dirección del punto: ${
+        cleanText(
+          data.puntoRecogida
+            ?.direccion,
+        ) ||
+        cleanText(
+          data.pedido
+            .puntoRecogida
+            ?.direccion,
         ) ||
         "No registrada"
       }`,
     );
+
+    const horario =
+      data.puntoRecogida
+        ?.horario ??
+      data.pedido
+        .puntoRecogida
+        ?.horario;
+
+    if (horario) {
+      entregaLines.push(
+        `Horario: ${cleanText(
+          horario,
+        )}`,
+      );
+    }
+
+    const telefonoPunto =
+      data.puntoRecogida
+        ?.telefono ??
+      data.pedido
+        .puntoRecogida
+        ?.telefono;
+
+    if (telefonoPunto) {
+      entregaLines.push(
+        `Teléfono del punto: ${cleanText(
+          telefonoPunto,
+        )}`,
+      );
+    }
   }
 
   const clienteHeight =
@@ -1089,81 +1029,68 @@ export async function generarPDFReparto(
     ) + 22;
 
   /*
-   * ========================================================
+   * =====================================================
    * REPARTIDOR
-   * ========================================================
+   * =====================================================
    */
 
-  const repartidorLines = [
-    `Nombre: ${fullName(
-      data.repartidor,
-    )}`,
+  if (
+    tipoEntrega ===
+    "domicilio"
+  ) {
+    const repartidorLines = [
+      `Nombre: ${fullName(
+        data.repartidor,
+      )}`,
 
-    `Correo: ${
-      cleanText(
-        data.repartidor
-          ?.correo,
-      ) ||
-      "No registrado"
-    }`,
+      `Correo: ${
+        cleanText(
+          data.repartidor?.correo,
+        ) || "No registrado"
+      }`,
 
-    `Teléfono: ${
-      cleanText(
-        data.repartidor
-          ?.telefono,
-      ) ||
-      "No registrado"
-    }`,
-  ];
+      `Teléfono: ${
+        cleanText(
+          data.repartidor?.telefono,
+        ) || "No registrado"
+      }`,
+    ];
 
-  const repartidorHeight =
-    drawInfoBox(
-      page,
-      "REPARTIDOR",
-      repartidorLines,
-      MARGIN_X,
-      y,
-      PAGE_WIDTH -
-        MARGIN_X * 2,
-      bold,
-      regular,
-    );
+    const repartidorHeight =
+      drawInfoBox(
+        page,
+        "REPARTIDOR",
+        repartidorLines,
+        MARGIN_X,
+        y,
+        PAGE_WIDTH -
+          MARGIN_X * 2,
+        bold,
+        regular,
+      );
 
-  y -=
-    repartidorHeight + 22;
+    y -=
+      repartidorHeight + 22;
+  }
 
   /*
-   * ========================================================
+   * =====================================================
    * PRODUCTOS
-   * ========================================================
+   * =====================================================
    */
 
-  y =
-    drawSectionTitle(
-      page,
-      "PRODUCTOS DEL PEDIDO",
-      y,
-      bold,
-    );
+  y = drawSectionTitle(
+    page,
+    "PRODUCTOS DEL PEDIDO",
+    y,
+    bold,
+  );
 
-  const tableX =
-    MARGIN_X;
+  const tableX = MARGIN_X;
 
   const tableWidth =
     PAGE_WIDTH -
     MARGIN_X * 2;
-
-  /*
-   * Distribución corregida:
-   *
-   * Producto  : 195
-   * Cantidad  : 50
-   * Unidad    : 105
-   * Precio    : 80
-   * Subtotal  : 81
-   *
-   * Total = 511
-   */
 
   const colProducto = 195;
   const colCantidad = 50;
@@ -1191,8 +1118,7 @@ export async function generarPDFReparto(
       color: PRIMARY,
     });
 
-    const headerY =
-      y - 11;
+    const headerY = y - 11;
 
     drawText(
       page,
@@ -1263,18 +1189,11 @@ export async function generarPDFReparto(
 
   drawProductHeader();
 
-  /*
-   * ========================================================
-   * FILAS DE PRODUCTOS
-   * ========================================================
-   */
-
   for (
     let productIndex = 0;
     productIndex <
-    (data.pedido
-      .productos?.length ||
-      0);
+    (data.pedido.productos
+      ?.length || 0);
     productIndex++
   ) {
     const producto =
@@ -1285,19 +1204,12 @@ export async function generarPDFReparto(
     const productName =
       cleanText(
         producto.nombre,
-      ) ||
-      "Producto";
+      ) || "Producto";
 
     const unitText =
       cleanText(
         producto.unidad,
-      ) ||
-      "Unidad";
-
-    /*
-     * Producto y Unidad se envuelven
-     * de manera independiente.
-     */
+      ) || "Unidad";
 
     const productLines =
       wrapText(
@@ -1315,11 +1227,6 @@ export async function generarPDFReparto(
         colUnidad - 14,
       );
 
-    /*
-     * La fila toma la altura del contenido
-     * que más líneas necesite.
-     */
-
     const contentLines =
       Math.max(
         productLines.length,
@@ -1330,20 +1237,14 @@ export async function generarPDFReparto(
     const rowHeight =
       Math.max(
         22,
-        contentLines * 10 +
-          10,
+        contentLines * 10 + 10,
       );
-
-    /*
-     * Comprobar espacio disponible.
-     */
 
     if (
       y - rowHeight <
       MARGIN_BOTTOM + 130
     ) {
-      page =
-        addPage(pdf);
+      page = addPage(pdf);
 
       drawHeader(
         page,
@@ -1355,24 +1256,18 @@ export async function generarPDFReparto(
       y =
         PAGE_HEIGHT - 120;
 
-      y =
-        drawSectionTitle(
-          page,
-          "PRODUCTOS DEL PEDIDO",
-          y,
-          bold,
-        );
+      y = drawSectionTitle(
+        page,
+        "PRODUCTOS DEL PEDIDO",
+        y,
+        bold,
+      );
 
       drawProductHeader();
     }
 
-    /*
-     * Filas alternas.
-     */
-
     if (
-      productIndex % 2 ===
-      0
+      productIndex % 2 === 0
     ) {
       page.drawRectangle({
         x: tableX,
@@ -1382,17 +1277,11 @@ export async function generarPDFReparto(
           4,
         width: tableWidth,
         height: rowHeight,
-        color:
-          LIGHT_GREEN,
+        color: LIGHT_GREEN,
       });
     }
 
-    /*
-     * Producto
-     */
-
-    let productY =
-      y - 10;
+    let productY = y - 10;
 
     for (
       const line of productLines
@@ -1409,10 +1298,6 @@ export async function generarPDFReparto(
       productY -= 10;
     }
 
-    /*
-     * Cantidad
-     */
-
     drawText(
       page,
       String(
@@ -1426,16 +1311,7 @@ export async function generarPDFReparto(
       8,
     );
 
-    /*
-     * Unidad
-     *
-     * IMPORTANTE:
-     * ahora puede ocupar varias líneas sin
-     * invadir Precio.
-     */
-
-    let unitY =
-      y - 10;
+    let unitY = y - 10;
 
     for (
       const line of unitLines
@@ -1454,12 +1330,6 @@ export async function generarPDFReparto(
 
       unitY -= 10;
     }
-
-    /*
-     * Precio
-     *
-     * Alineado a la derecha.
-     */
 
     const priceRight =
       tableX +
@@ -1480,21 +1350,14 @@ export async function generarPDFReparto(
       8,
     );
 
-    /*
-     * Subtotal
-     */
-
-    const subtotalRight =
-      tableX +
-      tableWidth -
-      7;
-
     drawRightText(
       page,
       money(
         producto.subtotal,
       ),
-      subtotalRight,
+      tableX +
+        tableWidth -
+        7,
       y - 10,
       regular,
       8,
@@ -1506,24 +1369,22 @@ export async function generarPDFReparto(
       page,
       tableX,
       y + 4,
-      tableX +
-        tableWidth,
+      tableX + tableWidth,
       y + 4,
     );
   }
 
   /*
-   * ========================================================
+   * =====================================================
    * RESUMEN DE COSTOS
-   * ========================================================
+   * =====================================================
    */
 
   if (
     y - 125 <
     MARGIN_BOTTOM
   ) {
-    page =
-      addPage(pdf);
+    page = addPage(pdf);
 
     drawHeader(
       page,
@@ -1537,10 +1398,6 @@ export async function generarPDFReparto(
   }
 
   y -= 18;
-
-  /*
-   * Un poco más ancho y con padding interno.
-   */
 
   const costsWidth = 250;
 
@@ -1575,37 +1432,23 @@ export async function generarPDFReparto(
   const costRows = [
     [
       "Productos",
-      data.costos
-        .subtotalProductos,
+      data.costos.subtotalProductos,
     ],
-
     [
       "Entrega",
-      data.costos
-        .entrega,
+      data.costos.entrega,
     ],
-
     [
       "Logística",
-      data.costos
-        .logistica,
+      data.costos.logistica,
     ],
-
     [
       "Almacenamiento",
-      data.costos
-        .almacenamiento,
+      data.costos.almacenamiento,
     ],
   ] as const;
 
-  let costY =
-    y - 37;
-
-  /*
-   * Todos los valores monetarios terminan
-   * exactamente en el mismo borde derecho
-   * interno.
-   */
+  let costY = y - 37;
 
   const costsRight =
     costsX +
@@ -1646,13 +1489,6 @@ export async function generarPDFReparto(
     costY + 6,
   );
 
-  /*
-   * TOTAL
-   *
-   * Tanto el texto como el importe
-   * quedan separados de los bordes.
-   */
-
   const totalY =
     costY - 8;
 
@@ -1669,9 +1505,7 @@ export async function generarPDFReparto(
 
   drawRightText(
     page,
-    money(
-      data.costos.total,
-    ),
+    money(data.costos.total),
     costsRight,
     totalY,
     bold,
@@ -1683,17 +1517,16 @@ export async function generarPDFReparto(
     costsHeight + 20;
 
   /*
-   * ========================================================
+   * =====================================================
    * QR
-   * ========================================================
+   * =====================================================
    */
 
   if (
     y - 110 <
     MARGIN_BOTTOM
   ) {
-    page =
-      addPage(pdf);
+    page = addPage(pdf);
 
     drawHeader(
       page,
@@ -1734,8 +1567,7 @@ export async function generarPDFReparto(
       250,
     );
 
-  let qrY =
-    y - 42;
+  let qrY = y - 42;
 
   for (
     const line of qrLines
@@ -1754,9 +1586,9 @@ export async function generarPDFReparto(
   }
 
   /*
-   * ========================================================
+   * =====================================================
    * RECEPCIÓN
-   * ========================================================
+   * =====================================================
    */
 
   y -= 115;
@@ -1765,8 +1597,7 @@ export async function generarPDFReparto(
     y - 180 <
     MARGIN_BOTTOM
   ) {
-    page =
-      addPage(pdf);
+    page = addPage(pdf);
 
     drawHeader(
       page,
@@ -1779,23 +1610,20 @@ export async function generarPDFReparto(
       PAGE_HEIGHT - 120;
   }
 
-  y =
-    drawSectionTitle(
-      page,
-      "CONFIRMACIÓN DE RECEPCIÓN",
-      y,
-      bold,
-    );
+  y = drawSectionTitle(
+    page,
+    "CONFIRMACIÓN DE RECEPCIÓN",
+    y,
+    bold,
+  );
 
-  const firmaBoxX =
-    MARGIN_X;
+  const firmaBoxX = MARGIN_X;
 
   const firmaBoxWidth =
     PAGE_WIDTH -
     MARGIN_X * 2;
 
-  const firmaBoxHeight =
-    125;
+  const firmaBoxHeight = 125;
 
   drawBox(
     page,
@@ -1809,8 +1637,7 @@ export async function generarPDFReparto(
   if (data.firma) {
     drawText(
       page,
-      data.firma
-        .metodo ===
+      data.firma.metodo ===
         "manuscrita"
         ? "Método: Firma manuscrita"
         : "Método: Confirmación textual",
@@ -1827,16 +1654,14 @@ export async function generarPDFReparto(
       data.firma,
       firmaBoxX + 10,
       y - 105,
-      firmaBoxWidth -
-        20,
+      firmaBoxWidth - 20,
       75,
       regular,
       bold,
     );
 
     if (
-      data.firma
-        .recibidoPor
+      data.firma.recibidoPor
     ) {
       drawText(
         page,
@@ -1852,10 +1677,9 @@ export async function generarPDFReparto(
     drawText(
       page,
       `Fecha de recepción: ${formatDate(
-        data.firma
-          .fechaRecibido ||
-          data.pedido
-            .fechaRecibido,
+        data.firma.fechaRecibido ||
+          data.pedido.fechaRecibido ||
+          data.pedido.completadoEn,
       )}`,
       firmaBoxX + 260,
       y - 115,
@@ -1866,29 +1690,54 @@ export async function generarPDFReparto(
   } else {
     drawText(
       page,
-      "La recepción aún no ha sido registrada.",
+      ventaCompletada
+        ? "Venta completada. No se registró una firma."
+        : "La recepción aún no ha sido registrada.",
       firmaBoxX + 10,
       y - 45,
       regular,
       9,
-      GRAY,
+      ventaCompletada
+        ? PRIMARY
+        : GRAY,
     );
+
+    if (ventaCompletada) {
+      drawText(
+        page,
+        "CANASTAS VERDES — VENTA COMPLETADA",
+        firmaBoxX + 10,
+        y - 70,
+        bold,
+        10,
+        PRIMARY,
+      );
+
+      drawText(
+        page,
+        `Fecha de finalización: ${formatDate(
+          data.pedido.completadoEn ||
+            data.pedido.fechaRecibido,
+        )}`,
+        firmaBoxX + 10,
+        y - 90,
+        regular,
+        8,
+        DARK,
+      );
+    }
   }
 
   /*
-   * ========================================================
+   * =====================================================
    * PAGINACIÓN
-   * ========================================================
+   * =====================================================
    */
 
-  const pages =
-    pdf.getPages();
+  const pages = pdf.getPages();
 
   pages.forEach(
-    (
-      currentPage,
-      index,
-    ) => {
+    (currentPage, index) => {
       drawFooter(
         currentPage,
         index + 1,
@@ -1897,12 +1746,6 @@ export async function generarPDFReparto(
       );
     },
   );
-
-  /*
-   * ========================================================
-   * GUARDAR
-   * ========================================================
-   */
 
   return pdf.save();
 }

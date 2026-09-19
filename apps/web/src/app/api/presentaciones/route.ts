@@ -13,7 +13,7 @@ interface PresentationInput {
   descripcion?: unknown;
 }
 
-function text(value: unknown, max = 200): string {
+function text(value: unknown, max: number): string {
   if (typeof value !== "string") {
     return "";
   }
@@ -56,24 +56,19 @@ function errorResponse(error: unknown) {
         return NextResponse.json(
           {
             success: false,
-            message:
-              "El nombre de la presentación es obligatorio.",
+            message: "El nombre de la presentación es obligatorio.",
           },
           { status: 400 },
         );
     }
   }
 
-  console.error(
-    "Error administrando presentaciones:",
-    error,
-  );
+  console.error("Error administrando presentaciones:", error);
 
   return NextResponse.json(
     {
       success: false,
-      message:
-        "No fue posible procesar la presentación.",
+      message: "No fue posible procesar la presentación.",
     },
     { status: 500 },
   );
@@ -81,7 +76,6 @@ function errorResponse(error: unknown) {
 
 /* =========================================================
    GET
-   Lista todas las presentaciones
 ========================================================= */
 
 export async function GET(request: Request) {
@@ -106,14 +100,7 @@ export async function GET(request: Request) {
           typeof value.descripcion === "string"
             ? value.descripcion
             : "",
-        activo:
-          value.activo !== false,
-        fechaCreacion:
-          value.fechaCreacion ?? null,
-        fechaActualizacion:
-          value.fechaActualizacion ?? null,
-        fechaClausura:
-          value.fechaClausura ?? null,
+        activo: value.activo !== false,
       };
     });
 
@@ -128,7 +115,6 @@ export async function GET(request: Request) {
 
 /* =========================================================
    POST
-   Crear presentación
 ========================================================= */
 
 export async function POST(request: Request) {
@@ -144,38 +130,41 @@ export async function POST(request: Request) {
     const input = body as PresentationInput;
 
     const nombre = text(input.nombre, 100);
-    const descripcion = text(
-      input.descripcion,
-      500,
-    );
+    const descripcion = text(input.descripcion, 500);
 
     if (!nombre) {
       throw new Error("INVALID_PRESENTATION");
     }
 
-    const existing = await adminDb
+    const snapshot = await adminDb
       .collection(COLLECTION)
       .get();
 
-    const duplicate = existing.docs.some(
-      (doc) => {
-        const value = doc.data();
+    const normalizedName = nombre.toLowerCase();
 
-        return (
-          typeof value.nombre === "string" &&
-          value.nombre.trim().toLowerCase() ===
-            nombre.toLowerCase() &&
-          value.activo !== false
-        );
-      },
-    );
+    const duplicate = snapshot.docs.some((doc) => {
+      const value = doc.data();
+
+      if (value.activo === false) {
+        return false;
+      }
+
+      if (typeof value.nombre !== "string") {
+        return false;
+      }
+
+      return (
+        value.nombre.trim().toLowerCase() ===
+        normalizedName
+      );
+    });
 
     if (duplicate) {
       return NextResponse.json(
         {
           success: false,
           message:
-            "Ya existe una presentación con ese nombre.",
+            "Ya existe una presentación activa con ese nombre.",
         },
         { status: 409 },
       );
@@ -199,6 +188,8 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         success: true,
+        message:
+          "Presentación creada correctamente.",
         data: {
           id: ref.id,
           nombre,

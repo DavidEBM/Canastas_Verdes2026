@@ -81,6 +81,7 @@ export default function AboutUsPage() {
               src="/images/backgrounds/content.webp"
               alt="Productos de Canastas Verdes"
               fill
+              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
               className="object-cover"
             />
           </div>

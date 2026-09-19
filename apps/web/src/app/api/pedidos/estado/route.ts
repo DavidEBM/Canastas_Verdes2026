@@ -3,113 +3,87 @@ import { FieldValue } from "firebase-admin/firestore";
 
 import { adminDb } from "@/lib/firebase-admin";
 import { requireAdmin } from "@/lib/require-admin";
+import {
+  normalizeEstado,
+  puedeTransicionar,
+} from "@/lib/pedidos/estados";
+import { sendUserNotification } from "@/lib/send-user-notification";
 
 export const runtime = "nodejs";
 
-const ESTADOS = [
-  "pendiente",
-  "asignado",
-  "en_camino",
-  "entregado",
-  "cancelado",
-] as const;
-
-type Estado = (typeof ESTADOS)[number];
-
-const TRANSICIONES: Record<
-  Estado,
-  Estado[]
-> = {
-  pendiente: [
-    "asignado",
-    "cancelado",
-  ],
-
-  asignado: [
-    "en_camino",
-    "cancelado",
-  ],
-
-  en_camino: [
-    "entregado",
-  ],
-
-  entregado: [],
-
-  cancelado: [],
-};
-
-function errorResponse(error: unknown) {
+function errorResponse(
+  error: unknown,
+) {
   if (
-    error instanceof Error &&
-    error.message === "NO_AUTH"
+    error instanceof Error
   ) {
-    return NextResponse.json(
-      {
-        success: false,
-        message: "No autenticado.",
-      },
-      { status: 401 },
-    );
-  }
+    switch (
+      error.message
+    ) {
+      case "NO_AUTH":
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Debes iniciar sesión.",
+          },
+          { status: 401 },
+        );
 
-  if (
-    error instanceof Error &&
-    error.message === "FORBIDDEN"
-  ) {
-    return NextResponse.json(
-      {
-        success: false,
-        message:
-          "Solo un administrador puede modificar estados.",
-      },
-      { status: 403 },
-    );
-  }
+      case "FORBIDDEN":
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "No tienes permisos para modificar estados.",
+          },
+          { status: 403 },
+        );
 
-  if (
-    error instanceof Error &&
-    error.message === "PEDIDO_NO_ENCONTRADO"
-  ) {
-    return NextResponse.json(
-      {
-        success: false,
-        message: "El pedido no existe.",
-      },
-      { status: 404 },
-    );
-  }
+      case "PEDIDO_NO_ENCONTRADO":
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "El pedido no existe.",
+          },
+          { status: 404 },
+        );
 
-  if (
-    error instanceof Error &&
-    error.message === "ESTADO_INVALIDO"
-  ) {
-    return NextResponse.json(
-      {
-        success: false,
-        message:
-          "El estado indicado no es válido.",
-      },
-      { status: 400 },
-    );
-  }
+      case "ESTADO_INVALIDO":
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "El estado indicado no es válido.",
+          },
+          { status: 400 },
+        );
 
-  if (
-    error instanceof Error &&
-    error.message === "TRANSICION_INVALIDA"
-  ) {
-    return NextResponse.json(
-      {
-        success: false,
-        message:
-          "El pedido no puede pasar a ese estado desde su estado actual.",
-      },
-      { status: 409 },
-    );
+      case "TRANSICION_INVALIDA":
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "El cambio de estado no está permitido.",
+          },
+          { status: 409 },
+        );
+
+      case "USUARIO_PEDIDO_INVALIDO":
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "El pedido no tiene un consumidor asociado.",
+          },
+          { status: 400 },
+        );
+    }
   }
 
   console.error(
-    "Error modificando estado del pedido:",
+    "Error modificando estado:",
     error,
   );
 
@@ -117,7 +91,7 @@ function errorResponse(error: unknown) {
     {
       success: false,
       message:
-        "No fue posible modificar el estado del pedido.",
+        "No fue posible actualizar el estado del pedido.",
     },
     { status: 500 },
   );
@@ -127,8 +101,9 @@ export async function POST(
   request: Request,
 ) {
   try {
-    // Verifica usuarios/{UID}.Rol
-    await requireAdmin(request);
+    await requireAdmin(
+      request,
+    );
 
     const body: unknown =
       await request.json();
@@ -137,159 +112,318 @@ export async function POST(
       !body ||
       typeof body !== "object"
     ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Solicitud inválida.",
-        },
-        { status: 400 },
-      );
-    }
-
-    const input = body as {
-      pedidoId?: unknown;
-      estado?: unknown;
-    };
-
-    const pedidoId =
-      typeof input.pedidoId === "string"
-        ? input.pedidoId.trim()
-        : "";
-
-    const nuevoEstado =
-      typeof input.estado === "string"
-        ? input.estado.trim()
-        : "";
-
-    if (
-      !pedidoId ||
-      !nuevoEstado
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "El pedido y el nuevo estado son obligatorios.",
-        },
-        { status: 400 },
-      );
-    }
-
-    if (
-      !ESTADOS.includes(
-        nuevoEstado as Estado,
-      )
-    ) {
       throw new Error(
         "ESTADO_INVALIDO",
       );
     }
 
+    const {
+      pedidoId,
+      nuevoEstado,
+    } =
+      body as {
+        pedidoId?: unknown;
+        nuevoEstado?: unknown;
+      };
+
+    if (
+      typeof pedidoId !==
+        "string" ||
+      !pedidoId.trim()
+    ) {
+      throw new Error(
+        "PEDIDO_NO_ENCONTRADO",
+      );
+    }
+
     const estado =
-      nuevoEstado as Estado;
+      normalizeEstado(
+        nuevoEstado,
+      );
+
+    if (!estado) {
+      throw new Error(
+        "ESTADO_INVALIDO",
+      );
+    }
 
     const pedidoRef =
       adminDb
         .collection("pedidos")
-        .doc(pedidoId);
+        .doc(
+          pedidoId.trim(),
+        );
 
-    const result =
+    const resultado =
       await adminDb.runTransaction(
-        async (transaction) => {
+        async (
+          transaction,
+        ) => {
           const snapshot =
             await transaction.get(
               pedidoRef,
             );
 
-          if (!snapshot.exists) {
+          if (
+            !snapshot.exists
+          ) {
             throw new Error(
               "PEDIDO_NO_ENCONTRADO",
             );
           }
 
           const data =
-            snapshot.data();
+            snapshot.data() ??
+            {};
 
-          if (!data) {
-            throw new Error(
-              "PEDIDO_NO_ENCONTRADO",
-            );
-          }
+          const estadoActual =
+            normalizeEstado(
+              data.estado,
+            ) ?? "pendiente";
 
-          const estadoActual: Estado =
-            ESTADOS.includes(
-              data.estado as Estado,
-            )
-              ? (data.estado as Estado)
-              : "pendiente";
-
-          /*
-           * Si ya está en ese estado,
-           * no hacemos ninguna modificación.
-           */
           if (
-            estadoActual === estado
+            estadoActual ===
+            estado
           ) {
             return {
-              pedidoId,
-              estado,
+              cambio: false,
+              pedidoId:
+                pedidoId.trim(),
+              estadoActual,
+              nuevoEstado: estado,
+              usuarioId:
+                typeof data.usuarioId ===
+                "string"
+                  ? data.usuarioId.trim()
+                  : "",
+              tipoEntrega:
+                typeof data.tipoEntrega ===
+                "string"
+                  ? data.tipoEntrega
+                      .trim()
+                      .toLowerCase()
+                  : "",
             };
           }
 
-          /*
-           * Validamos la transición.
-           */
           if (
-            !TRANSICIONES[
-              estadoActual
-            ].includes(estado)
+            !puedeTransicionar(
+              estadoActual,
+              estado,
+            )
           ) {
             throw new Error(
               "TRANSICION_INVALIDA",
             );
           }
 
-          const update: Record<
+          const usuarioId =
+            typeof data.usuarioId ===
+            "string"
+              ? data.usuarioId.trim()
+              : "";
+
+          if (!usuarioId) {
+            throw new Error(
+              "USUARIO_PEDIDO_INVALIDO",
+            );
+          }
+
+          const tipoEntrega =
+            typeof data.tipoEntrega ===
+            "string"
+              ? data.tipoEntrega
+                  .trim()
+                  .toLowerCase()
+              : "";
+
+          const updates: Record<
             string,
             unknown
           > = {
             estado,
-
             ultimaActualizacion:
               FieldValue.serverTimestamp(),
           };
 
           if (
-            estado === "entregado"
+            estado ===
+            "entregado"
           ) {
-            update.fechaEntrega =
+            updates.fechaEntrega =
               FieldValue.serverTimestamp();
           }
 
           if (
-            estado === "cancelado"
+            estado ===
+            "cancelado"
           ) {
-            update.fechaCancelacion =
+            updates.fechaCancelacion =
               FieldValue.serverTimestamp();
           }
 
           transaction.update(
             pedidoRef,
-            update,
+            updates,
           );
 
           return {
-            pedidoId,
-            estado,
+            cambio: true,
+            pedidoId:
+              pedidoId.trim(),
+            estadoActual,
+            nuevoEstado: estado,
+            usuarioId,
+            tipoEntrega,
           };
         },
       );
 
+    let notificacion = {
+      enviados: 0,
+      fallidos: 0,
+    };
+
+    /*
+     * Si el estado realmente cambió,
+     * enviamos la notificación correspondiente.
+     */
+    if (
+      resultado.cambio &&
+      resultado.usuarioId
+    ) {
+      let title = "";
+      let body = "";
+      let tag = "";
+
+      /*
+       * DOMICILIO:
+       *
+       * asignado -> en_camino
+       */
+      if (
+        resultado.nuevoEstado ===
+          "en_camino" &&
+        resultado.tipoEntrega ===
+          "domicilio"
+      ) {
+        title =
+          "Tu pedido está en camino";
+
+        body =
+          `El pedido #${resultado.pedidoId} ya salió para ser entregado en tu domicilio.`;
+
+        tag =
+          `pedido-en-camino-${resultado.pedidoId}`;
+      }
+
+      /*
+       * RECOGIDA:
+       *
+       * asignado -> en_camino
+       *
+       * En recogida usamos este estado como
+       * indicación de que ya está disponible.
+       */
+      else if (
+        resultado.nuevoEstado ===
+          "en_camino" &&
+        resultado.tipoEntrega ===
+          "recogida"
+      ) {
+        title =
+          "Tu pedido está listo para recoger";
+
+        body =
+          `El pedido #${resultado.pedidoId} ya está disponible para recoger en el punto correspondiente.`;
+
+        tag =
+          `pedido-listo-recoger-${resultado.pedidoId}`;
+      }
+
+      /*
+       * PEDIDO ENTREGADO
+       */
+      else if (
+        resultado.nuevoEstado ===
+        "entregado"
+      ) {
+        title =
+          "Pedido entregado";
+
+        body =
+          `Tu pedido #${resultado.pedidoId} ha sido entregado correctamente.`;
+
+        tag =
+          `pedido-entregado-${resultado.pedidoId}`;
+      }
+
+      /*
+       * PEDIDO CANCELADO
+       */
+      else if (
+        resultado.nuevoEstado ===
+        "cancelado"
+      ) {
+        title =
+          "Pedido cancelado";
+
+        body =
+          `El pedido #${resultado.pedidoId} ha sido cancelado.`;
+
+        tag =
+          `pedido-cancelado-${resultado.pedidoId}`;
+      }
+
+      /*
+       * Solo enviamos si existe una
+       * notificación definida para ese estado.
+       */
+      if (
+        title &&
+        body &&
+        tag
+      ) {
+        try {
+          notificacion =
+            await sendUserNotification({
+              userId:
+                resultado.usuarioId,
+              title,
+              body,
+              url:
+                "/dashboard/pedidos",
+              tag,
+            });
+        } catch (
+          notificationError
+        ) {
+          console.error(
+            "Error enviando notificación de pedido:",
+            notificationError,
+          );
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      data: result,
+      message:
+        resultado.cambio
+          ? "Estado actualizado correctamente."
+          : "El pedido ya tenía ese estado.",
+      data: {
+        pedidoId:
+          resultado.pedidoId,
+        estado:
+          resultado.nuevoEstado,
+      },
+      notification:
+        notificacion,
     });
   } catch (error) {
-    return errorResponse(error);
+    return errorResponse(
+      error,
+    );
   }
 }
