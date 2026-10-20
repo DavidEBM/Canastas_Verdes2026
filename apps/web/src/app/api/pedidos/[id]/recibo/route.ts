@@ -4,6 +4,7 @@ import {
   generarPDFReparto,
   type RepartoPDFData,
 } from "@/lib/repartos/pdf";
+import { getPublicAppUrl } from "@/lib/recibos/url";
 import { normalizeEstado } from "@/lib/pedidos/estados";
 
 export const runtime = "nodejs";
@@ -160,6 +161,16 @@ async function authenticate(
   };
 }
 
+async function authenticateOptional(
+  request: Request,
+) {
+  try {
+    return await authenticate(request);
+  } catch {
+    return null;
+  }
+}
+
 function errorResponse(
   message: string,
   status: number,
@@ -188,6 +199,40 @@ function numberValue(
     : 0;
 }
 
+function serializeDate(value: unknown) {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "toDate" in value &&
+    typeof value.toDate === "function"
+  ) {
+    const date = value.toDate();
+    return date instanceof Date
+      ? date.toISOString()
+      : null;
+  }
+
+  if (
+    typeof value === "string" ||
+    typeof value === "number"
+  ) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+      ? null
+      : date.toISOString();
+  }
+
+  return null;
+}
+
 export async function GET(
   request: Request,
   {
@@ -205,13 +250,17 @@ export async function GET(
      * =====================================================
      */
 
-    const {
-      user,
-      role,
-    } =
-      await authenticate(
-        request,
-      );
+    const publicQuery =
+      new URL(request.url).searchParams.get(
+        "publico",
+      ) === "1";
+
+    const session = publicQuery
+      ? await authenticateOptional(request)
+      : await authenticate(request);
+
+    const user = session?.user;
+    const role = session?.role ?? "consumidor";
 
     const { id } =
       await params;
@@ -265,13 +314,14 @@ export async function GET(
 
     const isOwner =
       data.usuarioId ===
-      user.uid;
+      user?.uid;
 
     const isAssignedDeliverer =
       data.repartidorId ===
-      user.uid;
+      user?.uid;
 
     if (
+      !publicQuery &&
       role !== "admin" &&
       !isOwner &&
       !isAssignedDeliverer
@@ -293,7 +343,15 @@ export async function GET(
         data.estado,
       );
 
+    if (!estado) {
+      return errorResponse(
+        "El estado del pedido no es válido.",
+        409,
+      );
+    }
+
     if (
+      !publicQuery &&
       estado !==
       "entregado"
     ) {
@@ -595,18 +653,22 @@ export async function GET(
 
     const subtotalProductos =
       numberValue(
-        data.subtotal ??
-          data.subtotalProductos,
+        data.subtotalProductos ??
+          data.subtotal,
       );
 
-    const entrega =
-      numberValue(
-        data.entrega,
-      );
+    const entrega = 0;
 
     const logistica =
       numberValue(
         data.logistica,
+      );
+
+    const transporte =
+      numberValue(
+        data.transporte !== undefined
+          ? data.transporte
+          : data.entrega,
       );
 
     const almacenamiento =
@@ -620,6 +682,7 @@ export async function GET(
           subtotalProductos +
             entrega +
             logistica +
+            transporte +
             almacenamiento,
       );
 
@@ -696,6 +759,7 @@ export async function GET(
           subtotalProductos,
           entrega,
           logistica,
+          transporte,
           almacenamiento,
           total,
         },
@@ -709,18 +773,121 @@ export async function GET(
         ventaCompletada,
       };
 
+    if (publicQuery) {
+      const nombreCliente = [
+        cliente.nombres,
+        cliente.apellidos,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const nombreRepartidor = repartidor
+        ? [
+            repartidor.nombres,
+            repartidor.apellidos,
+          ]
+            .filter(Boolean)
+            .join(" ")
+        : "";
+      const firmaData =
+        data.firma &&
+        typeof data.firma === "object"
+          ? data.firma as Record<string, unknown>
+          : null;
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          id: pedidoId,
+          estado,
+          fechaCreacion: serializeDate(
+            data.fechaCreacion,
+          ),
+          fechaEntrega: serializeDate(
+            data.fechaEntrega ??
+              data.fechaRecibido,
+          ),
+          modalidadEntrega: tipoEntrega,
+          cliente: {
+            id: usuarioId,
+            ...cliente,
+            nombreCompleto: nombreCliente,
+          },
+          repartidor: repartidor
+            ? {
+                id: String(
+                  data.repartidorId ??
+                    "",
+                ),
+                ...repartidor,
+                nombreCompleto: nombreRepartidor,
+              }
+            : null,
+          municipalidad: municipalidad
+            ? {
+                id: municipalidadId,
+                nombre: municipalidad.nombre,
+              }
+            : null,
+          direccionEntrega: String(
+            data.direccionEntrega ??
+              "",
+          ),
+          productos: Array.isArray(
+            data.productos,
+          )
+            ? data.productos
+            : [],
+          costos: {
+            subtotalProductos,
+            entrega,
+            logistica,
+            transporte,
+            almacenamiento,
+            descuento: numberValue(
+              data.descuento,
+            ),
+            total,
+          },
+          firma: firmaData
+            ? {
+                metodo:
+                  firmaData.metodo ===
+                  "manuscrita"
+                    ? "manuscrita"
+                    : "texto",
+                valor:
+                  typeof firmaData.valor ===
+                  "string"
+                    ? firmaData.valor
+                    : null,
+                recibidoPor:
+                  typeof firmaData.recibidoPor ===
+                  "string"
+                    ? firmaData.recibidoPor
+                    : null,
+                fechaRecibido: serializeDate(
+                  firmaData.fechaRecibido,
+                ),
+              }
+            : null,
+          verificacion: {
+            valido: estado === "entregado",
+            mensaje:
+              estado === "entregado"
+                ? "La entrega fue confirmada por Canastas Verdes."
+                : `El pedido se encuentra en estado ${estado}. Este es el recibo digital actualizado.`,
+          },
+        },
+      });
+    }
+
     /*
      * =====================================================
      * GENERAR PDF
      * =====================================================
      */
 
-    const baseUrl =
-      process.env
-        .NEXT_PUBLIC_APP_URL ||
-      new URL(
-        request.url,
-      ).origin;
+    const baseUrl = getPublicAppUrl(request);
 
     const pdf =
       await generarPDFReparto(

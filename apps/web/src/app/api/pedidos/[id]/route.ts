@@ -10,6 +10,12 @@ import {
   normalizeEstado,
   puedeTransicionar,
 } from "@/lib/pedidos/estados";
+import {
+  calcularPrecioLinea,
+  etiquetaTipoPrecio,
+  normalizeTipoPrecio,
+  type TipoPrecio,
+} from "@/lib/pedidos/precios";
 
 export const runtime = "nodejs";
 
@@ -29,6 +35,14 @@ interface PedidoProducto {
   cantidad: number;
   precioUnitario: number;
   subtotal: number;
+  tipoPrecio: TipoPrecio;
+  tipoPrecioEtiqueta: string;
+  precioPersonalizado?: number;
+  precioBaseUnitario?: number;
+  porcentajeLogistica?: number;
+  porcentajeTransporte?: number;
+  costoLogisticaUnitario?: number;
+  costoTransporteUnitario?: number;
   unidad: string;
   IdProductor: string;
   IdMunicipalidad: string;
@@ -215,6 +229,37 @@ function finiteNumber(
   return number;
 }
 
+type AjusteModo = "porcentaje" | "fijo";
+
+function normalizeAjusteModo(
+  value: unknown,
+): AjusteModo {
+  return value === "porcentaje"
+    ? "porcentaje"
+    : "fijo";
+}
+
+function calcularAjuste(
+  value: unknown,
+  mode: AjusteModo,
+  base: number,
+): number | null {
+  const number = finiteNumber(value);
+
+  if (
+    number === null ||
+    number < 0 ||
+    mode === "porcentaje" &&
+      number > 100
+  ) {
+    return null;
+  }
+
+  return mode === "porcentaje"
+    ? base * (number / 100)
+    : number;
+}
+
 function integerNumber(
   value: unknown,
 ): number | null {
@@ -290,19 +335,29 @@ function normalizeExistingProduct(
       item.precioUnitario,
     );
 
+  const tipoPrecio = normalizeTipoPrecio(
+    item.tipoPrecio,
+  );
+
+  const precioPersonalizado =
+    finiteNumber(item.precioPersonalizado);
+
   if (
     !productoId ||
     cantidad === null ||
     cantidad <= 0 ||
     cantidad > 999 ||
-    precioUnitario === null ||
-    precioUnitario < 0
+    (precioUnitario !== null &&
+      precioUnitario < 0) ||
+    (tipoPrecio === "personalizado" &&
+      (precioPersonalizado === null ||
+        precioPersonalizado < 0))
   ) {
     return null;
   }
 
   const subtotal =
-    precioUnitario *
+    (precioUnitario ?? 0) *
     cantidad;
 
   const presentacionCantidad =
@@ -319,8 +374,14 @@ function normalizeExistingProduct(
       item.nombre,
     ),
     cantidad,
-    precioUnitario,
+    precioUnitario: precioUnitario ?? 0,
     subtotal,
+    tipoPrecio,
+    tipoPrecioEtiqueta: etiquetaTipoPrecio[tipoPrecio],
+    ...(tipoPrecio === "personalizado" &&
+    precioPersonalizado !== null
+      ? { precioPersonalizado }
+      : {}),
     unidad: cleanString(
       item.unidad,
     ),
@@ -423,12 +484,39 @@ export async function GET(
       );
     }
 
+    const responseData = {
+      id: snapshot.id,
+      ...data,
+    } as Record<string, unknown>;
+
+    if (
+      role !== "admin" &&
+      Array.isArray(responseData.productos)
+    ) {
+      responseData.productos = responseData.productos.map(
+        (producto) => {
+          if (
+            !producto ||
+            typeof producto !== "object"
+          ) {
+            return producto;
+          }
+
+          const {
+            tipoPrecio: _tipoPrecio,
+            tipoPrecioEtiqueta: _tipoPrecioEtiqueta,
+              precioPersonalizado: _precioPersonalizado,
+            ...productoVisible
+          } = producto as Record<string, unknown>;
+
+          return productoVisible;
+        },
+      );
+    }
+
     return NextResponse.json({
       success: true,
-      data: {
-        id: snapshot.id,
-        ...data,
-      },
+      data: responseData,
     });
   } catch (error) {
     console.error(
@@ -610,6 +698,18 @@ export async function PATCH(
                 input ||
               "descuento" in
                 input ||
+              "descuentoModo" in
+                input ||
+              "descuentoValor" in
+                input ||
+              "logisticaModo" in
+                input ||
+              "logisticaValor" in
+                input ||
+              "transporteModo" in
+                input ||
+              "transporteValor" in
+                input ||
               "tipoEntrega" in
                 input ||
               "IdMunicipalidad" in
@@ -625,6 +725,9 @@ export async function PATCH(
               "descripcionCambio" in
                 input ||
               "confirmarEdicionEntregado" in
+                input
+              ||
+              "confirmarCambioPrecio" in
                 input
             );
 
@@ -699,6 +802,22 @@ export async function PATCH(
 
               const requestedProducts =
                 requested as PedidoProducto[];
+
+              const cambioPrecioRequiereConfirmacion =
+                requestedProducts.some(
+                  (item) =>
+                    item.tipoPrecio !==
+                    "precioVenta",
+                );
+
+              if (
+                cambioPrecioRequiereConfirmacion &&
+                input.confirmarCambioPrecio !== true
+              ) {
+                throw new Error(
+                  "PRICE_CHANGE_CONFIRMATION_REQUIRED",
+                );
+              }
 
               const uniqueIds =
                 new Set(
@@ -884,19 +1003,12 @@ export async function PATCH(
                   );
                 }
 
-                const precio =
-                  finiteNumber(
-                    requestedProduct.precioUnitario,
+                const costosLinea =
+                  calcularPrecioLinea(
+                    product,
+                    requestedProduct.tipoPrecio,
+                     requestedProduct.precioPersonalizado,
                   );
-
-                if (
-                  precio === null ||
-                  precio < 0
-                ) {
-                  throw new Error(
-                    "INVALID_PRICE",
-                  );
-                }
 
                 if (
                   delta !== 0
@@ -938,10 +1050,33 @@ export async function PATCH(
                   ),
                   cantidad:
                     requestedProduct.cantidad,
+                  tipoPrecio:
+                    costosLinea.tipoPrecio,
+                  tipoPrecioEtiqueta:
+                    etiquetaTipoPrecio[
+                      costosLinea.tipoPrecio
+                    ],
+                   ...(costosLinea.tipoPrecio ===
+                     "personalizado"
+                     ? {
+                         precioPersonalizado:
+                           costosLinea.precioBase,
+                       }
+                     : {}),
+                  precioBaseUnitario:
+                    costosLinea.precioBase,
+                  porcentajeLogistica:
+                    costosLinea.porcentajeLogistica,
+                  porcentajeTransporte:
+                    costosLinea.porcentajeTransporte,
+                  costoLogisticaUnitario:
+                    costosLinea.logisticaUnitario,
+                  costoTransporteUnitario:
+                    costosLinea.transporteUnitario,
                   precioUnitario:
-                    precio,
+                    costosLinea.precioUnitario,
                   subtotal:
-                    precio *
+                    costosLinea.precioUnitario *
                     requestedProduct.cantidad,
                   unidad: String(
                     product.unidad ??
@@ -1335,23 +1470,137 @@ export async function PATCH(
               };
             }
 
-            const subtotal =
+            const subtotalProductos = nuevosProductos.reduce(
+              (total, item) =>
+                total +
+                Number(
+                  item.precioBaseUnitario ??
+                    item.precioUnitario,
+                ) * item.cantidad,
+              0,
+            );
+
+            const tieneLogisticaPersonalizada =
+              "logisticaModo" in input ||
+              "logisticaValor" in input;
+            const tieneTransportePersonalizada =
+              "transporteModo" in input ||
+              "transporteValor" in input;
+            const logisticaModo = normalizeAjusteModo(
+              input.logisticaModo,
+            );
+            const transporteModo = normalizeAjusteModo(
+              input.transporteModo,
+            );
+            const logisticaCalculada = tieneLogisticaPersonalizada
+              ? calcularAjuste(
+                  input.logisticaValor,
+                  logisticaModo,
+                  subtotalProductos,
+                )
+              : null;
+            const transporteCalculado = tieneTransportePersonalizada
+              ? calcularAjuste(
+                  input.transporteValor,
+                  transporteModo,
+                  subtotalProductos,
+                )
+              : null;
+
+            if (
+              (tieneLogisticaPersonalizada &&
+                logisticaCalculada === null) ||
+              (tieneTransportePersonalizada &&
+                transporteCalculado === null)
+            ) {
+              throw new Error("INVALID_ADJUSTMENT");
+            }
+
+            const logistica = logisticaCalculada ??
               nuevosProductos.reduce(
-                (
-                  total,
-                  item,
-                ) =>
+                (total, item) =>
                   total +
-                  item.subtotal,
+                  Number(item.costoLogisticaUnitario ?? 0) *
+                    item.cantidad,
+                0,
+              );
+            const transporte = transporteCalculado ??
+              nuevosProductos.reduce(
+                (total, item) =>
+                  total +
+                  Number(item.costoTransporteUnitario ?? 0) *
+                    item.cantidad,
                 0,
               );
 
-            const descuento =
-              finiteNumber(
-                input.descuento ??
-                  current.descuento ??
-                  0,
-              );
+            if (
+              tieneLogisticaPersonalizada ||
+              tieneTransportePersonalizada
+            ) {
+              nuevosProductos = nuevosProductos.map((item) => {
+                const precioBase = Number(
+                  item.precioBaseUnitario ?? item.precioUnitario,
+                );
+                const peso = subtotalProductos > 0
+                  ? (precioBase * item.cantidad) /
+                    subtotalProductos
+                  : 0;
+                const costoLogisticaUnitario =
+                  tieneLogisticaPersonalizada
+                    ? (logistica * peso) / item.cantidad
+                    : Number(item.costoLogisticaUnitario ?? 0);
+                const costoTransporteUnitario =
+                  tieneTransportePersonalizada
+                    ? (transporte * peso) / item.cantidad
+                    : Number(item.costoTransporteUnitario ?? 0);
+
+                return {
+                  ...item,
+                  porcentajeLogistica:
+                    precioBase > 0
+                      ? (costoLogisticaUnitario / precioBase) * 100
+                      : 0,
+                  porcentajeTransporte:
+                    precioBase > 0
+                      ? (costoTransporteUnitario / precioBase) * 100
+                      : 0,
+                  costoLogisticaUnitario,
+                  costoTransporteUnitario,
+                  precioUnitario:
+                    precioBase +
+                    costoLogisticaUnitario +
+                    costoTransporteUnitario,
+                  subtotal:
+                    (precioBase +
+                      costoLogisticaUnitario +
+                      costoTransporteUnitario) *
+                    item.cantidad,
+                };
+              });
+            }
+
+            const subtotal =
+              subtotalProductos +
+              logistica +
+              transporte;
+
+            const tieneDescuentoPersonalizado =
+              "descuentoModo" in input ||
+              "descuentoValor" in input;
+            const descuentoModo = normalizeAjusteModo(
+              input.descuentoModo,
+            );
+            const descuento = tieneDescuentoPersonalizado
+              ? calcularAjuste(
+                  input.descuentoValor,
+                  descuentoModo,
+                  subtotal,
+                )
+              : finiteNumber(
+                  input.descuento ??
+                    current.descuento ??
+                    0,
+                );
 
             if (
               descuento ===
@@ -1472,7 +1721,40 @@ export async function PATCH(
               productos:
                 nuevosProductos,
               subtotal,
+              subtotalProductos,
               descuento,
+              descuentoModo:
+                tieneDescuentoPersonalizado
+                  ? descuentoModo
+                  : "fijo",
+              descuentoValor: tieneDescuentoPersonalizado
+                ? Number(input.descuentoValor ?? 0)
+                : descuento,
+              entrega: 0,
+              logistica,
+              logisticaModo: tieneLogisticaPersonalizada
+                ? logisticaModo
+                : "fijo",
+              logisticaValor: tieneLogisticaPersonalizada
+                ? Number(input.logisticaValor ?? 0)
+                : logistica,
+              transporte,
+              transporteModo: tieneTransportePersonalizada
+                ? transporteModo
+                : "fijo",
+              transporteValor: tieneTransportePersonalizada
+                ? Number(input.transporteValor ?? 0)
+                : transporte,
+              almacenamiento: 0,
+              costos: {
+                subtotalProductos,
+                entrega: 0,
+                logistica,
+                transporte,
+                almacenamiento: 0,
+                descuento,
+                total,
+              },
               total,
               tipoEntrega,
               IdMunicipalidad:
@@ -1954,6 +2236,12 @@ export async function PATCH(
             409,
           );
 
+        case "PRICE_CHANGE_CONFIRMATION_REQUIRED":
+          return errorResponse(
+            "Debes confirmar que el cliente conoce y acepta el cambio de precio.",
+            409,
+          );
+
         case "DESCRIPTION_TOO_LONG":
           return errorResponse(
             "La descripción del cambio no puede superar 1000 caracteres.",
@@ -1999,6 +2287,12 @@ export async function PATCH(
         case "INVALID_DISCOUNT":
           return errorResponse(
             "El descuento no es válido.",
+            400,
+          );
+
+        case "INVALID_ADJUSTMENT":
+          return errorResponse(
+            "Los valores de logística, transporte o descuento no son válidos.",
             400,
           );
 

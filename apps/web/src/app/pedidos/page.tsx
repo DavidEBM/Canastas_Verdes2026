@@ -582,7 +582,7 @@ export default function PedidosPage() {
           <div className="rounded-2xl border border-[var(--border)] bg-white px-6 py-12 text-center shadow-sm">
             <div className="mx-auto mb-5 flex h-28 w-28 items-center justify-center rounded-full bg-[var(--surface)]">
               <Image
-                src={EMPTY_ORDERS_IMAGE}
+                src={"apps/web/public/images/logos/basket.svg"}
                 alt="Sin pedidos"
                 width={90}
                 height={90}
@@ -604,7 +604,7 @@ export default function PedidosPage() {
               href="/tienda"
               className="mt-6 inline-flex items-center justify-center rounded-xl bg-[var(--primary)] px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90"
             >
-              Ir a la tienda
+              Ir a los productos
             </a>
           </div>
         ) : (
@@ -978,7 +978,7 @@ export default function PedidosPage() {
 
                 <div className="rounded-xl border border-[var(--border)] p-4">
                   <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-                    Municipalidad
+                    Municipio
                   </p>
 
                   <p className="text-sm font-medium text-[var(--foreground)]">
@@ -1097,7 +1097,7 @@ export default function PedidosPage() {
 
                       <div>
                         <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-                          Ubicación
+                          Finca
                         </p>
 
                         <p className="mt-1 flex items-start gap-2 text-sm text-[var(--foreground)]">

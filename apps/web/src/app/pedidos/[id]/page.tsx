@@ -61,8 +61,24 @@ interface Pedido {
 
   subtotal?: number;
   Subtotal?: number;
+  subtotalProductos?: number;
+  SubtotalProductos?: number;
 
   costoEnvio?: number;
+  entrega?: number;
+  logistica?: number;
+  Logistica?: number;
+  transporte?: number;
+  Transporte?: number;
+  almacenamiento?: number;
+  Almacenamiento?: number;
+  costos?: {
+    subtotalProductos?: number;
+    entrega?: number;
+    logistica?: number;
+    transporte?: number;
+    almacenamiento?: number;
+  };
   CostoEnvio?: number;
 
   tipoEntrega?: "domicilio" | "recogida" | string;
@@ -418,7 +434,7 @@ export default function PedidoDetallePage() {
                 href="/tienda"
                 className="rounded-xl border border-[var(--border)] bg-white px-5 py-3 font-semibold text-[var(--foreground)] transition hover:bg-[var(--surface)]"
               >
-                Volver a la tienda
+                Volver ver productos
               </Link>
             </div>
           </div>
@@ -444,14 +460,36 @@ export default function PedidoDetallePage() {
   );
 
   const subtotal = Number(
-    pedido.subtotal ??
+    pedido.subtotalProductos ??
+      pedido.SubtotalProductos ??
+      pedido.costos?.subtotalProductos ??
+      pedido.subtotal ??
       pedido.Subtotal ??
       total
   );
 
-  const costoEnvio = Number(
-    pedido.costoEnvio ??
+  const costoLogistica = Number(
+    pedido.logistica ??
+      pedido.Logistica ??
+      pedido.costos?.logistica ??
+      0
+  );
+
+  const costoAlmacenamiento = Number(
+    pedido.almacenamiento ??
+      pedido.Almacenamiento ??
+      pedido.costos?.almacenamiento ??
+      0
+  );
+
+  const costoTransporte = Number(
+    pedido.transporte ??
+      pedido.Transporte ??
+      pedido.costos?.transporte ??
+      pedido.costoEnvio ??
       pedido.CostoEnvio ??
+      pedido.entrega ??
+      pedido.costos?.entrega ??
       0
   );
 
@@ -869,7 +907,7 @@ export default function PedidoDetallePage() {
                             className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-[var(--primary)] hover:underline"
                           >
                             <MapPin size={16} />
-                            Ver ubicación
+                            Ver finca
                           </a>
                         )}
                       </div>
@@ -897,7 +935,7 @@ export default function PedidoDetallePage() {
             <div className="space-y-3 border-b border-[var(--border)] pb-5">
               <div className="flex justify-between gap-4 text-sm">
                 <span className="text-[var(--muted)]">
-                  Subtotal
+                  Subtotal productos
                 </span>
 
                 <span className="font-medium text-[var(--foreground)]">
@@ -905,17 +943,39 @@ export default function PedidoDetallePage() {
                 </span>
               </div>
 
-              {costoEnvio > 0 && (
-                <div className="flex justify-between gap-4 text-sm">
-                  <span className="text-[var(--muted)]">
-                    Envío
-                  </span>
+              <div className="flex justify-between gap-4 text-sm">
+                <span className="text-[var(--muted)]">
+                  Logística (gestión administrativa previa)
+                </span>
 
-                  <span className="font-medium text-[var(--foreground)]">
-                    {formatCurrency(costoEnvio)}
-                  </span>
-                </div>
-              )}
+                <span className="font-medium text-[var(--foreground)]">
+                  {formatCurrency(costoLogistica)}
+                </span>
+              </div>
+
+              <div className="flex justify-between gap-4 text-sm">
+                <span className="text-[var(--muted)]">
+                  Transporte / entrega
+                </span>
+
+                <span className="font-medium text-[var(--foreground)]">
+                  {formatCurrency(costoTransporte)}
+                </span>
+              </div>
+
+              <div className="flex justify-between gap-4 text-sm">
+                <span className="text-[var(--muted)]">
+                  Almacenamiento
+                </span>
+
+                <span className="font-medium text-[var(--foreground)]">
+                  {formatCurrency(costoAlmacenamiento)}
+                </span>
+              </div>
+
+              <p className="pt-2 text-xs text-[var(--muted)]">
+                Suma detallada: subtotal productos + logística (gestión administrativa previa) + transporte / entrega + almacenamiento.
+              </p>
             </div>
 
             <div className="flex items-center justify-between py-5">

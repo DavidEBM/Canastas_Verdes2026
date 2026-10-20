@@ -6,6 +6,7 @@ import {
 } from "@/lib/firebase-admin";
 
 import { generarPDFReparto } from "@/lib/repartos/pdf";
+import { getPublicAppUrl } from "@/lib/recibos/url";
 
 import type {
   ClienteReparto,
@@ -698,21 +699,26 @@ export async function GET(
 
     const subtotalProductos =
       Number(
-        pedidoData.subtotal ??
+        pedidoData.subtotalProductos ??
+          pedidoData.subtotal ??
           pedidoData.total ??
           0,
       );
 
-    const entrega =
-      Number(
-        pedidoData.entrega ??
-          0,
-      );
+    const entrega = 0;
 
     const logistica =
       Number(
         pedidoData.logistica ??
           0,
+      );
+
+    const transporte =
+      Number(
+        pedidoData.transporte !== undefined
+          ? pedidoData.transporte
+          : pedidoData.entrega ??
+            0,
       );
 
     const almacenamiento =
@@ -727,6 +733,7 @@ export async function GET(
           subtotalProductos +
             entrega +
             logistica +
+            transporte +
             almacenamiento,
       );
 
@@ -894,11 +901,14 @@ export async function GET(
           subtotalProductos,
           entrega,
           logistica,
+          transporte,
           almacenamiento,
           total,
         },
 
         firma,
+      }, {
+        baseUrl: getPublicAppUrl(request),
       });
 
     /*

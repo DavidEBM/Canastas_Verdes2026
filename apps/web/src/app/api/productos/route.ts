@@ -341,6 +341,12 @@ function product(
         255,
       ),
 
+    mensajeDisponibilidad:
+      text(
+        input.mensajeDisponibilidad,
+        120,
+      ),
+
     activo,
 
     IdProductor,
@@ -360,6 +366,24 @@ function authorizationError(
   }
 
   switch (error.message) {
+    case "NO_AUTH":
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Debes iniciar sesión.",
+        },
+        { status: 401 },
+      );
+
+    case "FORBIDDEN":
+      return NextResponse.json(
+        {
+          success: false,
+          message: "No tienes permisos para gestionar productos.",
+        },
+        { status: 403 },
+      );
+
     case "AUTH_REQUIRED":
       return NextResponse.json(
         {
@@ -414,12 +438,19 @@ function authorizationError(
  * compatibilidad con documentos antiguos
  * que todavía no tengan los nuevos campos.
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const snapshot =
-      await adminDb
-        .collection(COLLECTION)
-        .get();
+    const isAdminView =
+      new URL(request.url).searchParams.get("admin") === "1";
+
+    if (isAdminView) {
+      await requireAdmin(request);
+    }
+
+    const productsRef = adminDb.collection(COLLECTION);
+    const snapshot = isAdminView
+      ? await productsRef.get()
+      : await productsRef.where("activo", "==", true).get();
 
     const data =
       snapshot.docs.map(
@@ -495,14 +526,23 @@ export async function GET() {
   } catch (error) {
     console.error(
       "Error obteniendo productos:",
-      error,
+      error instanceof Error
+        ? {
+            name: error.name,
+            message: error.message,
+            stack: error.stack,
+          }
+        : error,
     );
 
     return NextResponse.json(
       {
         success: false,
         message:
-          "No fue posible obtener los productos.",
+          process.env.NODE_ENV === "development" &&
+          error instanceof Error
+            ? error.message
+            : "No fue posible obtener los productos.",
       },
       { status: 500 },
     );
@@ -772,6 +812,9 @@ export async function POST(
 
       imageName:
         data.imageName,
+
+      mensajeDisponibilidad:
+        data.mensajeDisponibilidad,
 
       activo:
         data.activo,

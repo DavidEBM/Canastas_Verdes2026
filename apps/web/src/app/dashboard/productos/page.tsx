@@ -1,24 +1,26 @@
-  "use client";
+"use client";
 
-  import {
-    ChangeEvent,
-    FormEvent,
-    useCallback,
-    useEffect,
-    useMemo,
-    useState,
-  } from "react";
+import {
+  ChangeEvent,
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
-  import {
-    deleteObject,
-    getDownloadURL,
-    ref,
-    uploadBytes,
-  } from "firebase/storage";
+import {
+  deleteObject,
+  getDownloadURL,
+  ref,
+  uploadBytes,
+} from "firebase/storage";
 
-  import { storage } from "@/lib/firebase";
-  import { useAuth } from "@/hooks/useAuth";
+import { storage } from "@/lib/firebase";
+import { useAuth } from "@/hooks/useAuth";
 import ExcelProductos from "@/components/productos/ExcelProductos";
+import { matchesTolerantSearch } from "@/lib/search";
 
   /* =========================================================
   TIPOS
@@ -33,6 +35,8 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
     costoPcc: number;
     porcentajeLogistica: number;
     porcentajeTransporte: number;
+    logisticaModo: "porcentaje" | "fijo";
+    transporteModo: "porcentaje" | "fijo";
     precioSugerido: number;
     precioVenta: number;
     stock: number;
@@ -40,6 +44,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
     unidad: string;
     imgPath: string;
     imageName: string;
+    mensajeDisponibilidad: string;
     activo: boolean;
     IdProductor: string;
     IdMunicipalidad: string;
@@ -76,6 +81,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
     porcentajeTransporte: string;
     precioSugerido: string;
     precioVenta: string;
+    mensajeDisponibilidad: string;
 
     logisticaModo: "porcentaje" | "fijo";
     transporteModo: "porcentaje" | "fijo";
@@ -101,6 +107,8 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
     costoPcc: 0,
     porcentajeLogistica: 0,
     porcentajeTransporte: 0,
+    logisticaModo: "porcentaje",
+    transporteModo: "porcentaje",
     precioSugerido: 0,
     precioVenta: 0,
     stock: 100,
@@ -108,6 +116,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
     unidad: "",
     imgPath: "",
     imageName: "",
+    mensajeDisponibilidad: "",
     activo: true,
     IdProductor: "",
     IdMunicipalidad: "",
@@ -129,6 +138,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
     porcentajeTransporte: "",
     precioSugerido: "",
     precioVenta: "",
+    mensajeDisponibilidad: "",
 
     logisticaModo: "porcentaje",
     transporteModo: "porcentaje",
@@ -200,9 +210,13 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
       throw new Error(`${fieldName} no es válido.`);
     }
 
+    if (fixedCost === 0) {
+      return 0;
+    }
+
     if (!Number.isFinite(costoPcc) || costoPcc <= 0) {
       throw new Error(
-        `No se puede convertir ${fieldName} a porcentaje porque el producto no tiene Costo PCC.`,
+        `No se puede convertir ${fieldName} a porcentaje porque el producto no tiene Costo de Producción.`,
       );
     }
 
@@ -328,6 +342,46 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
   }: CatalogComboboxProps) {
     const [open, setOpen] = useState(false);
     const [search, setSearch] = useState("");
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+      const closeWhenOutside = (event: PointerEvent) => {
+        if (
+          containerRef.current &&
+          !containerRef.current.contains(
+            event.target as Node,
+          )
+        ) {
+          setOpen(false);
+        }
+      };
+
+      const closeOnEscape = (event: KeyboardEvent) => {
+        if (event.key === "Escape") {
+          setOpen(false);
+        }
+      };
+
+      document.addEventListener(
+        "pointerdown",
+        closeWhenOutside,
+      );
+      document.addEventListener(
+        "keydown",
+        closeOnEscape,
+      );
+
+      return () => {
+        document.removeEventListener(
+          "pointerdown",
+          closeWhenOutside,
+        );
+        document.removeEventListener(
+          "keydown",
+          closeOnEscape,
+        );
+      };
+    }, []);
 
     useEffect(() => {
       const selected = options.find(
@@ -343,9 +397,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
     }, [value, options]);
 
     const filteredOptions = options.filter((item) =>
-      item.nombre
-        .toLowerCase()
-        .includes(search.trim().toLowerCase()),
+      matchesTolerantSearch([item.nombre], search),
     );
 
     const selectOption = (option: CatalogOption) => {
@@ -361,7 +413,10 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
     };
 
     return (
-      <div className="relative">
+      <div
+        ref={containerRef}
+        className="relative"
+      >
         <label className="mb-1.5 block text-sm font-semibold">
           {label}{" "}
           {required && (
@@ -571,6 +626,16 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
 
     const [selectedIds, setSelectedIds] =
       useState<Set<string>>(new Set());
+
+    const productsTableRef =
+      useRef<HTMLDivElement | null>(null);
+
+    const scrollProductsTable = (direction: number) => {
+      productsTableRef.current?.scrollBy({
+        left: direction * 720,
+        behavior: "smooth",
+      });
+    };
 
     const [bulkOpen, setBulkOpen] =
       useState(false);
@@ -803,9 +868,6 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
     ======================================================= */
 
     const filteredProducts = useMemo(() => {
-      const normalizedSearch =
-        search.trim().toLowerCase();
-
       return products.filter((product) => {
         const producer = producers.find(
           (item) =>
@@ -819,8 +881,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
               product.IdMunicipalidad,
           );
 
-        const matchesSearch =
-          !normalizedSearch ||
+        const matchesSearch = matchesTolerantSearch(
           [
             product.code,
             product.nombre,
@@ -829,10 +890,9 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
             product.unidad,
             producer?.nombre ?? "",
             municipality?.nombre ?? "",
-          ]
-            .join(" ")
-            .toLowerCase()
-            .includes(normalizedSearch);
+          ],
+          search,
+        );
 
         const matchesCategory =
           !categoryFilter ||
@@ -1024,7 +1084,85 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
       setError(null);
     };
 
+    const deleteCloudinaryImage = async (publicId: string) => {
+      if (!publicId.startsWith("CanastasVerdes/") || !user) {
+        return;
+      }
+
+      const token = await user.getIdToken(true);
+      await fetch("/api/cloudinary/upload", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+        body: JSON.stringify({ publicId }),
+      });
+    };
+
     const processImage = async (): Promise<{
+      imgPath: string;
+      imageName: string;
+      newStoragePath: string | null;
+    }> => {
+      if (!imageFile) {
+        return {
+          imgPath: form.imgPath,
+          imageName: form.imageName.trim(),
+          newStoragePath: null,
+        };
+      }
+
+      const cleanName = (form.imageName.trim() || imageFile.name)
+        .trim()
+        .replace(/\.[^/.]+$/, "")
+        .replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑüÜ_-]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+
+      if (!cleanName) {
+        throw new Error("Indica un nombre válido para la imagen.");
+      }
+
+      if (!user) {
+        throw new Error("Debes iniciar sesión para cargar una imagen.");
+      }
+
+      const token = await user.getIdToken(true);
+      const uploadForm = new FormData();
+      uploadForm.append("file", imageFile, imageFile.name);
+      uploadForm.append("imageName", cleanName);
+
+      const response = await fetch("/api/cloudinary/upload", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer " + token,
+        },
+        body: uploadForm,
+      });
+
+      const result = (await response.json()) as {
+        success?: boolean;
+        message?: string;
+        data?: {
+          imgPath?: string;
+          imageName?: string;
+        };
+      };
+
+      if (!response.ok || !result.success || !result.data?.imgPath) {
+        throw new Error(
+          result.message || "No fue posible cargar la imagen en Cloudinary.",
+        );
+      }
+
+      return {
+        imgPath: result.data.imgPath,
+        imageName: result.data.imageName || cleanName,
+        newStoragePath: result.data.imageName || null,
+      };
+    };
+
+    const processLegacyImage = async (): Promise<{
       imgPath: string;
       imageName: string;
       newStoragePath: string | null;
@@ -1193,15 +1331,36 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
       let porcentajeTransporte: number;
 
       try {
+
+      const formForSave = {
+        ...form,
+        porcentajeLogistica:
+          form.logisticaModo === "fijo"
+            ? fixedCostToPercentage(
+                numberValue(form.porcentajeLogistica),
+                numberValue(form.costoPcc),
+                "El costo fijo de logística",
+              )
+            : form.porcentajeLogistica,
+        porcentajeTransporte:
+          form.transporteModo === "fijo"
+            ? fixedCostToPercentage(
+                numberValue(form.porcentajeTransporte),
+                numberValue(form.costoPcc),
+                "El costo fijo de transporte",
+              )
+            : form.porcentajeTransporte,
+      };
+
         porcentajeLogistica =
           percentageValue(
-            form.porcentajeLogistica,
+            formForSave.porcentajeLogistica,
             "El porcentaje de logística",
           );
 
         porcentajeTransporte =
           percentageValue(
-            form.porcentajeTransporte,
+            formForSave.porcentajeTransporte,
             "El porcentaje de transporte",
           );
       } catch (caught) {
@@ -1286,7 +1445,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
 
       if (!form.IdMunicipalidad.trim()) {
         setError(
-          "Selecciona una municipalidad.",
+          "Selecciona un municipio.",
         );
         return;
       }
@@ -1299,7 +1458,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
         )
       ) {
         setError(
-          "La municipalidad seleccionada no es válida.",
+          "El municipio seleccionado no es válido.",
         );
         return;
       }
@@ -1365,12 +1524,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
             uploadedNewPath
         ) {
           try {
-            await deleteObject(
-              ref(
-                storage,
-                originalImagePath,
-              ),
-            );
+             await deleteCloudinaryImage(originalImagePath);
           } catch (caught) {
             console.warn(
               "No fue posible eliminar la imagen anterior:",
@@ -1393,12 +1547,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
       } catch (caught) {
         if (uploadedNewPath) {
           try {
-            await deleteObject(
-              ref(
-                storage,
-                uploadedNewPath,
-              ),
-            );
+             await deleteCloudinaryImage(uploadedNewPath);
           } catch {
             // Ignorar.
           }
@@ -1492,11 +1641,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
         product.imgPath || null,
       );
 
-      setOriginalImagePath(
-        product.imageName
-          ? `productos/${product.imageName}`
-          : null,
-      );
+       setOriginalImagePath(product.imageName || null);
 
       setError(null);
       setNotice(null);
@@ -1613,6 +1758,12 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
             bulkChanges.activo === "true";
         }
 
+        /* MENSAJE DE DISPONIBILIDAD */
+        if (bulkChanges.mensajeDisponibilidad.trim()) {
+          changes.mensajeDisponibilidad =
+            bulkChanges.mensajeDisponibilidad.trim();
+        }
+
         /* CATEGORÍA */
         if (bulkChanges.categoria.trim()) {
           changes.categoria =
@@ -1672,7 +1823,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
             value < 0
           ) {
             throw new Error(
-              "El Costo PCC no es válido.",
+              "El Costo de Producción no es válido.",
             );
           }
 
@@ -1892,7 +2043,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
 
         /*
         * Aplicamos individualmente porque
-        * los costos fijos dependen del Costo PCC
+        * los costos fijos dependen del Costo de Producción
         * de cada producto.
         */
         for (const id of ids) {
@@ -2209,7 +2360,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
 
             <div>
               <label className="mb-1.5 block text-sm font-semibold">
-                Costo PCC (COP)
+                Costo de Producción (COP)
               </label>
 
               <input
@@ -2232,10 +2383,24 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
                 Logística (%)
               </label>
 
+              <select
+                value={form.logisticaModo}
+                onChange={(event) =>
+                  set(
+                    "logisticaModo",
+                    event.target.value as ProductForm["logisticaModo"],
+                  )
+                }
+                className="mb-2 w-full rounded-lg border border-[var(--border)] p-2.5 text-sm"
+              >
+                <option value="porcentaje">Porcentaje (%)</option>
+                <option value="fijo">Valor fijo (COP)</option>
+              </select>
+
               <input
                 type="number"
                 min="0"
-                max="100"
+                max={form.logisticaModo === "porcentaje" ? 100 : undefined}
                 step="0.01"
                 value={
                   form.porcentajeLogistica
@@ -2255,10 +2420,24 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
                 Transporte (%)
               </label>
 
+              <select
+                value={form.transporteModo}
+                onChange={(event) =>
+                  set(
+                    "transporteModo",
+                    event.target.value as ProductForm["transporteModo"],
+                  )
+                }
+                className="mb-2 w-full rounded-lg border border-[var(--border)] p-2.5 text-sm"
+              >
+                <option value="porcentaje">Porcentaje (%)</option>
+                <option value="fijo">Valor fijo (COP)</option>
+              </select>
+
               <input
                 type="number"
                 min="0"
-                max="100"
+                max={form.transporteModo === "porcentaje" ? 100 : undefined}
                 step="0.01"
                 value={
                   form.porcentajeTransporte
@@ -2427,7 +2606,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
             />
 
             <CatalogCombobox
-              label="Municipalidad"
+              label="Municipio"
               value={form.IdMunicipalidad}
               options={municipalities}
               loading={loadingCatalogs}
@@ -2679,10 +2858,34 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
               />
 
               <span className="text-sm font-semibold">
-                Producto activo y visible en
-                la tienda
+                Producto activo y visible en la plataforma
               </span>
             </label>
+
+            {!form.activo && (
+              <div className="sm:col-span-2">
+                <label className="mb-1.5 block text-sm font-semibold">
+                  Mensaje cuando no hay disponibilidad
+                </label>
+
+                <input
+                  value={form.mensajeDisponibilidad}
+                  onChange={(event) =>
+                    set(
+                      "mensajeDisponibilidad",
+                      event.target.value,
+                    )
+                  }
+                  maxLength={120}
+                  placeholder="Ej. Regresa pronto: estamos cosechando"
+                  className="w-full rounded-lg border border-[var(--border)] p-2.5 text-sm"
+                />
+
+                <p className="mt-1 text-xs text-[var(--foreground)]/60">
+                  Se mostrará en la tienda cuando el producto esté desactivado. Si lo dejas vacío se usará “Sin stock”.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="mt-6 flex flex-wrap gap-3">
@@ -2799,7 +3002,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
                 className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5 text-sm"
               >
                 <option value="">
-                  Todas las municipalidades
+                  Todos los municipios
                 </option>
 
                 {municipalities.map(
@@ -2926,7 +3129,35 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
             TABLA
         =================================================== */}
 
-        <div className="mt-6 overflow-x-auto rounded-2xl border border-[var(--border)]">
+        <div className="mt-6 flex items-center justify-between gap-3 rounded-t-2xl border border-b-0 border-[var(--border)] bg-[var(--surface)] px-3 py-2">
+          <p className="text-xs text-[var(--foreground)]/60">
+            Desplaza horizontalmente para ver todos los datos.
+          </p>
+
+          <div className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              onClick={() => scrollProductsTable(-1)}
+              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-semibold"
+              aria-label="Desplazar tabla hacia la izquierda"
+            >
+              ←
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollProductsTable(1)}
+              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-semibold"
+              aria-label="Desplazar tabla hacia la derecha"
+            >
+              →
+            </button>
+          </div>
+        </div>
+
+        <div
+          ref={productsTableRef}
+          className="overflow-x-scroll rounded-b-2xl border border-[var(--border)] overscroll-x-contain"
+        >
           <table className="w-full min-w-[1250px] text-left text-sm">
             <thead className="bg-[var(--surface)]">
               <tr>
@@ -2981,7 +3212,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
                 </th>
 
                 <th className="px-3 py-3">
-                  Costo PCC
+                  Costo de Producción
                 </th>
 
                 <th className="px-3 py-3">
@@ -3111,6 +3342,12 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
                               ? municipality.nombre
                               : "No asignado"}
                           </p>
+
+                          {product.mensajeDisponibilidad && (
+                            <p className="mt-1 text-xs font-semibold text-amber-700">
+                              Disponibilidad: {product.mensajeDisponibilidad}
+                            </p>
+                          )}
 
                           {isProductCanasta &&
                             product.componentes
@@ -3312,6 +3549,37 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
                   </select>
                 </div>
 
+                {/* MENSAJE DE DISPONIBILIDAD */}
+                {bulkChanges.activo === "false" && (
+                  <div className="sm:col-span-2">
+                    <label className="mb-1.5 block text-sm font-semibold">
+                      Mensaje de disponibilidad para seleccionados
+                    </label>
+
+                    <input
+                      value={
+                        bulkChanges.mensajeDisponibilidad
+                      }
+                      onChange={(event) =>
+                        setBulkChanges(
+                          (current) => ({
+                            ...current,
+                            mensajeDisponibilidad:
+                              event.target.value,
+                          }),
+                        )
+                      }
+                      maxLength={120}
+                      placeholder="Sin cambio · Ej. Próximamente disponible"
+                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5 text-sm"
+                    />
+
+                    <p className="mt-1 text-[11px] text-[var(--foreground)]/55">
+                      Aplica el mismo texto a los productos y canastas seleccionados.
+                    </p>
+                  </div>
+                )}
+
                 {/* PRECIO BASE */}
                 <div>
                   <label className="mb-1.5 block text-sm font-semibold">
@@ -3342,7 +3610,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
                 {/* COSTO PCC */}
                 <div>
                   <label className="mb-1.5 block text-sm font-semibold">
-                    Costo PCC (COP)
+                    Costo de Producción (COP)
                   </label>
 
                   <input
@@ -3427,7 +3695,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
                   <p className="mt-1 text-[11px] text-[var(--foreground)]/55">
                     {bulkChanges.logisticaModo ===
                     "fijo"
-                      ? "El costo fijo se convierte a porcentaje según el Costo PCC de cada producto."
+                      ? "El costo fijo se convierte a porcentaje según el Costo de Producción de cada producto."
                       : "Acepta 10 o 10%."}
                   </p>
                 </div>
@@ -3493,7 +3761,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
                   <p className="mt-1 text-[11px] text-[var(--foreground)]/55">
                     {bulkChanges.transporteModo ===
                     "fijo"
-                      ? "El costo fijo se convierte a porcentaje según el Costo PCC de cada producto."
+                      ? "El costo fijo se convierte a porcentaje según el Costo de Producción de cada producto."
                       : "Acepta 5 o 5%."}
                   </p>
                 </div>
@@ -3638,7 +3906,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
 
                 {/* MUNICIPALIDAD */}
                 <CatalogCombobox
-                  label="Municipalidad"
+                   label="Municipio"
                   value={
                     bulkChanges.IdMunicipalidad
                   }
@@ -3716,7 +3984,7 @@ import ExcelProductos from "@/components/productos/ExcelProductos";
                 Si Logística o Transporte
                 están en modo COP, el valor
                 fijo será convertido a
-                porcentaje usando el Costo PCC
+                porcentaje usando el Costo de Producción
                 individual de cada producto.
               </p>
 

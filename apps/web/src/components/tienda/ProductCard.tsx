@@ -26,7 +26,10 @@ export default function ProductCard({
   } = useCart();
 
   /* =======================================================
-     Cantidad actual en la cesta
+     Cantidad actual en la Canasta
+
+     Este valor se obtiene de la Canasta global
+     y no del stock del producto.
   ======================================================= */
 
   const quantity = getItemQuantity(
@@ -47,6 +50,12 @@ export default function ProductCard({
     product.activo === true &&
     availableStock > 0;
 
+  const availabilityLabel =
+    (product.activo !== true
+      ? product.mensajeDisponibilidad?.trim()
+      : "") ||
+    "Sin stock";
+
   /* =======================================================
      Imagen
 
@@ -63,7 +72,7 @@ export default function ProductCard({
     product.imgPath &&
     product.imgPath.trim() !== ""
       ? product.imgPath
-      : "/images/products/placeholder.jpg";
+      : "/images/products/placeholder.png";
 
   /* =======================================================
      Agregar producto
@@ -103,14 +112,14 @@ export default function ProductCard({
              */
             if (
               image.src.endsWith(
-                "/images/products/placeholder.jpg",
+                "/images/products/placeholder.png",
               )
             ) {
               return;
             }
 
             image.src =
-              "/images/products/placeholder.jpg";
+              "/images/products/placeholder.png";
           }}
         />
 
@@ -135,13 +144,13 @@ export default function ProductCard({
         )}
 
         {/* =================================================
-            No Stock
+            Sin stock
         ================================================= */}
 
         {!hasStock && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/45">
             <span className="rounded-lg bg-[var(--background)] px-4 py-2 text-sm font-bold text-[var(--danger)] shadow-lg">
-              No Stock
+              {availabilityLabel}
             </span>
           </div>
         )}
@@ -194,7 +203,7 @@ export default function ProductCard({
                 </p>
               ) : (
                 <p className="text-xs font-semibold text-[var(--danger)]">
-                  No disponible
+                  {availabilityLabel}
                 </p>
               )}
             </div>
@@ -299,10 +308,10 @@ export default function ProductCard({
                   <path d="M3 4h2l2.4 11.4a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 2-1.6L21 8H6" />
                 </svg>
 
-                Agregar a la cesta
+                Agregar a la Canasta
               </>
             ) : (
-              "No Stock"
+              availabilityLabel
             )}
           </button>
         )}

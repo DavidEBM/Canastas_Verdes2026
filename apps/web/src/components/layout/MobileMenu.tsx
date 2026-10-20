@@ -98,7 +98,7 @@ export default function MobileMenu({
             onClick={onClose}
             className="flex items-center justify-between rounded-md px-3 py-3 text-sm font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--primary)]"
           >
-            <span>Cesta</span>
+            <span>Canasta</span>
 
             {totalItems > 0 && (
               <span className="min-w-6 rounded-full bg-[var(--primary)] px-2 py-0.5 text-center text-xs font-bold text-[var(--primary-foreground)]">

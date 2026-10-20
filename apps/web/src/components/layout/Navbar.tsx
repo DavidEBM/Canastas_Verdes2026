@@ -13,7 +13,7 @@ const navigation = [
     href: "/",
   },
   {
-    label: "Tienda",
+    label: "Productos",
     href: "/tienda",
   },
   {
@@ -21,11 +21,11 @@ const navigation = [
     href: "/aboutUs",
   },
   {
-    label: "Ubicaciones",
+    label: "Fincas",
     href: "/ubicaciones",
   },
   {
-    label: "Contacto",
+    label: "Habla con Nosotros",
     href: "/contacto",
   },
 ];
@@ -136,12 +136,12 @@ export default function Navbar() {
             </Link>
           )}
 
-          {/* Cesta */}
+          {/* Canasta */}
           <button
             type="button"
             onClick={openCart}
             className="relative inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--primary)]"
-            aria-label={`Abrir cesta${
+            aria-label={`Abrir canasta${
               totalItems > 0
                 ? `, ${totalItems} productos`
                 : ""
@@ -163,7 +163,7 @@ export default function Navbar() {
               <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
             </svg>
 
-            <span>Cesta</span>
+            <span>Canasta</span>
 
             {totalItems > 0 && (
               <span className="flex min-w-5 items-center justify-center rounded-full bg-[var(--primary)] px-1.5 py-0.5 text-xs font-bold text-[var(--primary-foreground)]">
@@ -193,12 +193,12 @@ export default function Navbar() {
 
         {/* Controles móviles */}
         <div className="ml-auto flex items-center gap-2 md:hidden">
-          {/* Cesta */}
+          {/* Canasta */}
           <button
             type="button"
             onClick={openCart}
             className="relative inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
-            aria-label={`Abrir cesta${
+            aria-label={`Abrir canasta${
               totalItems > 0
                 ? `, ${totalItems} productos`
                 : ""

@@ -7,6 +7,7 @@ import {
 } from "pdf-lib";
 
 import QRCode from "qrcode";
+import { getReceiptUrl } from "@/lib/recibos/url";
 
 interface ProductoPedido {
   productoId: string;
@@ -51,6 +52,7 @@ interface Costos {
   subtotalProductos: number;
   entrega: number;
   logistica: number;
+  transporte: number;
   almacenamiento: number;
   total: number;
 }
@@ -780,16 +782,12 @@ export async function generarPDFReparto(
 
   const baseUrl =
     options?.baseUrl ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    "http://localhost:3000";
+    "https://canastas-verdes2026.vercel.app";
 
-  const verificationUrl =
-    `${baseUrl.replace(
-      /\/$/,
-      "",
-    )}/recibo/${encodeURIComponent(
-      data.id,
-    )}`;
+  const verificationUrl = getReceiptUrl(
+    baseUrl,
+    data.id,
+  );
 
   const qrDataUrl =
     await QRCode.toDataURL(
@@ -1406,7 +1404,7 @@ export async function generarPDFReparto(
     MARGIN_X -
     costsWidth;
 
-  const costsHeight = 115;
+  const costsHeight = 130;
 
   drawBox(
     page,
@@ -1435,12 +1433,12 @@ export async function generarPDFReparto(
       data.costos.subtotalProductos,
     ],
     [
-      "Entrega",
-      data.costos.entrega,
+      "Logística (gestión administrativa previa)",
+      data.costos.logistica,
     ],
     [
-      "Logística",
-      data.costos.logistica,
+      "Transporte / entrega",
+      data.costos.transporte,
     ],
     [
       "Almacenamiento",

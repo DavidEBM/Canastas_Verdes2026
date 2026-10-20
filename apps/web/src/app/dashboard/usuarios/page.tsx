@@ -17,7 +17,16 @@ interface ManagedUser {
   displayName: string;
   disabled: boolean;
   role: UserRole;
+  label: UserLabel;
+  labelRegisteredAt: string | null;
 }
+
+type UserLabel =
+  | "usuario_nuevo"
+  | "usuario_frecuente"
+  | "comprador_frecuente"
+  | "asociacion_agricultores"
+  | "mayorista";
 
 const roles: UserRole[] = [
   "consumidor",
@@ -31,12 +40,32 @@ const roleLabels: Record<UserRole, string> = {
   admin: "Administrador",
 };
 
+const labels: UserLabel[] = [
+  "usuario_nuevo",
+  "usuario_frecuente",
+  "comprador_frecuente",
+  "asociacion_agricultores",
+  "mayorista",
+];
+
+const labelLabels: Record<UserLabel, string> = {
+  usuario_nuevo: "Usuario nuevo",
+  usuario_frecuente: "Usuario frecuente",
+  comprador_frecuente: "Comprador frecuente",
+  asociacion_agricultores: "Asociación de agricultores",
+  mayorista: "Mayorista",
+};
+
 function isUserRole(
   value: string,
 ): value is UserRole {
   return roles.includes(
     value as UserRole,
   );
+}
+
+function isUserLabel(value: string): value is UserLabel {
+  return labels.includes(value as UserLabel);
 }
 
 export default function DashboardUsuariosPage() {
@@ -259,6 +288,45 @@ export default function DashboardUsuariosPage() {
     }
   };
 
+  const changeLabel = async (uid: string, nextLabel: UserLabel) => {
+    const managedUser = users.find((item) => item.uid === uid);
+
+    if (!managedUser || managedUser.label === nextLabel) {
+      return;
+    }
+
+    try {
+      setSaving(uid);
+      setError(null);
+      setNotice(null);
+
+      await request("POST", {
+        usuarioId: uid,
+        etiqueta: nextLabel,
+      });
+
+      setUsers((current) =>
+        current.map((item) =>
+          item.uid === uid ? { ...item, label: nextLabel } : item,
+        ),
+      );
+
+      setNotice(
+        "Etiqueta actualizada correctamente a " +
+          labelLabels[nextLabel] +
+          ".",
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No fue posible actualizar la etiqueta.",
+      );
+    } finally {
+      setSaving(null);
+    }
+  };
+
   if (loading) {
     return (
       <main className="mx-auto max-w-6xl px-4 py-12">
@@ -388,6 +456,10 @@ export default function DashboardUsuariosPage() {
                 <th className="px-4 py-3 font-semibold">
                   Rol
                 </th>
+
+                <th className="px-4 py-3 font-semibold">
+                  Etiqueta
+                </th>
               </tr>
             </thead>
 
@@ -498,6 +570,33 @@ export default function DashboardUsuariosPage() {
                           </span>
                         )}
                       </td>
+                      <td className="px-4 py-3">
+                        <select
+                          value={
+                            isUserLabel(managedUser.label)
+                              ? managedUser.label
+                              : "usuario_nuevo"
+                          }
+                          disabled={isSaving}
+                          aria-label={
+                            "Etiqueta de " +
+                            (managedUser.displayName || managedUser.email)
+                          }
+                          onChange={(event) => {
+                            const value = event.target.value;
+                            if (isUserLabel(value)) {
+                              void changeLabel(managedUser.uid, value);
+                            }
+                          }}
+                          className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {labels.map((label) => (
+                            <option key={label} value={label}>
+                              {labelLabels[label]}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
                     </tr>
                   );
                 },
@@ -506,7 +605,7 @@ export default function DashboardUsuariosPage() {
               {users.length === 0 && (
                 <tr>
                   <td
-                    colSpan={4}
+                    colSpan={5}
                     className="px-4 py-10 text-center text-[var(--muted)]"
                   >
                     No hay usuarios

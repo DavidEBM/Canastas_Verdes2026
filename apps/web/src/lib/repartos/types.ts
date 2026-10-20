@@ -137,7 +137,7 @@ export interface Pedido {
   reservaId: string;
 
   /*
-   * Tipo de entrega seleccionado durante checkout.
+   * Tipo de entrega seleccionado durante la seleccion de canasta.
    */
   tipoEntrega: ModalidadEntrega;
 
@@ -241,6 +241,8 @@ export interface CostosReparto {
   entrega?: number;
 
   logistica?: number;
+
+  transporte?: number;
 
   almacenamiento?: number;
 

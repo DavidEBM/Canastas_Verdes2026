@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import { useAuth } from "@/hooks/useAuth";
+import { matchesTolerantSearch } from "@/lib/search";
 
 interface PuntoRecogida {
   id: string;
@@ -20,6 +21,8 @@ interface PuntoRecogida {
   horario: string;
   telefono: string;
   activo: boolean;
+  esPuntoRecogida: boolean;
+  esPuntoRecogidaDefault: boolean;
   googleMapsUrl: string;
 }
 
@@ -36,6 +39,9 @@ interface FormData {
   horaInicio: string;
   horaFin: string;
   telefono: string;
+  activo: boolean;
+  esPuntoRecogida: boolean;
+  esPuntoRecogidaDefault: boolean;
 }
 
 const emptyForm: FormData = {
@@ -45,6 +51,9 @@ const emptyForm: FormData = {
   horaInicio: "08:00",
   horaFin: "17:00",
   telefono: "",
+  activo: true,
+  esPuntoRecogida: false,
+  esPuntoRecogidaDefault: false,
 };
 
 export default function LugaresRecogidaPage() {
@@ -154,7 +163,7 @@ export default function LugaresRecogidaPage() {
       ) {
         throw new Error(
           municipalitiesJson.message ||
-            "No fue posible cargar las municipalidades."
+            "No fue posible cargar los municipios."
         );
       }
 
@@ -213,21 +222,11 @@ export default function LugaresRecogidaPage() {
   ]);
 
   const filteredPoints = useMemo(() => {
-    const query =
-      search.trim().toLowerCase();
-
     return puntos.filter((point) => {
-      const matchesSearch =
-        !query ||
-        point.nombre
-          .toLowerCase()
-          .includes(query) ||
-        point.direccion
-          .toLowerCase()
-          .includes(query) ||
-        point.municipio
-          .toLowerCase()
-          .includes(query);
+      const matchesSearch = matchesTolerantSearch(
+        [point.nombre, point.direccion, point.municipio],
+        search,
+      );
 
       const matchesMunicipality =
         !municipalidadFilter ||
@@ -280,6 +279,11 @@ export default function LugaresRecogidaPage() {
         point.horaFin || "",
       telefono:
         point.telefono || "",
+      activo: point.activo,
+      esPuntoRecogida:
+        point.esPuntoRecogida,
+      esPuntoRecogidaDefault:
+        point.esPuntoRecogidaDefault,
     });
 
     setError("");
@@ -377,8 +381,8 @@ export default function LugaresRecogidaPage() {
 
       setSuccess(
         editingId
-          ? "Punto de recogida actualizado correctamente."
-          : "Punto de recogida creado correctamente."
+            ? "Finca actualizada correctamente."
+            : "Finca creada correctamente."
       );
 
       setShowForm(false);
@@ -392,7 +396,7 @@ export default function LugaresRecogidaPage() {
       setError(
         err instanceof Error
           ? err.message
-          : "No fue posible guardar el punto."
+          : "No fue posible guardar la finca."
       );
     } finally {
       setSaving(false);
@@ -442,9 +446,9 @@ export default function LugaresRecogidaPage() {
       }
 
       setSuccess(
-        point.activo
-          ? "Punto de recogida desactivado."
-          : "Punto de recogida activado."
+          point.activo
+            ? "Finca desactivada."
+            : "Finca activada."
       );
 
       await loadData();
@@ -452,7 +456,7 @@ export default function LugaresRecogidaPage() {
       setError(
         err instanceof Error
           ? err.message
-          : "No fue posible cambiar el estado."
+          : "No fue posible cambiar el estado de la finca."
       );
     }
   }
@@ -500,7 +504,7 @@ export default function LugaresRecogidaPage() {
       }
 
       setSuccess(
-        "Punto de recogida desactivado correctamente."
+        "Finca desactivada correctamente."
       );
 
       await loadData();
@@ -508,7 +512,7 @@ export default function LugaresRecogidaPage() {
       setError(
         err instanceof Error
           ? err.message
-          : "No fue posible desactivar el punto."
+          : "No fue posible desactivar la finca."
       );
     }
   }
@@ -520,7 +524,7 @@ export default function LugaresRecogidaPage() {
     return (
       <main className="flex min-h-[50vh] items-center justify-center">
         <p className="text-sm text-[var(--foreground)]/70">
-          Cargando lugares de recogida...
+           Cargando fincas...
         </p>
       </main>
     );
@@ -555,11 +559,11 @@ export default function LugaresRecogidaPage() {
         <div className="mt-1 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-[var(--foreground)]">
-              Lugares de recogida
+              Fincas
             </h1>
 
             <p className="mt-2 text-sm text-[var(--foreground)]/70">
-              Administra los puntos donde los consumidores pueden recoger sus pedidos.
+              Administra las fincas, sus municipios y los lugares habilitados para recoger pedidos.
             </p>
           </div>
 
@@ -568,7 +572,7 @@ export default function LugaresRecogidaPage() {
             onClick={openCreate}
             className="rounded-lg bg-[var(--primary)] px-5 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
           >
-            + Nuevo lugar
+             + Nueva finca
           </button>
         </div>
       </section>
@@ -591,12 +595,12 @@ export default function LugaresRecogidaPage() {
             <div>
               <h2 className="text-xl font-bold text-[var(--foreground)]">
                 {editingId
-                  ? "Editar lugar de recogida"
-                  : "Nuevo lugar de recogida"}
+                   ? "Editar finca"
+                   : "Nueva finca"}
               </h2>
 
               <p className="mt-1 text-sm text-[var(--foreground)]/60">
-                Registra los datos básicos del punto.
+                 Registra la ubicación y define si también funciona como lugar de recogida.
               </p>
             </div>
 
@@ -616,7 +620,7 @@ export default function LugaresRecogidaPage() {
           >
             <div>
               <label className="text-sm font-semibold text-[var(--foreground)]">
-                Nombre del lugar *
+                 Nombre de la finca *
               </label>
 
               <input
@@ -635,7 +639,7 @@ export default function LugaresRecogidaPage() {
 
             <div>
               <label className="text-sm font-semibold text-[var(--foreground)]">
-                Municipalidad *
+                  Municipio *
               </label>
 
               <select
@@ -652,7 +656,7 @@ export default function LugaresRecogidaPage() {
                 className="mt-1 w-full rounded-lg border border-[var(--border)] bg-white px-3 py-3 text-sm outline-none focus:border-[var(--primary)]"
               >
                 <option value="">
-                  Seleccionar municipalidad
+                  Seleccionar municipio
                 </option>
 
                 {municipalidades
@@ -679,6 +683,63 @@ export default function LugaresRecogidaPage() {
               </select>
             </div>
 
+            <div className="rounded-xl border border-[var(--border)] bg-white p-4 md:col-span-2">
+              <div className="space-y-3">
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={form.esPuntoRecogida}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        esPuntoRecogida:
+                          event.target.checked,
+                        esPuntoRecogidaDefault:
+                          event.target.checked
+                            ? current.esPuntoRecogidaDefault
+                            : false,
+                      }))
+                    }
+                    className="mt-1 h-4 w-4"
+                  />
+
+                  <span>
+                    <span className="block text-sm font-semibold text-[var(--foreground)]">
+                      También es lugar de recogida
+                    </span>
+                    <span className="mt-1 block text-xs text-[var(--foreground)]/60">
+                      Habilítalo para que pueda seleccionarse al finalizar una compra.
+                    </span>
+                  </span>
+                </label>
+
+                <label className={`flex items-start gap-3 ${form.esPuntoRecogida ? "cursor-pointer" : "cursor-not-allowed opacity-50"}`}>
+                  <input
+                    type="checkbox"
+                    checked={form.esPuntoRecogidaDefault}
+                    disabled={!form.esPuntoRecogida}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        esPuntoRecogidaDefault:
+                          event.target.checked,
+                      }))
+                    }
+                    className="mt-1 h-4 w-4"
+                  />
+
+                  <span>
+                    <span className="block text-sm font-semibold text-[var(--foreground)]">
+                      Lugar de recogida predeterminado
+                    </span>
+                    <span className="mt-1 block text-xs text-[var(--foreground)]/60">
+                      Solo puede existir uno. Al marcarlo, reemplazará al actual.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
             <div className="md:col-span-2">
               <label className="text-sm font-semibold text-[var(--foreground)]">
                 Dirección *
@@ -698,7 +759,7 @@ export default function LugaresRecogidaPage() {
               />
 
               <p className="mt-1.5 text-xs text-[var(--foreground)]/60">
-                Esta dirección se utilizará automáticamente para generar la ubicación en Google Maps.
+                Esta dirección se utilizará automáticamente para generar la ubicación de la finca en Google Maps.
               </p>
             </div>
 
@@ -821,7 +882,7 @@ export default function LugaresRecogidaPage() {
             className="rounded-lg border border-[var(--border)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
           >
             <option value="">
-              Todas las municipalidades
+              Todos los municipios
             </option>
 
             {municipalidades.map(
@@ -864,11 +925,15 @@ export default function LugaresRecogidaPage() {
             <thead className="border-b border-[var(--border)] bg-[var(--surface)]">
               <tr>
                 <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wide text-[var(--foreground)]/60">
-                  Lugar
+                  Finca
                 </th>
 
                 <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wide text-[var(--foreground)]/60">
-                  Municipalidad
+                  Uso
+                </th>
+
+                <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wide text-[var(--foreground)]/60">
+                  Municipio
                 </th>
 
                 <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wide text-[var(--foreground)]/60">
@@ -920,6 +985,26 @@ export default function LugaresRecogidaPage() {
                           Ver en Google Maps
                         </a>
                       )}
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <div className="flex flex-wrap gap-1.5">
+                        {point.esPuntoRecogida ? (
+                          <span className="rounded-full bg-[var(--secondary)] px-2.5 py-1 text-[11px] font-semibold text-[var(--primary)]">
+                            Recogida
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-semibold text-gray-600">
+                            Finca
+                          </span>
+                        )}
+
+                        {point.esPuntoRecogidaDefault && (
+                          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
+                            Predeterminada
+                          </span>
+                        )}
+                      </div>
                     </td>
 
                     <td className="px-5 py-4 text-sm text-[var(--foreground)]">
@@ -1008,10 +1093,10 @@ export default function LugaresRecogidaPage() {
                 0 && (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-5 py-12 text-center text-sm text-[var(--foreground)]/60"
                   >
-                    No se encontraron lugares de recogida.
+                     No se encontraron fincas.
                   </td>
                 </tr>
               )}

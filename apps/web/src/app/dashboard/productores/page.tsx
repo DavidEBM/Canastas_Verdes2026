@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { useAuth } from "@/hooks/useAuth";
+import { matchesTolerantSearch } from "@/lib/search";
 
 interface Productor {
   id: string;
@@ -152,18 +153,15 @@ export default function ProductoresPage() {
   }, [authLoading, loadProductores, role, user]);
 
   const filteredProductores = useMemo(() => {
-    const value = search.trim().toLowerCase();
-
-    if (!value) {
-      return productores;
-    }
-
     return productores.filter((productor) => {
-      return (
-        productor.nombre.toLowerCase().includes(value) ||
-        productor.correo.toLowerCase().includes(value) ||
-        productor.telefono.toLowerCase().includes(value) ||
-        productor.direccion.toLowerCase().includes(value)
+      return matchesTolerantSearch(
+        [
+          productor.nombre,
+          productor.correo,
+          productor.telefono,
+          productor.direccion,
+        ],
+        search,
       );
     });
   }, [productores, search]);
@@ -848,7 +846,7 @@ export default function ProductoresPage() {
                     </th>
 
                     <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wide text-[var(--foreground)]/60">
-                      Contacto
+                      Habla con Nosotros
                     </th>
 
                     <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wide text-[var(--foreground)]/60">

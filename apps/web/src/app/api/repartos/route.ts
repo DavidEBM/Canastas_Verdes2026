@@ -38,6 +38,11 @@ interface PedidoData {
   usuarioId?: unknown;
   productos?: unknown;
   subtotal?: unknown;
+  subtotalProductos?: unknown;
+  entrega?: unknown;
+  logistica?: unknown;
+  transporte?: unknown;
+  almacenamiento?: unknown;
   total?: unknown;
   estado?: unknown;
   reservaId?: unknown;
@@ -936,8 +941,22 @@ export async function GET(
 
         const subtotalProductos =
           numberValue(
-            pedido.subtotal,
+            pedido.subtotalProductos ??
+              pedido.subtotal,
           );
+
+        const logistica =
+          numberValue(pedido.logistica);
+
+        const transporte =
+          numberValue(
+            pedido.transporte !== undefined
+              ? pedido.transporte
+              : pedido.entrega,
+          );
+
+        const almacenamiento =
+          numberValue(pedido.almacenamiento);
 
         const total =
           numberValue(
@@ -949,9 +968,11 @@ export async function GET(
 
           entrega: 0,
 
-          logistica: 0,
+          logistica,
 
-          almacenamiento: 0,
+          transporte,
+
+          almacenamiento,
 
           total,
         };

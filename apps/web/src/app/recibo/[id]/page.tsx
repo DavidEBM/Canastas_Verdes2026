@@ -46,7 +46,12 @@ interface FirmaRecibo {
 
 interface ReciboData {
   id: string;
-  estado: "entregado";
+  estado:
+    | "pendiente"
+    | "asignado"
+    | "en_camino"
+    | "entregado"
+    | "cancelado";
   fechaCreacion: string | null;
   fechaEntrega: string | null;
   modalidadEntrega: "domicilio" | "recogida";
@@ -59,7 +64,9 @@ interface ReciboData {
     subtotalProductos: number;
     entrega: number;
     logistica: number;
+    transporte: number;
     almacenamiento: number;
+    descuento?: number;
     total: number;
   };
   firma: FirmaRecibo | null;
@@ -274,7 +281,7 @@ export default function ReciboPage() {
         const response = await fetch(
           `/api/pedidos/${encodeURIComponent(
             pedidoId,
-          )}/recibo`,
+          )}/recibo?publico=1`,
           {
             method: "GET",
             cache: "no-store",
@@ -374,7 +381,7 @@ export default function ReciboPage() {
             </h1>
 
             <p className="mt-1 text-sm text-white/85">
-              Recibo de entrega
+              Recibo digital del pedido
             </p>
           </div>
 
@@ -398,11 +405,15 @@ export default function ReciboPage() {
 
             <div>
               <p className="text-base font-bold text-[var(--primary)]">
-                Entrega confirmada
+                {data.estado === "entregado"
+                  ? "Entrega confirmada"
+                  : `Pedido ${capitalizar(data.estado.replace("_", " "))}`}
               </p>
 
               <p className="mt-0.5 text-xs text-gray-600">
-                Este recibo corresponde a una entrega registrada.
+                {data.estado === "entregado"
+                  ? "Este recibo corresponde a una entrega registrada."
+                  : "Este recibo muestra el estado y los costos actuales del pedido."}
               </p>
             </div>
           </div>
@@ -427,12 +438,17 @@ export default function ReciboPage() {
               )}
             />
 
-            <InfoRow
-              label="Fecha de entrega"
-              value={formatDate(
-                data.fechaEntrega,
-              )}
-            />
+              <InfoRow
+                label={
+                  data.estado === "entregado"
+                    ? "Fecha de entrega"
+                    : "Fecha de actualización"
+                }
+                value={formatDate(
+                  data.fechaEntrega ??
+                    data.fechaCreacion,
+                )}
+              />
 
             <InfoRow
               label="Modalidad"
@@ -590,10 +606,10 @@ export default function ReciboPage() {
                     </div>
 
                     <div className="mt-3 border-t border-gray-200 pt-3 text-xs text-gray-500">
-                      {formatMoney(
-                        producto.precioUnitario,
-                      )}{" "}
-                      por {producto.unidad || "unidad"}
+                      {formatQuantity(producto.cantidad)} × {formatMoney(producto.precioUnitario)} = {formatMoney(producto.subtotal)}
+                      <span className="ml-1">
+                        ({formatMoney(producto.precioUnitario)} por {producto.unidad || "unidad"})
+                      </span>
                     </div>
                   </div>
                 ),
@@ -623,24 +639,9 @@ export default function ReciboPage() {
                 </span>
               </div>
 
-              {data.costos.entrega > 0 && (
-                <div className="flex items-center justify-between gap-4 text-sm">
+              <div className="flex items-center justify-between gap-4 text-sm">
                   <span className="text-gray-600">
-                    Entrega
-                  </span>
-
-                  <span className="font-medium text-[var(--foreground)]">
-                    {formatMoney(
-                      data.costos.entrega,
-                    )}
-                  </span>
-                </div>
-              )}
-
-              {data.costos.logistica > 0 && (
-                <div className="flex items-center justify-between gap-4 text-sm">
-                  <span className="text-gray-600">
-                    Logística
+                     Logística (gestión administrativa previa)
                   </span>
 
                   <span className="font-medium text-[var(--foreground)]">
@@ -648,12 +649,19 @@ export default function ReciboPage() {
                       data.costos.logistica,
                     )}
                   </span>
-                </div>
-              )}
+              </div>
 
-              {data.costos.almacenamiento >
-                0 && (
-                <div className="flex items-center justify-between gap-4 text-sm">
+               <div className="flex items-center justify-between gap-4 text-sm">
+                 <span className="text-gray-600">
+                   Transporte / entrega
+                 </span>
+
+                 <span className="font-medium text-[var(--foreground)]">
+                   {formatMoney(data.costos.transporte)}
+                 </span>
+               </div>
+
+               <div className="flex items-center justify-between gap-4 text-sm">
                   <span className="text-gray-600">
                     Almacenamiento
                   </span>
@@ -664,8 +672,23 @@ export default function ReciboPage() {
                         .almacenamiento,
                     )}
                   </span>
-                </div>
-              )}
+              </div>
+
+               {data.costos.descuento ? (
+                 <div className="flex items-center justify-between gap-4 text-sm">
+                   <span className="text-gray-600">
+                     Descuento
+                   </span>
+
+                   <span className="font-medium text-[var(--foreground)]">
+                     −{formatMoney(data.costos.descuento)}
+                   </span>
+                 </div>
+               ) : null}
+
+               <p className="pt-2 text-xs text-gray-500">
+                Suma: subtotal productos + logística (gestión administrativa previa) + transporte / entrega + almacenamiento.
+              </p>
 
               <div className="border-t border-gray-200 pt-4">
                 <div className="flex items-center justify-between gap-4">
@@ -691,6 +714,7 @@ export default function ReciboPage() {
           </SectionTitle>
 
           {data.firma ? (
+            <>
             <div className="rounded-2xl bg-[var(--surface)] p-5">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
@@ -765,10 +789,29 @@ export default function ReciboPage() {
                 </div>
               )}
             </div>
+            {data.estado !== "entregado" && !data.firma && (
+              <div className="rounded-2xl bg-blue-50 p-5 text-sm text-blue-800">
+                La firma de recepción quedará disponible cuando el pedido sea entregado.
+              </div>
+            )}
+            </>
           ) : (
-            <div className="rounded-2xl bg-yellow-50 p-5 text-sm text-yellow-800">
+            <>
+            <div
+              className={
+                data.estado === "entregado"
+                  ? "rounded-2xl bg-yellow-50 p-5 text-sm text-yellow-800"
+                  : "hidden"
+              }
+            >
               La entrega figura como realizada, pero no se encontró información de la firma de recepción.
             </div>
+            {data.estado !== "entregado" && (
+              <div className="rounded-2xl bg-blue-50 p-5 text-sm text-blue-800">
+                La firma de recepción quedará disponible cuando el pedido sea entregado.
+              </div>
+            )}
+            </>
           )}
         </section>
 
@@ -791,7 +834,9 @@ export default function ReciboPage() {
           </div>
 
           <h2 className="mt-4 text-lg font-bold text-[var(--foreground)]">
-            Recibo verificado
+             {data.verificacion.valido
+               ? "Recibo verificado"
+               : "Recibo consultado"}
           </h2>
 
           <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-gray-600">

@@ -173,7 +173,7 @@ export async function GET(
         title:
           "¿Todavía quieres tus productos?",
         body:
-          "Tienes productos en tu cesta esperando por ti.",
+          "Tienes productos en tu Canasta esperando por ti.",
         icon:
           "/images/logos/logo-canastas-verdes.svg",
         badge:

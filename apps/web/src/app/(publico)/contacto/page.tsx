@@ -4,6 +4,7 @@ import Image from "next/image";
 import { FormEvent, useEffect, useState } from "react";
 import { getIdToken } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
+import { MapPin, MessageCircle } from "lucide-react";
 
 import { useAuth } from "@/hooks/useAuth";
 import { auth, db } from "@/lib/firebase";
@@ -407,7 +408,7 @@ HERO
             </h3>
 
             <p className="mt-1 text-sm text-[var(--muted)]">
-              contacto@canastasverdes.com
+              contacto.canastasverdes@gmail.com
             </p>
           </div>
 
@@ -431,6 +432,61 @@ HERO
               <br />
               8:00 a. m. — 5:00 p. m.
             </p>
+          </div>
+
+          <div>
+            <h3 className="font-semibold text-[var(--foreground)]">
+              Ubicación de atencion.
+            </h3>
+
+            <p className="mt-1 flex items-start gap-2 text-sm text-[var(--muted)]">
+              <MapPin size={17} className="mt-0.5 shrink-0 text-[var(--primary)]" aria-hidden="true" />
+              Calle 20, 24 - 64, Pasto, Nariño 520002
+            </p>
+          </div>
+
+          <div>
+            <h3 className="font-semibold text-[var(--foreground)]">
+              Habla con nosotros
+            </h3>
+
+            <div className="mt-3 flex flex-wrap gap-3">
+              <a
+                href="https://wa.me/573001234567"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Escribir por WhatsApp"
+                className="inline-flex items-center gap-2 rounded-full bg-[#25D366] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+              >
+                <MessageCircle size={17} aria-hidden="true" />
+                WhatsApp
+                <span aria-hidden="true">↗</span>
+              </a>
+
+              <a
+                href="https://www.instagram.com/canastasverdes/"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Visitar Instagram de Canastas Verdes"
+                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-[#833AB4] via-[#E1306C] to-[#FCAF45] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+              >
+                <svg
+                  width="17"
+                  height="17"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <rect x="3" y="3" width="18" height="18" rx="5" />
+                  <circle cx="12" cy="12" r="4" />
+                  <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none" />
+                </svg>
+                Instagram
+                <span aria-hidden="true">↗</span>
+              </a>
+            </div>
           </div>
         </div>
       </div>
@@ -658,7 +714,7 @@ HERO
   </section>
 
   {/* ======================================================
-      UBICACIONES
+      FINCAS
   ======================================================= */}
 
   <section className="bg-white py-16">
@@ -669,7 +725,7 @@ HERO
       </h2>
 
       <p className="mt-4 text-[var(--muted)]">
-        Consulta nuestras ubicaciones para encontrar
+        Consulta nuestras fincas para encontrar
         el punto de atención más cercano.
       </p>
 
@@ -677,7 +733,7 @@ HERO
         href="/ubicaciones"
         className="mt-6 inline-flex rounded-[var(--radius-md)] border-2 border-black/30 bg-[var(--primary)] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#18572f]"
       >
-        Ver ubicaciones
+        Ver fincas
       </a>
 
     </div>

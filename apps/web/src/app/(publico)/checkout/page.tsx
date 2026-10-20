@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/hooks/useAuth";
 import { useCart } from "@/hooks/useCart";
+import { calcularPrecioLinea } from "@/lib/pedidos/precios";
 
 interface Municipality {
   id: string;
@@ -24,6 +25,8 @@ interface PuntoRecogida {
   activo: boolean;
   googleMapsUrl: string;
   googleMapsEmbedUrl: string;
+  esPuntoRecogida: boolean;
+  esPuntoRecogidaDefault: boolean;
 }
 
 interface Profile {
@@ -36,17 +39,25 @@ interface Profile {
 
 type TipoEntrega = "domicilio" | "recogida";
 
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("es-CO", {
+    style: "currency",
+    currency: "COP",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
 export default function CheckoutPage() {
   const router = useRouter();
 
   const { user, loading: authLoading } = useAuth();
-  const { items, totalPrice, clearCart } = useCart();
+  const { items, clearCart } = useCart();
 
   const [municipalities, setMunicipalities] = useState<Municipality[]>([]);
   const [puntosRecogida, setPuntosRecogida] = useState<PuntoRecogida[]>([]);
 
   const [tipoEntrega, setTipoEntrega] =
-    useState<TipoEntrega>("domicilio");
+    useState<TipoEntrega>("recogida");
 
   const [municipality, setMunicipality] = useState("");
   const [puntoRecogidaId, setPuntoRecogidaId] = useState("");
@@ -97,7 +108,7 @@ export default function CheckoutPage() {
             cache: "no-store",
           }),
 
-          fetch("/api/puntos-recogida", {
+          fetch("/api/puntos-recogida?soloRecogida=1", {
             cache: "no-store",
           }),
         ]);
@@ -124,7 +135,7 @@ export default function CheckoutPage() {
         ) {
           throw new Error(
             municipalitiesResult.message ||
-              "No fue posible cargar las municipalidades."
+              "No fue posible cargar los municipios."
           );
         }
 
@@ -174,7 +185,7 @@ export default function CheckoutPage() {
         setError(
           err instanceof Error
             ? err.message
-            : "No fue posible cargar el checkout."
+            : "No fue posible cargar la solicitud de su canasta."
         );
       } finally {
         setLoading(false);
@@ -194,7 +205,10 @@ export default function CheckoutPage() {
       puntosRecogida.length > 0
     ) {
       setPuntoRecogidaId(
-        puntosRecogida[0].id
+        (puntosRecogida.find(
+          (point) =>
+            point.esPuntoRecogidaDefault,
+        ) ?? puntosRecogida[0]).id,
       );
     }
   }, [
@@ -204,6 +218,44 @@ export default function CheckoutPage() {
   ]);
 
   const normalizedPhone = phone.replace(/\D/g, "");
+
+  const costosCarrito = useMemo(
+    () =>
+      items.reduce(
+        (totales, item) => {
+          const costos = calcularPrecioLinea(
+            {
+              ...item.product,
+              precioVenta: item.product.precio,
+            } as unknown as Record<string, unknown>,
+            "precioVenta",
+          );
+
+          return {
+            subtotalProductos:
+              totales.subtotalProductos +
+              costos.precioBase * item.quantity,
+            logistica:
+              totales.logistica +
+              costos.logisticaUnitario * item.quantity,
+            transporte:
+              totales.transporte +
+              costos.transporteUnitario * item.quantity,
+          };
+        },
+        {
+          subtotalProductos: 0,
+          logistica: 0,
+          transporte: 0,
+        },
+      ),
+    [items],
+  );
+
+  const totalCheckout =
+    costosCarrito.subtotalProductos +
+    costosCarrito.logistica +
+    costosCarrito.transporte;
 
   const validPhone =
     normalizedPhone.length === 10;
@@ -331,7 +383,7 @@ export default function CheckoutPage() {
     return (
       <main className="min-h-screen bg-[var(--surface)] px-4 py-12">
         <div className="mx-auto max-w-4xl rounded-2xl border border-[var(--border)] bg-white p-8 text-center text-[var(--muted)]">
-          Cargando checkout...
+          Cargando Solicitud de Canasta...
         </div>
       </main>
     );
@@ -423,7 +475,7 @@ export default function CheckoutPage() {
                   />
 
                   <p className="font-semibold text-[var(--foreground)]">
-                    Recoger en un punto
+                    Recoger en punto
                   </p>
 
                   <p className="mt-1 text-sm text-[var(--muted)]">
@@ -704,6 +756,65 @@ export default function CheckoutPage() {
                     : "Recogida"}
                 </span>
               </div>
+
+              <div className="mt-4 border-t border-dashed border-[var(--border)] pt-4">
+                <p className="mb-3 text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
+                  Desglose económico
+                </p>
+
+                <div className="space-y-2">
+                  {items.map((item) => (
+                    <div
+                      key={item.product.id}
+                      className="flex justify-between gap-4 text-sm"
+                    >
+                      <span className="min-w-0 text-[var(--muted)]">
+                        {item.quantity} × {item.product.nombre}
+                      </span>
+
+                      <span className="shrink-0 font-medium text-[var(--foreground)]">
+                         {formatMoney(
+                           calcularPrecioLinea(
+                             {
+                               ...item.product,
+                               precioVenta: item.product.precio,
+                             } as unknown as Record<string, unknown>,
+                             "precioVenta",
+                           ).precioBase * item.quantity,
+                         )}
+                      </span>
+                    </div>
+                  ))}
+
+                  <div className="flex justify-between gap-4 border-t border-[var(--border)] pt-2 text-sm font-semibold">
+                    <span>Subtotal productos</span>
+                     <span>
+                       {formatMoney(
+                         costosCarrito.subtotalProductos,
+                       )}
+                     </span>
+                  </div>
+
+                  <div className="flex justify-between gap-4 text-sm">
+                    <span className="text-[var(--muted)]">
+                      Logística (gestión administrativa previa)
+                    </span>
+                    <span className="font-medium text-[var(--foreground)]">
+                      {formatMoney(costosCarrito.logistica)}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between gap-4 text-sm">
+                    <span className="text-[var(--muted)]">
+                      Transporte / entrega
+                    </span>
+                    <span className="font-medium text-[var(--foreground)]">
+                      {formatMoney(costosCarrito.transporte)}
+                    </span>
+                  </div>
+
+                </div>
+              </div>
             </div>
 
             <div className="flex items-center justify-between py-5">
@@ -712,7 +823,7 @@ export default function CheckoutPage() {
               </span>
 
               <span className="text-xl font-bold text-[var(--primary)]">
-                ${totalPrice.toLocaleString("es-CO")} COP
+                 {formatMoney(totalCheckout)}
               </span>
             </div>
 

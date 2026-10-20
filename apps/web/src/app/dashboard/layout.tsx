@@ -35,11 +35,11 @@ const adminNavigation: NavigationItem[] = [
     href: "/dashboard/presentaciones",
   },
   {
-    label: "Municipalidades",
+    label: "Municipios",
     href: "/dashboard/municipalidades",
   },
   {
-  label: "Lugares de recogida",
+  label: "Fincas",
   href: "/dashboard/lugares-recogida",
   },
   {
@@ -227,14 +227,14 @@ export default function DashboardLayout({
               })}
             </nav>
 
-            {/* Volver a la tienda */}
+            {/* Volver a ver productos */}
 
             <div className="mt-4 border-t border-[var(--border)] pt-3">
               <Link
                 href="/tienda"
                 className="block rounded-lg px-3 py-2.5 text-sm font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--primary)]"
               >
-                Volver a la tienda
+                Volver a ver productos
               </Link>
             </div>
           </div>
@@ -274,7 +274,7 @@ export default function DashboardLayout({
               href="/tienda"
               className="shrink-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium text-[var(--foreground)]"
             >
-              Tienda
+              Productos
             </Link>
           </div>
 

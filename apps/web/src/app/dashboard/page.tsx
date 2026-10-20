@@ -30,15 +30,15 @@ const adminSections = [
   },
   {
     href: "/dashboard/lugares-recogida",
-    title: "Lugares de recogida",
+     title: "Fincas",
     description:
-      "Crear, editar, activar y administrar los puntos disponibles para recogida.",
+       "Gestionar fincas, municipios y lugares habilitados para recogida.",
   },
   {
     href: "/dashboard/estadisticas",
     title: "Estadísticas",
     description:
-      "Consultar métricas operativas de la tienda.",
+      "Consultar métricas operativas de los productos.",
   },
 ];
 

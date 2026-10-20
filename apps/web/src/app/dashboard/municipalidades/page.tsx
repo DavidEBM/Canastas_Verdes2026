@@ -141,7 +141,7 @@ setError(null);
     setError(
       caught instanceof Error
         ? caught.message
-        : "No fue posible cargar las municipalidades.",
+        : "No fue posible cargar los municipios.",
     );
   } finally {
     setLoading(false);
@@ -178,7 +178,7 @@ event?.preventDefault();
 
   if (!value) {
     setError(
-      "El nombre de la municipalidad es obligatorio.",
+      "El nombre del municipio es obligatorio.",
     );
     return;
   }
@@ -201,7 +201,7 @@ event?.preventDefault();
     setNombre("");
 
     setSuccess(
-      "Municipalidad creada correctamente.",
+      "Municipio creado correctamente.",
     );
 
     await loadMunicipalities();
@@ -209,7 +209,7 @@ event?.preventDefault();
     setError(
       caught instanceof Error
         ? caught.message
-        : "No fue posible crear la municipalidad.",
+        : "No fue posible crear el municipio.",
     );
   } finally {
     setSaving(false);
@@ -256,7 +256,7 @@ return;
 
   if (!value) {
     setError(
-      "El nombre de la municipalidad es obligatorio.",
+      "El nombre del municipio es obligatorio.",
     );
     return;
   }
@@ -279,7 +279,7 @@ return;
     cancelEditing();
 
     setSuccess(
-      "Municipalidad actualizada correctamente.",
+      "Municipio actualizado correctamente.",
     );
 
     await loadMunicipalities();
@@ -287,7 +287,7 @@ return;
     setError(
       caught instanceof Error
         ? caught.message
-        : "No fue posible actualizar la municipalidad.",
+        : "No fue posible actualizar el municipio.",
     );
   } finally {
     setSaving(false);
@@ -338,8 +338,8 @@ const activar =
 
     setSuccess(
       activar
-        ? "Municipalidad activada correctamente."
-        : "Municipalidad desactivada correctamente.",
+        ? "Municipio activado correctamente."
+        : "Municipio desactivado correctamente.",
     );
 
     await loadMunicipalities();
@@ -347,7 +347,7 @@ const activar =
     setError(
       caught instanceof Error
         ? caught.message
-        : "No fue posible cambiar el estado de la municipalidad.",
+        : "No fue posible cambiar el estado del municipio.",
     );
   } finally {
     setActionId(null);
@@ -365,7 +365,7 @@ municipality: Municipality,
 ) => {
 if (municipality.activo) {
 setError(
-"Solo se pueden eliminar municipalidades desactivadas.",
+"Solo se pueden eliminar municipios desactivados.",
 );
 return;
 }
@@ -403,7 +403,7 @@ return;
     }
 
     setSuccess(
-      "Municipalidad eliminada definitivamente.",
+      "Municipio eliminado definitivamente.",
     );
 
     await loadMunicipalities();
@@ -411,7 +411,7 @@ return;
     setError(
       caught instanceof Error
         ? caught.message
-        : "No fue posible eliminar la municipalidad.",
+        : "No fue posible eliminar el municipio.",
     );
   } finally {
     setActionId(null);
@@ -438,7 +438,7 @@ Acceso restringido </h1>
   
       <p className="mt-2 text-sm text-[var(--muted)]">
         Solo los administradores pueden
-        gestionar municipalidades.
+        gestionar municipios.
       </p>
     </div>
   </main>
@@ -457,11 +457,11 @@ return ( <main>
   
   <div>
     <h1 className="text-2xl font-bold text-[var(--foreground)]">
-      Municipalidades
+      Municipios
     </h1>
 
     <p className="mt-2 text-sm text-[var(--muted)]">
-      Administra las municipalidades
+      Administra los municipios
       disponibles para los productos y
       pedidos.
     </p>
@@ -507,7 +507,7 @@ return ( <main>
 
   <section className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5">
     <h2 className="text-lg font-semibold">
-      Nueva municipalidad
+      Nuevo municipio
     </h2>
 
     <form
@@ -526,7 +526,7 @@ return ( <main>
             event.target.value,
           )
         }
-        placeholder="Nombre de la municipalidad"
+        placeholder="Nombre del municipio"
         maxLength={150}
         disabled={saving}
         className="h-11 flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm outline-none focus:border-[var(--primary)] disabled:opacity-50"
@@ -554,18 +554,18 @@ return ( <main>
   <section className="mt-6 overflow-hidden rounded-2xl border border-[var(--border)]">
     <div className="border-b border-[var(--border)] bg-[var(--surface)] px-5 py-4">
       <h2 className="font-semibold">
-        Municipalidades registradas
+        Municipios registrados
       </h2>
     </div>
 
     {loading ? (
       <div className="p-8 text-center text-sm text-[var(--muted)]">
-        Cargando municipalidades...
+        Cargando municipios...
       </div>
     ) : municipalities.length ===
       0 ? (
       <div className="p-8 text-center text-sm text-[var(--muted)]">
-        No hay municipalidades
+        No hay municipios
         registradas.
       </div>
     ) : (

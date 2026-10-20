@@ -720,8 +720,22 @@ export async function GET(
 
     const subtotal =
       numberValue(
-        pedidoData.subtotal,
+        pedidoData.subtotalProductos ??
+          pedidoData.subtotal,
       );
+
+    const logistica =
+      numberValue(pedidoData.logistica);
+
+    const transporte =
+      numberValue(
+        pedidoData.transporte !== undefined
+          ? pedidoData.transporte
+          : pedidoData.entrega,
+      );
+
+    const almacenamiento =
+      numberValue(pedidoData.almacenamiento);
 
     const total =
       numberValue(
@@ -789,8 +803,9 @@ export async function GET(
         subtotalProductos:
           subtotal,
         entrega: 0,
-        logistica: 0,
-        almacenamiento: 0,
+        logistica,
+        transporte,
+        almacenamiento,
         total,
       },
 

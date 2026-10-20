@@ -158,14 +158,13 @@ export default function PoliticaCookiesPage() {
           {/* 8 */}
           <section>
             <h2 className="mb-3 text-xl font-bold">
-              8. Contacto
+              8. Habla con nosotros
             </h2>
 
             <p className="leading-7 text-[var(--muted)]">
               Si tienes preguntas relacionadas con el uso de cookies o
               tecnologías de almacenamiento en Canastas Verdes, puedes
-              comunicarte con nosotros a través del apartado de contacto de
-              la plataforma.
+              mandarnos un mensaje a través del menu superior y la opcion "Habla con nosotros", o por medio de los canales de comunicación disponibles.
             </p>
           </section>
         </div>

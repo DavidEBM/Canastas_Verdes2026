@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useState } from "react";
 import {
   GoogleAuthProvider,
+  sendEmailVerification,
+  signOut,
   signInWithEmailAndPassword,
   signInWithPopup,
 } from "firebase/auth";
@@ -13,7 +15,12 @@ import {
 } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 
-import { auth, db } from "@/lib/firebase";
+import {
+  auth,
+  authPersistenceReady,
+  db,
+} from "@/lib/firebase";
+import { getGoogleProfileName } from "@/lib/google-profile";
 
 type UserRole =
   | "consumidor"
@@ -119,6 +126,65 @@ async function getUserRole(
  * REDIRECCIÓN SEGÚN ROL
  * ============================================================
  */
+async function syncGoogleProfile(
+  user: {
+    uid: string;
+    email: string | null;
+    displayName: string | null;
+    getIdToken: (forceRefresh?: boolean) => Promise<string>;
+  },
+) {
+  const googleName = getGoogleProfileName(
+    user.displayName,
+    user.email,
+  );
+
+  const idToken = await user.getIdToken(true);
+
+  const response = await fetch(
+    "/api/usuarios/perfil",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({
+        Nombres: googleName.nombres,
+        Apellidos: googleName.apellidos,
+        NombreCompleto: googleName.nombreCompleto,
+        Correo: user.email ?? "",
+        Telefono: "",
+        Direccion: "",
+        Proveedor: "google",
+        AceptacionTerminos: {
+          aceptado: true,
+          version: "1.0",
+          tipo: "terminos-condiciones",
+        },
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    let message = "No fue posible sincronizar el perfil de Google.";
+
+    try {
+      const data = (await response.json()) as {
+        message?: unknown;
+      };
+
+      if (typeof data.message === "string") {
+        message = data.message;
+      }
+    } catch {
+      // Conservamos el mensaje genérico si el backend no devuelve JSON.
+    }
+
+    throw new Error(message);
+  }
+}
+
 function redirectByRole(
   router: ReturnType<typeof useRouter>,
   role: UserRole | null,
@@ -161,6 +227,15 @@ export default function LoginPage() {
   const [googleLoading, setGoogleLoading] =
     useState(false);
 
+  const [verificationPending, setVerificationPending] =
+    useState(false);
+
+  const [resendLoading, setResendLoading] =
+    useState(false);
+
+  const [verificationMessage, setVerificationMessage] =
+    useState("");
+
   /*
    * ============================================================
    * LOGIN CON CORREO Y CONTRASEÑA
@@ -172,9 +247,13 @@ export default function LoginPage() {
     event.preventDefault();
 
     setError("");
+    setVerificationMessage("");
+    setVerificationPending(false);
     setLoading(true);
 
     try {
+      await authPersistenceReady;
+
       /*
        * ========================================================
        * 1. AUTENTICAR
@@ -194,6 +273,19 @@ export default function LoginPage() {
       const currentUser =
         credential.user;
 
+      const usesPasswordProvider =
+        currentUser.providerData.some(
+          (provider) => provider.providerId === "password",
+        );
+
+      if (usesPasswordProvider && !currentUser.emailVerified) {
+        await signOut(auth);
+        setVerificationPending(true);
+        throw new Error(
+          "Debes confirmar tu cuenta desde el enlace enviado a tu correo antes de iniciar sesión.",
+        );
+      }
+
       console.log(
         "Usuario autenticado:",
         currentUser.uid,
@@ -208,6 +300,14 @@ export default function LoginPage() {
         await getUserRole(
           currentUser.uid,
         );
+
+      if (
+        currentUser.providerData.some(
+          (provider) => provider.providerId === "google.com",
+        )
+      ) {
+        await syncGoogleProfile(currentUser);
+      }
 
       console.log(
         "Rol obtenido:",
@@ -309,6 +409,73 @@ export default function LoginPage() {
     }
   };
 
+  const handleResendVerification = async () => {
+    setResendLoading(true);
+    setVerificationMessage("");
+
+    try {
+      await authPersistenceReady;
+
+      const credential =
+        await signInWithEmailAndPassword(
+          auth,
+          email.trim(),
+          password,
+        );
+
+      if (credential.user.emailVerified) {
+        await signOut(auth);
+        setVerificationPending(false);
+        setError(
+          "Esta cuenta ya está confirmada. Puedes iniciar sesión nuevamente.",
+        );
+        return;
+      }
+
+      await sendEmailVerification(credential.user);
+      await signOut(auth);
+      setVerificationMessage(
+        "Correo de confirmación enviado. Revisa también la carpeta de spam.",
+      );
+    } catch (error: unknown) {
+      console.error(
+        "Error reenviando la confirmación del correo:",
+        error,
+      );
+
+      const code =
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        typeof error.code === "string"
+          ? error.code
+          : "";
+
+      if (code === "auth/too-many-requests") {
+        setError(
+          "Se solicitaron demasiados correos. Espera unos minutos antes de intentarlo nuevamente.",
+        );
+      } else if (
+        code === "auth/invalid-credential" ||
+        code === "auth/wrong-password" ||
+        code === "auth/user-not-found"
+      ) {
+        setError(
+          "El correo o la contraseña no son correctos.",
+        );
+      } else {
+        setError(
+          "No fue posible reenviar el correo de confirmación. Intenta nuevamente.",
+        );
+      }
+    } finally {
+      if (auth.currentUser) {
+        await signOut(auth).catch(() => undefined);
+      }
+      setResendLoading(false);
+    }
+  };
+
   /*
    * ============================================================
    * LOGIN CON GOOGLE
@@ -320,6 +487,8 @@ export default function LoginPage() {
 
       try {
         setGoogleLoading(true);
+
+        await authPersistenceReady;
 
         /*
          * ======================================================
@@ -531,7 +700,26 @@ export default function LoginPage() {
               role="alert"
               className="mt-6 rounded-[var(--radius-md)] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
             >
-              {error}
+              <p>{error}</p>
+
+              {verificationPending && (
+                <button
+                  type="button"
+                  onClick={handleResendVerification}
+                  disabled={isLoading || resendLoading}
+                  className="mt-2 font-semibold underline underline-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {resendLoading
+                    ? "Enviando correo..."
+                    : "Reenviar correo de confirmación"}
+                </button>
+              )}
+
+              {verificationMessage && (
+                <p className="mt-2 font-medium text-green-700">
+                  {verificationMessage}
+                </p>
+              )}
             </div>
           )}
 

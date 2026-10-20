@@ -147,7 +147,9 @@ vite.config.ts.timestamp-*
 .turbo/cache/
 
 #Carpetas Scripts
+.cline
 packages
 scripts
+pruebas-playwright/
 packages/
 scripts/

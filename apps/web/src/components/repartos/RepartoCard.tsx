@@ -761,26 +761,26 @@ export default function RepartoCard({
 
                 <div className="flex justify-between gap-4">
                   <span>
-                    Entrega
-                  </span>
-
-                  <span className="text-right">
-                    {formatPrice(
-                      reparto.costos
-                        .entrega,
-                    )}
-                  </span>
-                </div>
-
-                <div className="flex justify-between gap-4">
-                  <span>
-                    Logística
+                    Logística (gestión administrativa previa)
                   </span>
 
                   <span className="text-right">
                     {formatPrice(
                       reparto.costos
                         .logistica,
+                    )}
+                  </span>
+                </div>
+
+                <div className="flex justify-between gap-4">
+                  <span>
+                    Transporte / entrega
+                  </span>
+
+                  <span className="text-right">
+                    {formatPrice(
+                      reparto.costos
+                        .transporte,
                     )}
                   </span>
                 </div>

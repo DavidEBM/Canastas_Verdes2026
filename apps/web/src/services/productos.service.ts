@@ -51,6 +51,7 @@ export interface Product {
   /* Imágenes */
   imgPath: string;
   imageName: string;
+  mensajeDisponibilidad: string;
 
   /* Estado */
   activo: boolean;
@@ -200,6 +201,11 @@ function mapProduct(
 
     imageName:
       stringValue(data.imageName),
+
+    mensajeDisponibilidad:
+      stringValue(
+        data.mensajeDisponibilidad,
+      ),
 
     /* Estado */
     activo:

@@ -138,7 +138,7 @@ export const productoSchema = z.object({
 
   /**
    * null mientras el producto siga
-   * disponible en la tienda.
+   * disponible en la plataforma.
    */
   fechaCierre: z
     .unknown()

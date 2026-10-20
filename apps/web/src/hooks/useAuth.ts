@@ -15,7 +15,11 @@ import {
   getDoc,
 } from "firebase/firestore";
 
-import { auth, db } from "@/lib/firebase";
+import {
+  auth,
+  authPersistenceReady,
+  db,
+} from "@/lib/firebase";
 
 export type UserRole =
   | "consumidor"
@@ -193,9 +197,16 @@ export function useAuth() {
 
   useEffect(() => {
     let active = true;
+    let unsubscribe = () => {};
 
-    const unsubscribe =
-      onAuthStateChanged(
+    const subscribe = async () => {
+      await authPersistenceReady;
+
+      if (!active) {
+        return;
+      }
+
+      unsubscribe = onAuthStateChanged(
         auth,
         async (currentUser) => {
           /*
@@ -260,6 +271,9 @@ export function useAuth() {
           });
         },
       );
+    };
+
+    void subscribe();
 
     /*
      * ========================================================

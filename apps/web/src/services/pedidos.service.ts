@@ -43,6 +43,12 @@ export interface PedidoProducto {
 
   subtotal: number;
 
+  precioBaseUnitario?: number;
+
+  costoLogisticaUnitario?: number;
+
+  costoTransporteUnitario?: number;
+
   /**
    * Referencia a la presentación utilizada
    * por el producto.
@@ -72,6 +78,16 @@ export interface Pedido {
   productos: PedidoProducto[];
 
   subtotal: number;
+
+  subtotalProductos?: number;
+
+  entrega?: number;
+
+  logistica?: number;
+
+  transporte?: number;
+
+  almacenamiento?: number;
 
   total: number;
 
@@ -128,6 +144,18 @@ function mapPedido(
               producto.subtotal ?? 0,
             ),
 
+            precioBaseUnitario: Number(
+              producto.precioBaseUnitario ?? 0,
+            ),
+
+            costoLogisticaUnitario: Number(
+              producto.costoLogisticaUnitario ?? 0,
+            ),
+
+            costoTransporteUnitario: Number(
+              producto.costoTransporteUnitario ?? 0,
+            ),
+
             IdPresentacion:
               producto.IdPresentacion ?? "",
 
@@ -150,6 +178,22 @@ function mapPedido(
 
     subtotal: Number(
       data.subtotal ?? 0,
+    ),
+
+    subtotalProductos: Number(
+      data.subtotalProductos ??
+        data.subtotal ??
+        0,
+    ),
+
+    entrega: Number(data.entrega ?? 0),
+
+    logistica: Number(data.logistica ?? 0),
+
+    transporte: Number(data.transporte ?? 0),
+
+    almacenamiento: Number(
+      data.almacenamiento ?? 0,
     ),
 
     total: Number(

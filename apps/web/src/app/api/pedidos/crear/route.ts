@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import {
+  calcularPrecioLinea,
+  etiquetaTipoPrecio,
+} from "@/lib/pedidos/precios";
 
 export const runtime = "nodejs";
 
@@ -413,7 +417,9 @@ export async function POST(request: Request) {
           Record<string, unknown>
         > = [];
 
-        let subtotal = 0;
+        let subtotalProductos = 0;
+        let logisticaTotal = 0;
+        let transporteTotal = 0;
 
         /*
          * ==========================================
@@ -453,8 +459,10 @@ export async function POST(request: Request) {
             product.stock ?? 0,
           );
 
-          const precio = Number(
-            product.precio ?? 0,
+          const precioVenta = Number(
+            product.precioVenta ??
+              product.precio ??
+              0,
           );
 
           if (
@@ -479,18 +487,31 @@ export async function POST(request: Request) {
           }
 
           if (
-            !Number.isFinite(precio) ||
-            precio < 0
+            !Number.isFinite(precioVenta) ||
+            precioVenta < 0
           ) {
             throw new Error(
               "INVALID_PRICE",
             );
           }
 
+          const costosLinea = calcularPrecioLinea(
+            product,
+            "precioVenta",
+          );
           const lineSubtotal =
-            precio * item.quantity;
+            costosLinea.precioUnitario *
+            item.quantity;
 
-          subtotal += lineSubtotal;
+          subtotalProductos +=
+            costosLinea.precioBase *
+            item.quantity;
+          logisticaTotal +=
+            costosLinea.logisticaUnitario *
+            item.quantity;
+          transporteTotal +=
+            costosLinea.transporteUnitario *
+            item.quantity;
 
           /*
            * ========================================
@@ -530,7 +551,31 @@ export async function POST(request: Request) {
 
             cantidad: item.quantity,
 
-            precioUnitario: precio,
+            tipoPrecio:
+              costosLinea.tipoPrecio,
+
+            tipoPrecioEtiqueta:
+              etiquetaTipoPrecio[
+                costosLinea.tipoPrecio
+              ],
+
+            precioBaseUnitario:
+              costosLinea.precioBase,
+
+            porcentajeLogistica:
+              costosLinea.porcentajeLogistica,
+
+            porcentajeTransporte:
+              costosLinea.porcentajeTransporte,
+
+            costoLogisticaUnitario:
+              costosLinea.logisticaUnitario,
+
+            costoTransporteUnitario:
+              costosLinea.transporteUnitario,
+
+            precioUnitario:
+              costosLinea.precioUnitario,
 
             subtotal: lineSubtotal,
 
@@ -604,6 +649,11 @@ export async function POST(request: Request) {
          * ==========================================
          */
 
+        const subtotal =
+          subtotalProductos +
+          logisticaTotal +
+          transporteTotal;
+
         transaction.set(
           reservationRef,
           {
@@ -639,7 +689,29 @@ export async function POST(request: Request) {
 
             subtotal,
 
+            subtotalProductos,
+
+            descuento: 0,
+
+            entrega: 0,
+
+            logistica: logisticaTotal,
+
+            transporte: transporteTotal,
+
+            almacenamiento: 0,
+
             total: subtotal,
+
+            costos: {
+              subtotalProductos,
+              entrega: 0,
+              logistica: logisticaTotal,
+              transporte: transporteTotal,
+              almacenamiento: 0,
+              descuento: 0,
+            total: subtotal,
+            },
 
             estado: "pendiente",
 

@@ -9,6 +9,31 @@ export const runtime = "nodejs";
 const COLLECTION = "puntosRecogida";
 const MUNICIPALIDADES = "municipalidades";
 
+async function clearDefaultPickup(excludeId?: string) {
+  const snapshot = await adminDb
+    .collection(COLLECTION)
+    .where("esPuntoRecogidaDefault", "==", true)
+    .get();
+
+  if (snapshot.empty) {
+    return;
+  }
+
+  const batch = adminDb.batch();
+
+  snapshot.docs.forEach((document) => {
+    if (document.id !== excludeId) {
+      batch.update(document.ref, {
+        esPuntoRecogidaDefault: false,
+        fechaActualizacion:
+          FieldValue.serverTimestamp(),
+      });
+    }
+  });
+
+  await batch.commit();
+}
+
 function cleanString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -97,6 +122,8 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const adminMode =
       url.searchParams.get("admin") === "1";
+    const soloRecogida =
+      url.searchParams.get("soloRecogida") === "1";
 
     if (adminMode) {
       await requireAdmin(request);
@@ -113,7 +140,18 @@ export async function GET(request: Request) {
 
         const activo = item.activo !== false;
 
+        const esPuntoRecogida =
+          item.esPuntoRecogida !== false;
+
+        const esPuntoRecogidaDefault =
+          esPuntoRecogida &&
+          item.esPuntoRecogidaDefault === true;
+
         if (!adminMode && !activo) {
+          return null;
+        }
+
+        if (soloRecogida && !esPuntoRecogida) {
           return null;
         }
 
@@ -192,6 +230,9 @@ export async function GET(request: Request) {
 
           activo,
 
+          esPuntoRecogida,
+          esPuntoRecogidaDefault,
+
           googleMapsUrl,
           googleMapsEmbedUrl,
         };
@@ -249,6 +290,13 @@ export async function POST(request: Request) {
       body.telefono
     );
 
+    const esPuntoRecogida =
+      body.esPuntoRecogida !== false;
+
+    const esPuntoRecogidaDefault =
+      esPuntoRecogida &&
+      body.esPuntoRecogidaDefault === true;
+
     if (
       !nombre ||
       !direccion ||
@@ -258,7 +306,7 @@ export async function POST(request: Request) {
         {
           success: false,
           message:
-            "Nombre, dirección y municipalidad son obligatorios.",
+            "Nombre, dirección y municipio son obligatorios.",
         },
         { status: 400 }
       );
@@ -319,7 +367,7 @@ export async function POST(request: Request) {
         {
           success: false,
           message:
-            "La municipalidad no existe.",
+            "El municipio no existe.",
         },
         { status: 400 }
       );
@@ -330,7 +378,7 @@ export async function POST(request: Request) {
         {
           success: false,
           message:
-            "No se puede crear un punto asociado a una municipalidad inactiva.",
+            "No se puede crear un punto asociado a un municipio inactivo.",
         },
         { status: 400 }
       );
@@ -376,6 +424,10 @@ export async function POST(request: Request) {
       .collection(COLLECTION)
       .doc();
 
+    if (esPuntoRecogidaDefault) {
+      await clearDefaultPickup();
+    }
+
     await ref.set({
       nombre,
       direccion,
@@ -392,6 +444,9 @@ export async function POST(request: Request) {
       telefono,
 
       activo: true,
+
+      esPuntoRecogida,
+      esPuntoRecogidaDefault,
 
       googleMapsUrl,
       googleMapsEmbedUrl,
@@ -422,6 +477,9 @@ export async function POST(request: Request) {
           telefono,
 
           activo: true,
+
+          esPuntoRecogida,
+          esPuntoRecogidaDefault,
 
           googleMapsUrl,
           googleMapsEmbedUrl,

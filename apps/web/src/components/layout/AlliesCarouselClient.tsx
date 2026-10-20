@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
   useCallback,
@@ -16,7 +16,7 @@ type Props = {
   images: AllyImage[];
 };
 
-const AUTO_SPEED = 0.35; // píxeles por frame. Menor = más lento.
+const AUTO_SPEED = 0.15; // Optimizado: más lento y elegante; // pÃ­xeles por frame. Menor = mÃ¡s lento.
 const RESUME_DELAY = 1500;
 
 export default function AlliesCarouselClient({
@@ -36,9 +36,9 @@ export default function AlliesCarouselClient({
   const [isDragging, setIsDragging] = useState(false);
 
   /*
-   * Duplicamos las imágenes varias veces para que exista
+   * Duplicamos las imÃ¡genes varias veces para que exista
    * contenido suficiente a ambos lados y el movimiento
-   * pueda ser prácticamente infinito.
+   * pueda ser prÃ¡cticamente infinito.
    */
   const repeatedImages = [
     ...images,
@@ -55,7 +55,7 @@ export default function AlliesCarouselClient({
 
     /*
      * Medimos la primera tercera parte del contenido.
-     * Como las imágenes están repetidas 3 veces,
+     * Como las imÃ¡genes estÃ¡n repetidas 3 veces,
      * ese ancho representa exactamente un ciclo.
      */
     const children = Array.from(track.children);
@@ -92,7 +92,7 @@ export default function AlliesCarouselClient({
     }
 
     /*
-     * Mantiene la posición dentro del segundo ciclo.
+     * Mantiene la posiciÃ³n dentro del segundo ciclo.
      * Esto evita que el valor crezca indefinidamente.
      */
     while (positionRef.current >= loopWidth * 2) {
@@ -150,7 +150,7 @@ export default function AlliesCarouselClient({
     };
 
     /*
-     * Pequeño retraso inicial para que el componente
+     * PequeÃ±o retraso inicial para que el componente
      * termine de medir correctamente el contenido.
      */
     timeoutUntilStart = setTimeout(startMovement, 500);
@@ -250,7 +250,7 @@ export default function AlliesCarouselClient({
 
     /*
      * Esperamos 3 segundos antes de reanudar el
-     * movimiento automático.
+     * movimiento automÃ¡tico.
      */
     setTimeout(() => {
       if (isDraggingRef.current) {
@@ -335,3 +335,4 @@ export default function AlliesCarouselClient({
     </section>
   );
 }
+

@@ -43,7 +43,7 @@ function CartItemRow({
 
   const imageSource =
     product.imgPath ||
-    "/images/products/placeholder.jpg";
+    "/images/products/placeholder.png";
 
   return (
     <article className="flex gap-3 border-b border-[var(--border)] py-4 last:border-b-0">
@@ -77,7 +77,7 @@ function CartItemRow({
               removeItem(product.id)
             }
             className="shrink-0 text-[var(--muted)] transition-colors hover:text-[var(--danger)]"
-            aria-label={`Eliminar ${product.nombre} de la cesta`}
+            aria-label={`Eliminar ${product.nombre} de la Canasta`}
           >
             <svg
               width="17"
@@ -103,6 +103,10 @@ function CartItemRow({
           {formatPrice(
             product.precio,
           )}
+        </p>
+
+        <p className="mt-1 text-xs text-[var(--muted)]">
+          {quantity} × {formatPrice(product.precio)} = {formatPrice(product.precio * quantity)}
         </p>
 
         {/* Cantidad */}
@@ -167,7 +171,7 @@ export default function Cart() {
 
   /*
    * Bloqueamos el scroll de la página
-   * mientras la cesta está abierta.
+   * mientras la Canasta está abierta.
    */
   useEffect(() => {
     if (!isCartOpen) {
@@ -229,7 +233,7 @@ export default function Cart() {
       ================================================= */}
       <button
         type="button"
-        aria-label="Cerrar cesta"
+        aria-label="Cerrar canasta"
         onClick={closeCart}
         className="fixed inset-0 z-[60] bg-black/30 backdrop-blur-[2px]"
       />
@@ -239,7 +243,7 @@ export default function Cart() {
       ================================================= */}
       <aside
         className="fixed right-0 top-0 z-[70] flex h-dvh w-full max-w-md flex-col border-l border-[var(--border)] bg-[var(--background)] shadow-2xl"
-        aria-label="Cesta de compras"
+        aria-label="Canasta de compras"
       >
         {/* =================================================
             Encabezado
@@ -247,7 +251,7 @@ export default function Cart() {
         <header className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-5 py-4">
           <div>
             <h2 className="text-lg font-bold text-[var(--foreground)]">
-              Tu cesta
+              Tu Canasta
             </h2>
 
             <p className="text-xs text-[var(--muted)]">
@@ -265,7 +269,7 @@ export default function Cart() {
             type="button"
             onClick={closeCart}
             className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]"
-            aria-label="Cerrar cesta"
+            aria-label="Cerrar Canasta"
           >
             <svg
               width="20"
@@ -317,7 +321,7 @@ export default function Cart() {
               </div>
 
               <h3 className="mt-4 text-base font-semibold text-[var(--foreground)]">
-                Tu cesta está vacía
+                Tu Canasta está vacía
               </h3>
 
               <p className="mt-2 max-w-xs text-sm text-[var(--muted)]">
@@ -331,7 +335,7 @@ export default function Cart() {
                 onClick={closeCart}
                 className="mt-5 rounded-lg bg-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
               >
-                Ir a la tienda
+                Ir a ver productos
               </Link>
             </div>
           ) : (
@@ -347,13 +351,13 @@ export default function Cart() {
         </div>
 
         {/* =================================================
-            Resumen / Checkout
+            Resumen / Solicitud de Canasta
         ================================================= */}
         {items.length > 0 && (
           <footer className="shrink-0 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-5">
             <div className="flex items-center justify-between">
               <span className="text-sm text-[var(--muted)]">
-                Subtotal
+                Subtotal productos
               </span>
 
               <span className="text-lg font-bold text-[var(--foreground)]">
@@ -361,19 +365,23 @@ export default function Cart() {
               </span>
             </div>
 
+            <p className="mt-2 text-xs text-[var(--muted)]">
+              Suma detallada: cada cantidad × precio unitario. La recogida en punto no agrega costo de entrega.
+            </p>
+
             <p className="mt-1 text-xs text-[var(--muted)]">
               El precio final será validado
               nuevamente al confirmar el
               pedido.
             </p>
 
-            {/* Checkout */}
+            {/* Solicitud de Canasta */}
             <Link
               href="/checkout"
               onClick={closeCart}
               className="mt-4 flex w-full items-center justify-center rounded-lg bg-[var(--primary)] px-4 py-3 text-sm font-bold text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
             >
-              CHECKOUT
+              Solicitud de Canasta
             </Link>
 
             {/* Vaciar */}
@@ -382,7 +390,7 @@ export default function Cart() {
               onClick={clearCart}
               className="mt-3 w-full py-2 text-center text-xs font-medium text-[var(--muted)] transition-colors hover:text-[var(--danger)]"
             >
-              Vaciar cesta
+              Vaciar Canasta
             </button>
           </footer>
         )}

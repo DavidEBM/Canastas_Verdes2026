@@ -5,15 +5,15 @@ const navigation = [
     title: "Explorar",
     links: [
       { label: "Inicio", href: "/" },
-      { label: "Tienda", href: "/tienda" },
+      { label: "Productos", href: "/tienda" },
       { label: "Nosotros", href: "/aboutUs" },
-      { label: "Ubicaciones", href: "/ubicaciones" },
+      { label: "Fincas", href: "/ubicaciones" },
     ],
   },
   {
     title: "Ayuda",
     links: [
-      { label: "Contacto", href: "/contacto" },
+      { label: "Habla con Nosotros", href: "/contacto" },
       { label: "Iniciar sesión", href: "/login" },
       { label: "Registrarse", href: "/register" },
     ],

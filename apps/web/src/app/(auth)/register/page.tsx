@@ -11,11 +11,18 @@ import { useRouter } from "next/navigation";
 import {
   createUserWithEmailAndPassword,
   GoogleAuthProvider,
+  sendEmailVerification,
   signInWithPopup,
+  signOut,
   updateProfile,
+  type User,
 } from "firebase/auth";
 
-import { auth } from "@/lib/firebase";
+import {
+  auth,
+  authPersistenceReady,
+} from "@/lib/firebase";
+import { getGoogleProfileName } from "@/lib/google-profile";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -38,6 +45,7 @@ export default function RegisterPage() {
     useState(false);
 
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   /*
    * ============================================================
@@ -45,11 +53,14 @@ export default function RegisterPage() {
    * ============================================================
    */
   const createUserProfile = async (
+    user: User,
     nombres: string,
     apellidos: string,
     correo: string,
+    nombreCompleto?: string,
+    proveedor?: "google",
   ) => {
-    const currentUser = auth.currentUser;
+    const currentUser = user;
 
     if (!currentUser) {
       throw new Error(
@@ -58,7 +69,7 @@ export default function RegisterPage() {
     }
 
     const idToken =
-      await currentUser.getIdToken(true);
+      await user.getIdToken(true);
 
     if (!idToken) {
       throw new Error(
@@ -68,7 +79,7 @@ export default function RegisterPage() {
 
     console.log(
       "Creando perfil para UID:",
-      currentUser.uid,
+      user.uid,
     );
 
     const response = await fetch(
@@ -83,8 +94,12 @@ export default function RegisterPage() {
           Nombres: nombres.trim(),
           Apellidos: apellidos.trim(),
           Correo: correo.trim(),
+          NombreCompleto:
+            nombreCompleto?.trim() ||
+            `${nombres} ${apellidos}`.trim(),
           Telefono: "",
           Direccion: "",
+          Proveedor: proveedor,
 
           // Aceptación de términos
           AceptacionTerminos: {
@@ -139,6 +154,7 @@ export default function RegisterPage() {
     event.preventDefault();
 
     setError("");
+    setNotice("");
 
     if (!termsAccepted) {
       setError(
@@ -179,6 +195,8 @@ export default function RegisterPage() {
     try {
       setLoading(true);
 
+      await authPersistenceReady;
+
       console.log(
         "Creando usuario con correo:",
         email.trim(),
@@ -207,17 +225,24 @@ export default function RegisterPage() {
       );
 
       await createUserProfile(
+        user,
         name,
         lastName,
         email,
+        `${name.trim()} ${lastName.trim()}`.trim(),
       );
+
+      await sendEmailVerification(user);
+      await signOut(auth);
 
       console.log(
         "Perfil de usuario creado correctamente:",
         user.uid,
       );
 
-      router.push("/");
+      setNotice(
+        "Cuenta creada. Revisa tu correo y confirma la cuenta antes de iniciar sesión.",
+      );
     } catch (error: unknown) {
       console.error(
         "Error al registrarse:",
@@ -314,6 +339,7 @@ export default function RegisterPage() {
    */
   const handleGoogleRegister = async () => {
     setError("");
+    setNotice("");
 
     if (!termsAccepted) {
       setError(
@@ -324,6 +350,8 @@ export default function RegisterPage() {
 
     try {
       setGoogleLoading(true);
+
+      await authPersistenceReady;
 
       const provider =
         new GoogleAuthProvider();
@@ -348,23 +376,18 @@ export default function RegisterPage() {
 
       const user = result.user;
 
-      const displayName =
-        user.displayName?.trim() ?? "";
-
-      const nameParts = displayName
-        .split(/\s+/)
-        .filter(Boolean);
-
-      const nombres =
-        nameParts.shift() ?? "Usuario";
-
-      const apellidos =
-        nameParts.join(" ");
+      const googleName = getGoogleProfileName(
+        user.displayName,
+        user.email,
+      );
 
       await createUserProfile(
-        nombres,
-        apellidos,
+        user,
+        googleName.nombres,
+        googleName.apellidos,
         user.email ?? "",
+        googleName.nombreCompleto,
+        "google",
       );
 
       console.log(
@@ -489,6 +512,15 @@ export default function RegisterPage() {
               className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
             >
               {error}
+            </div>
+          )}
+
+          {notice && (
+            <div
+              role="status"
+              className="mb-5 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800"
+            >
+              {notice}
             </div>
           )}
 

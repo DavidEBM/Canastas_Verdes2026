@@ -9,6 +9,44 @@ export const runtime = "nodejs";
  * Versión vigente de los términos y condiciones.
  */
 const VERSION_TERMINOS = "1.0";
+const DEFAULT_USER_LABEL = "usuario_nuevo";
+const FREQUENT_USER_LABEL = "usuario_frecuente";
+const USER_LABEL_DAYS = 30;
+
+function getStoredDate(value: unknown): Date | null {
+  if (
+    value &&
+    typeof value === "object" &&
+    "toDate" in value &&
+    typeof value.toDate === "function"
+  ) {
+    return value.toDate();
+  }
+
+  return value instanceof Date ? value : null;
+}
+
+function resolveUserLabel(data: FirebaseFirestore.DocumentData): string {
+  const current =
+    typeof data.EtiquetaUsuario === "string" &&
+    data.EtiquetaUsuario.trim()
+      ? data.EtiquetaUsuario.trim().toLowerCase()
+      : DEFAULT_USER_LABEL;
+
+  const registeredAt = getStoredDate(data.FechaRegistro);
+  const elapsedDays = registeredAt
+    ? (Date.now() - registeredAt.getTime()) / 86400000
+    : 0;
+
+  if (
+    current === DEFAULT_USER_LABEL &&
+    elapsedDays >= USER_LABEL_DAYS
+  ) {
+    return FREQUENT_USER_LABEL;
+  }
+
+  return current;
+}
 
 /**
  * Obtiene el token Bearer enviado por el cliente.
@@ -141,9 +179,11 @@ export async function POST(request: Request) {
       body as {
         Nombres?: unknown;
         Apellidos?: unknown;
+        NombreCompleto?: unknown;
         Correo?: unknown;
         Telefono?: unknown;
         Direccion?: unknown;
+        Proveedor?: unknown;
         AceptacionTerminos?: unknown;
       };
 
@@ -157,10 +197,21 @@ export async function POST(request: Request) {
         ? input.Apellidos.trim()
         : "";
 
+    const proveedor =
+      input.Proveedor === "google"
+        ? "google"
+        : "local";
+
     const correo =
       typeof input.Correo === "string"
         ? input.Correo.trim()
         : decoded.email ?? "";
+
+    const nombreCompleto =
+      typeof input.NombreCompleto === "string" &&
+      input.NombreCompleto.trim()
+        ? input.NombreCompleto.trim()
+        : `${nombres} ${apellidos}`.trim();
 
     const telefono =
       typeof input.Telefono === "string"
@@ -231,7 +282,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!apellidos) {
+    if (!apellidos && proveedor !== "google") {
       return NextResponse.json(
         {
           success: false,
@@ -270,6 +321,17 @@ export async function POST(request: Request) {
           success: false,
           message:
             "El correo es demasiado largo.",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (nombreCompleto.length > 200) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "El nombre completo es demasiado largo.",
         },
         { status: 400 },
       );
@@ -316,12 +378,92 @@ export async function POST(request: Request) {
      * existente, especialmente el Rol.
      */
     if (existingUser.exists) {
+      const existingData = existingUser.data() ?? {};
+      const updates: Record<string, unknown> = {};
+
+      // El registro con Google puede reintentarse. Solo completamos campos
+      // vacíos y conservamos cualquier dato que el usuario ya haya editado.
+      if (
+        typeof existingData.Nombres !== "string" ||
+        !existingData.Nombres.trim()
+      ) {
+        updates.Nombres = nombres;
+      }
+
+      if (
+        typeof existingData.Apellidos !== "string" ||
+        (!existingData.Apellidos.trim() && apellidos)
+      ) {
+        updates.Apellidos = apellidos;
+      }
+
+      if (
+        typeof existingData.NombreCompleto !== "string" ||
+        !existingData.NombreCompleto.trim()
+      ) {
+        updates.NombreCompleto = nombreCompleto;
+      }
+
+      if (
+        typeof existingData.Correo !== "string" ||
+        !existingData.Correo.trim()
+      ) {
+        updates.Correo = correo;
+      }
+
+      if (
+        typeof existingData.Rol !== "string" ||
+        !existingData.Rol.trim()
+      ) {
+        updates.Rol = "consumidor";
+      }
+
+      if (
+        typeof existingData.EtiquetaUsuario !== "string" ||
+        !existingData.EtiquetaUsuario.trim()
+      ) {
+        updates.EtiquetaUsuario = DEFAULT_USER_LABEL;
+      }
+
+      if (!getStoredDate(existingData.FechaRegistro)) {
+        updates.FechaRegistro = FieldValue.serverTimestamp();
+      }
+
+      if (Object.keys(updates).length > 0) {
+        updates.ultimaActualizacion =
+          FieldValue.serverTimestamp();
+        await userRef.set(updates, { merge: true });
+      }
+
+      const existingDisplayName =
+        (await adminAuth.getUser(decoded.uid)).displayName?.trim() ?? "";
+
+      if (!existingDisplayName && nombreCompleto) {
+        await adminAuth.updateUser(decoded.uid, {
+          displayName: nombreCompleto,
+        });
+      }
+
       return NextResponse.json({
         success: true,
         message:
           "El perfil del usuario ya existe.",
         data: {
           uid: decoded.uid,
+          Nombres:
+            typeof existingData.Nombres === "string" &&
+            existingData.Nombres.trim()
+              ? existingData.Nombres
+              : nombres,
+          Apellidos:
+            typeof existingData.Apellidos === "string"
+              ? existingData.Apellidos
+              : apellidos,
+          NombreCompleto:
+            typeof existingData.NombreCompleto === "string" &&
+            existingData.NombreCompleto.trim()
+              ? existingData.NombreCompleto
+              : nombreCompleto,
         },
       });
     }
@@ -335,10 +477,13 @@ export async function POST(request: Request) {
     await userRef.set({
       Nombres: nombres,
       Apellidos: apellidos,
+      NombreCompleto: nombreCompleto,
       Correo: correo,
       Telefono: telefono,
       Direccion: direccion,
       Rol: "consumidor",
+      EtiquetaUsuario: DEFAULT_USER_LABEL,
+      FechaRegistro: FieldValue.serverTimestamp(),
 
       AceptacionTerminos: {
         aceptado: true,
@@ -372,10 +517,12 @@ export async function POST(request: Request) {
           uid: decoded.uid,
           Nombres: nombres,
           Apellidos: apellidos,
+          NombreCompleto: nombreCompleto,
           Correo: correo,
           Telefono: telefono,
           Direccion: direccion,
           Rol: "consumidor",
+          EtiquetaUsuario: DEFAULT_USER_LABEL,
 
           AceptacionTerminos: {
             aceptado: true,
@@ -430,6 +577,14 @@ export async function GET(request: Request) {
 
     const data =
       snapshot.data();
+    const etiquetaUsuario = resolveUserLabel(data ?? {});
+
+    if (etiquetaUsuario !== data?.EtiquetaUsuario) {
+      await userRef.update({
+        EtiquetaUsuario: etiquetaUsuario,
+        ultimaActualizacion: FieldValue.serverTimestamp(),
+      });
+    }
 
     const aceptacion =
       data?.AceptacionTerminos;
@@ -448,6 +603,12 @@ export async function GET(request: Request) {
           typeof data?.Apellidos === "string"
             ? data.Apellidos
             : "",
+
+        NombreCompleto:
+          typeof data?.NombreCompleto === "string" &&
+          data.NombreCompleto.trim()
+            ? data.NombreCompleto
+            : `${typeof data?.Nombres === "string" ? data.Nombres : ""} ${typeof data?.Apellidos === "string" ? data.Apellidos : ""}`.trim(),
 
         Correo:
           typeof data?.Correo === "string"
@@ -468,6 +629,11 @@ export async function GET(request: Request) {
           typeof data?.Rol === "string"
             ? data.Rol
             : "consumidor",
+
+        EtiquetaUsuario: etiquetaUsuario,
+
+        FechaRegistro:
+          getStoredDate(data?.FechaRegistro)?.toISOString() ?? null,
 
         AceptacionTerminos:
           aceptacion
@@ -555,6 +721,9 @@ export async function PUT(request: Request) {
       typeof input.Apellidos === "string"
         ? input.Apellidos.trim()
         : "";
+
+    const nombreCompleto =
+      `${nombres} ${apellidos}`.trim();
 
     const telefono =
       typeof input.Telefono === "string"
@@ -648,6 +817,7 @@ export async function PUT(request: Request) {
     await userRef.update({
       Nombres: nombres,
       Apellidos: apellidos,
+      NombreCompleto: nombreCompleto,
       Telefono: telefono,
       Direccion: direccion,
       ultimaActualizacion:
@@ -673,6 +843,7 @@ export async function PUT(request: Request) {
       data: {
         Nombres: nombres,
         Apellidos: apellidos,
+        NombreCompleto: nombreCompleto,
         Telefono: telefono,
         Direccion: direccion,
       },

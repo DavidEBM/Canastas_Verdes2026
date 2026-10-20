@@ -9,6 +9,31 @@ export const runtime = "nodejs";
 const COLLECTION = "puntosRecogida";
 const MUNICIPALIDADES = "municipalidades";
 
+async function clearDefaultPickup(excludeId?: string) {
+  const snapshot = await adminDb
+    .collection(COLLECTION)
+    .where("esPuntoRecogidaDefault", "==", true)
+    .get();
+
+  if (snapshot.empty) {
+    return;
+  }
+
+  const batch = adminDb.batch();
+
+  snapshot.docs.forEach((document) => {
+    if (document.id !== excludeId) {
+      batch.update(document.ref, {
+        esPuntoRecogidaDefault: false,
+        fechaActualizacion:
+          FieldValue.serverTimestamp(),
+      });
+    }
+  });
+
+  await batch.commit();
+}
+
 function cleanString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -45,6 +70,25 @@ function buildGoogleMapsUrl(
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
     query
   )}`;
+}
+
+function buildGoogleMapsEmbedUrl(
+  nombre: string,
+  direccion: string,
+  municipio: string
+): string {
+  const query = [
+    nombre,
+    direccion,
+    municipio,
+    "Colombia",
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return `https://www.google.com/maps?q=${encodeURIComponent(
+    query
+  )}&output=embed`;
 }
 
 async function getMunicipalidad(id: string) {
@@ -140,6 +184,18 @@ export async function PATCH(
         ? body.activo === true
         : current.activo !== false;
 
+    const esPuntoRecogida =
+      body.esPuntoRecogida !== undefined
+        ? body.esPuntoRecogida === true
+        : current.esPuntoRecogida !== false;
+
+    const esPuntoRecogidaDefault =
+      activo &&
+      esPuntoRecogida &&
+      (body.esPuntoRecogidaDefault !== undefined
+        ? body.esPuntoRecogidaDefault === true
+        : current.esPuntoRecogidaDefault === true);
+
     if (
       !nombre ||
       !direccion ||
@@ -149,7 +205,7 @@ export async function PATCH(
         {
           success: false,
           message:
-            "Nombre, dirección y municipalidad son obligatorios.",
+            "Nombre, dirección y municipio son obligatorios.",
         },
         { status: 400 }
       );
@@ -206,7 +262,7 @@ export async function PATCH(
         {
           success: false,
           message:
-            "La municipalidad no existe.",
+            "El municipio no existe.",
         },
         { status: 400 }
       );
@@ -220,7 +276,7 @@ export async function PATCH(
         {
           success: false,
           message:
-            "No se puede activar el punto porque su municipalidad está inactiva.",
+            "No se puede activar el punto porque su municipio está inactivo.",
         },
         { status: 400 }
       );
@@ -259,6 +315,10 @@ export async function PATCH(
       municipalidad.nombre
     );
 
+    if (esPuntoRecogidaDefault) {
+      await clearDefaultPickup(id);
+    }
+
     await ref.update({
       nombre,
       direccion,
@@ -269,6 +329,8 @@ export async function PATCH(
       horario,
       telefono,
       activo,
+      esPuntoRecogida,
+      esPuntoRecogidaDefault,
       googleMapsUrl,
       fechaActualizacion:
         FieldValue.serverTimestamp(),
@@ -287,7 +349,15 @@ export async function PATCH(
         horario,
         telefono,
         activo,
+        esPuntoRecogida,
+        esPuntoRecogidaDefault,
         googleMapsUrl,
+        googleMapsEmbedUrl:
+          buildGoogleMapsEmbedUrl(
+            nombre,
+            direccion,
+            municipalidad.nombre,
+          ),
       },
     });
   } catch (error) {
@@ -337,6 +407,7 @@ export async function DELETE(
 
     await ref.update({
       activo: false,
+      esPuntoRecogidaDefault: false,
       fechaActualizacion:
         FieldValue.serverTimestamp(),
     });

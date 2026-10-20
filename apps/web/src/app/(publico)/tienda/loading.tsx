@@ -2,7 +2,7 @@ export default function TiendaLoading() {
   return (
     <main
       className="flex min-h-dvh items-center justify-center px-6"
-      aria-label="Cargando tienda"
+      aria-label="Cargando Productos"
     >
       <div className="flex flex-col items-center gap-4">
         <div
@@ -11,7 +11,7 @@ export default function TiendaLoading() {
         />
 
         <p className="text-sm text-gray-600">
-          Cargando tienda...
+          Cargando Productos...
         </p>
       </div>
     </main>

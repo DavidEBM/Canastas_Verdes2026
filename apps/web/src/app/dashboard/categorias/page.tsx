@@ -422,7 +422,7 @@ export default function DashboardCategoriasPage() {
 
       <p className="mt-2 text-sm text-[var(--foreground)]/70">
         Administra las categorías utilizadas
-        por los productos de la tienda.
+        por los productos en la plataforma.
       </p>
 
       {/* Mensajes */}

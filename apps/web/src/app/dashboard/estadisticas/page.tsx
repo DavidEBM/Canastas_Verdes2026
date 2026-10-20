@@ -759,13 +759,13 @@ export default function EstadisticasPage() {
 
                 <SelectField
                   id="municipio"
-                  label="Municipalidad"
+                  label="Municipio"
                   value={municipio}
                   options={
                     data.catalogos
                       .municipalidades
                   }
-                  placeholder="Todas las municipalidades"
+                  placeholder="Todos los municipios"
                   onChange={
                     setMunicipio
                   }

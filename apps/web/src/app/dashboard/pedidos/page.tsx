@@ -8,6 +8,13 @@ import {
 } from "react";
 
 import { useAuth } from "@/hooks/useAuth";
+import { matchesTolerantSearch } from "@/lib/search";
+import {
+  calcularPrecioLinea,
+  etiquetaTipoPrecio,
+  TIPOS_PRECIO,
+  type TipoPrecio,
+} from "@/lib/pedidos/precios";
 
 type Estado =
   | "pendiente"
@@ -25,6 +32,13 @@ interface PedidoProducto {
   cantidad: number;
   precioUnitario: number;
   subtotal: number;
+  tipoPrecio?: TipoPrecio;
+  tipoPrecioEtiqueta?: string;
+  precioBaseUnitario?: number;
+  porcentajeLogistica?: number;
+  porcentajeTransporte?: number;
+  costoLogisticaUnitario?: number;
+  costoTransporteUnitario?: number;
   unidad: string;
   IdProductor: string;
   IdMunicipalidad: string;
@@ -38,8 +52,26 @@ interface Pedido {
   nombreCliente: string;
   productos: PedidoProducto[];
   subtotal: number;
+  subtotalProductos?: number;
   total: number;
   descuento?: number;
+  descuentoModo?: AjusteModo;
+  descuentoValor?: number;
+  entrega?: number;
+  logistica?: number;
+  logisticaModo?: AjusteModo;
+  logisticaValor?: number;
+  transporte?: number;
+  transporteModo?: AjusteModo;
+  transporteValor?: number;
+  almacenamiento?: number;
+  costos?: {
+    subtotalProductos?: number;
+    entrega?: number;
+    logistica?: number;
+    transporte?: number;
+    almacenamiento?: number;
+  };
   estado: Estado;
   reservaId: string | null;
   IdMunicipalidad: string;
@@ -74,6 +106,10 @@ interface ProductoCatalogo {
   nombre: string;
   precio: number;
   precioVenta?: number;
+  costoPcc?: number;
+  precioSugerido?: number;
+  porcentajeLogistica?: number;
+  porcentajeTransporte?: number;
   stock: number;
   unidad: string;
   IdProductor: string;
@@ -103,6 +139,13 @@ interface EditProducto {
   nombre: string;
   cantidad: number;
   precioUnitario: number;
+  tipoPrecio: TipoPrecio;
+  precioBaseUnitario: number;
+  precioPersonalizado?: number;
+  porcentajeLogistica: number;
+  porcentajeTransporte: number;
+  costoLogisticaUnitario: number;
+  costoTransporteUnitario: number;
   unidad: string;
   IdProductor: string;
   IdMunicipalidad: string;
@@ -113,6 +156,12 @@ interface EditProducto {
 interface EditForm {
   productos: EditProducto[];
   descuento: number;
+  descuentoModo: AjusteModo;
+  descuentoValor: number;
+  logisticaModo: AjusteModo;
+  logisticaValor: number;
+  transporteModo: AjusteModo;
+  transporteValor: number;
   tipoEntrega: TipoEntrega;
   IdMunicipalidad: string;
   direccionEntrega: string;
@@ -121,7 +170,10 @@ interface EditForm {
   repartidorId: string;
   estado: Estado;
   descripcionCambio: string;
+  confirmarCambioPrecio: boolean;
 }
+
+type AjusteModo = "porcentaje" | "fijo";
 
 const estados: Estado[] = [
   "pendiente",
@@ -145,6 +197,21 @@ function formatMoney(value: number) {
     currency: "COP",
     maximumFractionDigits: 0,
   }).format(Number.isFinite(value) ? value : 0);
+}
+
+function calcularAjuste(
+  valor: number,
+  modo: AjusteModo,
+  base: number,
+) {
+  const seguro = Math.max(0, Number(valor) || 0);
+  return modo === "porcentaje"
+    ? base * (seguro / 100)
+    : seguro;
+}
+
+function normalizarModoAjuste(value: unknown): AjusteModo {
+  return value === "porcentaje" ? "porcentaje" : "fijo";
 }
 
 function formatDate(value: unknown) {
@@ -227,13 +294,43 @@ function getApiObject<T>(result: unknown): T | null {
 
 function productoToEdit(
   producto: PedidoProducto,
+  catalogo?: ProductoCatalogo,
 ): EditProducto {
+  const tipoPrecio =
+    producto.tipoPrecio ?? "precioVenta";
+  const costos = calcularPrecioLinea(
+    {
+      ...catalogo,
+      precioVenta:
+        catalogo?.precioVenta ??
+        producto.precioUnitario,
+      precio:
+        catalogo?.precio ??
+        producto.precioUnitario,
+    },
+    tipoPrecio,
+    producto.precioBaseUnitario,
+  );
+
   return {
     productoId: producto.productoId,
     code: producto.code,
     nombre: producto.nombre,
     cantidad: producto.cantidad,
-    precioUnitario: producto.precioUnitario,
+    precioUnitario: costos.precioUnitario,
+    tipoPrecio,
+    precioBaseUnitario: costos.precioBase,
+    ...(tipoPrecio === "personalizado"
+      ? { precioPersonalizado: costos.precioBase }
+      : {}),
+    porcentajeLogistica:
+      costos.porcentajeLogistica,
+    porcentajeTransporte:
+      costos.porcentajeTransporte,
+    costoLogisticaUnitario:
+      costos.logisticaUnitario,
+    costoTransporteUnitario:
+      costos.transporteUnitario,
     unidad: producto.unidad,
     IdProductor: producto.IdProductor,
     IdMunicipalidad: producto.IdMunicipalidad,
@@ -452,7 +549,7 @@ export default function DashboardPedidosPage() {
             "/api/municipalidades/disponibles",
           ),
           api(
-            "/api/puntos-recogida?admin=1",
+            "/api/puntos-recogida?admin=1&soloRecogida=1",
           ),
           api(
             "/api/productos?admin=1",
@@ -618,11 +715,47 @@ export default function DashboardPedidosPage() {
       setEditForm({
         productos:
           detalle.productos.map(
-            productoToEdit,
+            (producto) =>
+              productoToEdit(
+                producto,
+                productosCatalogo.find(
+                  (catalogo) =>
+                    catalogo.id ===
+                    producto.productoId,
+                ),
+              ),
           ),
         descuento: Number(
           detalle.descuento ?? 0,
         ),
+         descuentoModo: normalizarModoAjuste(
+           detalle.descuentoModo,
+         ),
+         descuentoValor: Number(
+           detalle.descuentoValor ??
+             detalle.descuento ??
+             0,
+         ),
+         logisticaModo: normalizarModoAjuste(
+           detalle.logisticaModo,
+         ),
+         logisticaValor: Number(
+           detalle.logisticaValor ??
+             detalle.logistica ??
+             detalle.costos?.logistica ??
+             0,
+         ),
+         transporteModo: normalizarModoAjuste(
+           detalle.transporteModo,
+         ),
+         transporteValor: Number(
+           detalle.transporteValor ??
+             detalle.transporte ??
+             detalle.entrega ??
+             detalle.costos?.transporte ??
+             detalle.costos?.entrega ??
+             0,
+         ),
         tipoEntrega,
         IdMunicipalidad:
           detalle.IdMunicipalidad ??
@@ -641,6 +774,7 @@ export default function DashboardPedidosPage() {
           "",
         estado: detalle.estado,
         descripcionCambio: "",
+        confirmarCambioPrecio: false,
       });
 
       setConfirmarEntregado(false);
@@ -666,21 +800,42 @@ export default function DashboardPedidosPage() {
   const productosEditados =
     editForm?.productos ?? [];
 
-  const subtotalEditado = useMemo(
+  const subtotalProductosEditado = useMemo(
     () =>
       productosEditados.reduce(
         (total, producto) =>
           total +
           producto.cantidad *
-            producto.precioUnitario,
+            producto.precioBaseUnitario,
         0,
       ),
     [productosEditados],
   );
 
-  const descuentoEditado = Math.max(
-    0,
-    Number(editForm?.descuento ?? 0),
+  const logisticaEditada = calcularAjuste(
+    editForm?.logisticaValor ?? 0,
+    editForm?.logisticaModo ?? "fijo",
+    subtotalProductosEditado,
+  );
+
+  const transporteEditado = calcularAjuste(
+    editForm?.transporteValor ?? 0,
+    editForm?.transporteModo ?? "fijo",
+    subtotalProductosEditado,
+  );
+
+  const subtotalEditado =
+    subtotalProductosEditado +
+    logisticaEditada +
+    transporteEditado;
+
+  const descuentoEditado = Math.min(
+    subtotalEditado,
+    calcularAjuste(
+      editForm?.descuentoValor ?? 0,
+      editForm?.descuentoModo ?? "fijo",
+      subtotalEditado,
+    ),
   );
 
   const totalEditado = Math.max(
@@ -688,6 +843,12 @@ export default function DashboardPedidosPage() {
     subtotalEditado -
       descuentoEditado,
   );
+
+  const cambioPrecioSeleccionado =
+    productosEditados.some(
+      (producto) =>
+        producto.tipoPrecio !== "precioVenta",
+    );
 
   const productosDisponibles =
     useMemo(() => {
@@ -759,6 +920,104 @@ export default function DashboardPedidosPage() {
     });
   };
 
+  const actualizarTipoPrecio = (
+    productoId: string,
+    tipoPrecio: TipoPrecio,
+  ) => {
+    setEditForm((actual) => {
+      if (!actual) {
+        return actual;
+      }
+
+      return {
+        ...actual,
+        confirmarCambioPrecio:
+          actual.confirmarCambioPrecio,
+        productos: actual.productos.map(
+          (producto) => {
+            if (producto.productoId !== productoId) {
+              return producto;
+            }
+
+            const catalogo = productosCatalogo.find(
+              (item) => item.id === productoId,
+            );
+            const precioPersonalizado =
+              producto.precioPersonalizado ??
+              producto.precioBaseUnitario;
+            const costos = calcularPrecioLinea(
+              (catalogo ?? producto) as unknown as Record<string, unknown>,
+              tipoPrecio,
+              precioPersonalizado,
+            );
+
+            return {
+              ...producto,
+              tipoPrecio,
+              precioUnitario:
+                costos.precioUnitario,
+              precioBaseUnitario:
+                costos.precioBase,
+              porcentajeLogistica:
+                costos.porcentajeLogistica,
+              porcentajeTransporte:
+                costos.porcentajeTransporte,
+              costoLogisticaUnitario:
+                costos.logisticaUnitario,
+              costoTransporteUnitario:
+                costos.transporteUnitario,
+              ...(tipoPrecio === "personalizado"
+                ? {
+                    precioPersonalizado:
+                      costos.precioBase,
+                  }
+                : { precioPersonalizado: undefined }),
+            };
+          },
+        ),
+      };
+    });
+  };
+
+  const actualizarPrecioPersonalizado = (
+    productoId: string,
+    valor: number,
+  ) => {
+    setEditForm((actual) => {
+      if (!actual) return actual;
+
+      return {
+        ...actual,
+        productos: actual.productos.map((producto) => {
+          if (producto.productoId !== productoId) {
+            return producto;
+          }
+
+          const precioBase = Math.max(0, Number(valor) || 0);
+          const costos = calcularPrecioLinea(
+            (productosCatalogo.find(
+              (item) => item.id === productoId,
+            ) ?? producto) as unknown as Record<string, unknown>,
+            "personalizado",
+            precioBase,
+          );
+
+          return {
+            ...producto,
+            tipoPrecio: "personalizado" as TipoPrecio,
+            precioPersonalizado: precioBase,
+            precioBaseUnitario: costos.precioBase,
+            precioUnitario: costos.precioUnitario,
+            costoLogisticaUnitario:
+              costos.logisticaUnitario,
+            costoTransporteUnitario:
+              costos.transporteUnitario,
+          };
+        }),
+      };
+    });
+  };
+
   const agregarProducto = (
     producto: ProductoCatalogo,
   ) => {
@@ -767,10 +1026,9 @@ export default function DashboardPedidosPage() {
         return actual;
       }
 
-      const precio = Number(
-        producto.precioVenta ??
-          producto.precio ??
-          0,
+      const costos = calcularPrecioLinea(
+        producto as unknown as Record<string, unknown>,
+        "precioVenta",
       );
 
       return {
@@ -782,7 +1040,19 @@ export default function DashboardPedidosPage() {
             code: producto.code,
             nombre: producto.nombre,
             cantidad: 1,
-            precioUnitario: precio,
+            precioUnitario:
+              costos.precioUnitario,
+            tipoPrecio: "precioVenta",
+            precioBaseUnitario:
+              costos.precioBase,
+            porcentajeLogistica:
+              costos.porcentajeLogistica,
+            porcentajeTransporte:
+              costos.porcentajeTransporte,
+            costoLogisticaUnitario:
+              costos.logisticaUnitario,
+            costoTransporteUnitario:
+              costos.transporteUnitario,
             unidad: producto.unidad,
             IdProductor:
               producto.IdProductor,
@@ -873,8 +1143,16 @@ export default function DashboardPedidosPage() {
     }
 
     if (
-      editForm.descuento < 0 ||
-      editForm.descuento >
+      editForm.descuentoValor < 0 ||
+      editForm.logisticaValor < 0 ||
+      editForm.transporteValor < 0 ||
+      editForm.descuentoModo === "porcentaje" &&
+        editForm.descuentoValor > 100 ||
+      editForm.logisticaModo === "porcentaje" &&
+        editForm.logisticaValor > 100 ||
+      editForm.transporteModo === "porcentaje" &&
+        editForm.transporteValor > 100 ||
+      descuentoEditado >
         subtotalEditado
     ) {
       setError(
@@ -884,10 +1162,20 @@ export default function DashboardPedidosPage() {
     }
 
     if (
+      cambioPrecioSeleccionado &&
+      !editForm.confirmarCambioPrecio
+    ) {
+      setError(
+        "Confirma que el cliente conoce y acepta el cambio de precio.",
+      );
+      return;
+    }
+
+    if (
       !editForm.IdMunicipalidad
     ) {
       setError(
-        "Debes seleccionar una municipalidad.",
+        "Debes seleccionar un municipio.",
       );
       return;
     }
@@ -938,12 +1226,25 @@ export default function DashboardPedidosPage() {
                   producto.productoId,
                 cantidad:
                   producto.cantidad,
-                precioUnitario:
-                  producto.precioUnitario,
+                tipoPrecio:
+                  producto.tipoPrecio,
+                ...(producto.tipoPrecio ===
+                  "personalizado"
+                  ? {
+                      precioPersonalizado:
+                        producto.precioPersonalizado ??
+                        producto.precioBaseUnitario,
+                    }
+                  : {}),
               }),
             ),
-          descuento:
-            editForm.descuento,
+          descuento: descuentoEditado,
+          descuentoModo: editForm.descuentoModo,
+          descuentoValor: editForm.descuentoValor,
+          logisticaModo: editForm.logisticaModo,
+          logisticaValor: editForm.logisticaValor,
+          transporteModo: editForm.transporteModo,
+          transporteValor: editForm.transporteValor,
           tipoEntrega:
             editForm.tipoEntrega,
           IdMunicipalidad:
@@ -972,6 +1273,8 @@ export default function DashboardPedidosPage() {
           confirmarEdicionEntregado:
             pedidoEditando.estado ===
             "entregado",
+          confirmarCambioPrecio:
+            editForm.confirmarCambioPrecio,
         },
       );
 
@@ -1008,17 +1311,9 @@ export default function DashboardPedidosPage() {
 
   const pedidosFiltrados =
     useMemo(() => {
-      const texto = busqueda
-        .trim()
-        .toLowerCase();
-
       return pedidos.filter(
         (pedido) => {
-          if (!texto) {
-            return true;
-          }
-
-          const contenido = [
+          return matchesTolerantSearch([
             pedido.id,
             pedido.usuarioId,
             pedido.nombreCliente,
@@ -1032,13 +1327,7 @@ export default function DashboardPedidosPage() {
               (producto) =>
                 `${producto.nombre} ${producto.code}`,
             ),
-          ]
-            .join(" ")
-            .toLowerCase();
-
-          return contenido.includes(
-            texto,
-          );
+          ], busqueda);
         },
       );
     }, [pedidos, busqueda]);
@@ -1119,7 +1408,7 @@ export default function DashboardPedidosPage() {
             <p className="mt-1 text-sm text-[var(--muted)]">
               Consulta, filtra y gestiona
               los pedidos realizados en la
-              tienda.
+              plataforma.
             </p>
           </div>
 
@@ -1287,6 +1576,26 @@ export default function DashboardPedidosPage() {
                       pedido.repartidorId,
                   );
 
+                const costoLogistica = Number(
+                  pedido.logistica ??
+                    pedido.costos?.logistica ??
+                    0,
+                );
+
+                const costoTransporte = Number(
+                  pedido.transporte ??
+                    pedido.costos?.transporte ??
+                    pedido.entrega ??
+                    pedido.costos?.entrega ??
+                    0,
+                );
+
+                const costoAlmacenamiento = Number(
+                  pedido.almacenamiento ??
+                    pedido.costos?.almacenamiento ??
+                    0,
+                );
+
                 return (
                   <article
                     key={pedido.id}
@@ -1357,7 +1666,7 @@ export default function DashboardPedidosPage() {
 
                         <div className="text-left md:text-right">
                           <p className="text-xs text-[var(--muted)]">
-                            Municipalidad
+                            Municipio
                           </p>
 
                           <p className="font-medium">
@@ -1445,7 +1754,7 @@ export default function DashboardPedidosPage() {
 
                             <div>
                               <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
-                                Municipalidad
+                                Municipio
                               </p>
 
                               <p className="mt-1 text-sm">
@@ -1534,6 +1843,15 @@ export default function DashboardPedidosPage() {
                                           producto.precioUnitario,
                                         )}
                                       </p>
+
+                                      <p className="mt-1 text-xs font-semibold text-[var(--primary)]">
+                                        {producto.tipoPrecioEtiqueta ||
+                                          etiquetaTipoPrecio[producto.tipoPrecio ?? "precioVenta"]}
+                                        {producto.porcentajeLogistica ||
+                                        producto.porcentajeTransporte
+                                          ? ` · +${producto.porcentajeLogistica ?? 0}% logística +${producto.porcentajeTransporte ?? 0}% transporte`
+                                          : ""}
+                                      </p>
                                     </div>
 
                                     <p className="shrink-0 font-semibold">
@@ -1554,8 +1872,39 @@ export default function DashboardPedidosPage() {
 
                                 <span>
                                   {formatMoney(
-                                    pedido.subtotal,
+                                    pedido.subtotalProductos ??
+                                      pedido.subtotal,
                                   )}
+                                </span>
+                              </div>
+
+                              <div className="flex justify-between text-sm">
+                                <span>
+                                  Logística (gestión administrativa previa)
+                                </span>
+
+                                <span>
+                                  {formatMoney(costoLogistica)}
+                                </span>
+                              </div>
+
+                              <div className="flex justify-between text-sm">
+                                <span>
+                                  Transporte / entrega
+                                </span>
+
+                                <span>
+                                  {formatMoney(costoTransporte)}
+                                </span>
+                              </div>
+
+                              <div className="flex justify-between text-sm">
+                                <span>
+                                  Almacenamiento
+                                </span>
+
+                                <span>
+                                  {formatMoney(costoAlmacenamiento)}
                                 </span>
                               </div>
 
@@ -1573,6 +1922,10 @@ export default function DashboardPedidosPage() {
                                   </span>
                                 </div>
                               )}
+
+                              <p className="text-xs text-[var(--muted)]">
+                                Suma detallada: productos + logística (gestión administrativa previa) + transporte / entrega + almacenamiento − descuento.
+                              </p>
 
                               <div className="flex justify-between border-t border-dashed border-[var(--border)] pt-3 text-lg font-bold">
                                 <span>
@@ -1906,6 +2259,58 @@ export default function DashboardPedidosPage() {
                                   producto.unidad
                                 }
                               </p>
+
+                              <label className="mt-3 block text-xs font-semibold text-[var(--muted)]">
+                                Tipo de precio aplicado
+                                <select
+                                  value={
+                                    producto.tipoPrecio
+                                  }
+                                  onChange={(event) =>
+                                    actualizarTipoPrecio(
+                                      producto.productoId,
+                                      event.target.value as TipoPrecio,
+                                    )
+                                  }
+                                  className="mt-1 w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-normal text-[var(--foreground)]"
+                                >
+                                  {TIPOS_PRECIO.map(
+                                    (tipo) => (
+                                      <option
+                                        key={tipo}
+                                        value={tipo}
+                                      >
+                                        {etiquetaTipoPrecio[tipo]}
+                                      </option>
+                                    ),
+                                  )}
+                                </select>
+
+                                {producto.tipoPrecio ===
+                                  "personalizado" && (
+                                  <>
+                                    <div className="mt-2 block text-xs font-semibold text-[var(--muted)]">
+                                      Valor personalizado COP
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="1"
+                                        value={
+                                          producto.precioPersonalizado ??
+                                          producto.precioBaseUnitario
+                                        }
+                                        onChange={(event) =>
+                                          actualizarPrecioPersonalizado(
+                                            producto.productoId,
+                                            Number(event.target.value),
+                                          )
+                                        }
+                                        className="mt-1 w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-normal text-[var(--foreground)]"
+                                      />
+                                    </div>
+                                  </>
+                                )}
+                              </label>
                             </div>
 
                             <div className="grid grid-cols-2 gap-3 sm:w-[280px]">
@@ -1940,29 +2345,15 @@ export default function DashboardPedidosPage() {
 
                               <div>
                                 <label className="text-xs font-semibold text-[var(--muted)]">
-                                  Precio COP
+                                  Precio final COP
                                 </label>
 
                                 <input
                                   type="number"
-                                  min="0"
-                                  step="1"
                                   value={
                                     producto.precioUnitario
                                   }
-                                  onChange={(
-                                    event,
-                                  ) =>
-                                    actualizarProducto(
-                                      producto.productoId,
-                                      "precioUnitario",
-                                      Number(
-                                        event
-                                          .target
-                                          .value,
-                                      ),
-                                    )
-                                  }
+                                  readOnly
                                   className="mt-1 w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
                                 />
                               </div>
@@ -2004,49 +2395,155 @@ export default function DashboardPedidosPage() {
                     Precios y descuento
                   </h3>
 
-                  <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                     <div>
                       <p className="text-xs text-[var(--muted)]">
-                        Subtotal
+                        Productos
                       </p>
 
                       <p className="mt-1 text-lg font-bold">
                         {formatMoney(
-                          subtotalEditado,
+                          subtotalProductosEditado,
                         )}
                       </p>
                     </div>
 
                     <div>
                       <label className="text-xs font-semibold">
-                        Descuento COP
+                        Logística
+                        <div className="mt-1 flex gap-2">
+                          <select
+                            value={editForm.logisticaModo}
+                            onChange={(event) =>
+                              setEditForm((actual) =>
+                                actual
+                                  ? {
+                                      ...actual,
+                                      logisticaModo:
+                                        event.target.value as AjusteModo,
+                                    }
+                                  : actual,
+                              )
+                            }
+                            className="w-24 rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
+                          >
+                            <option value="fijo">COP</option>
+                            <option value="porcentaje">%</option>
+                          </select>
+                          <input
+                            type="number"
+                            min="0"
+                            max={editForm.logisticaModo === "porcentaje" ? 100 : undefined}
+                            value={editForm.logisticaValor}
+                            onChange={(event) =>
+                              setEditForm((actual) =>
+                                actual
+                                  ? {
+                                      ...actual,
+                                      logisticaValor: Number(event.target.value),
+                                    }
+                                  : actual,
+                              )
+                            }
+                            className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                          />
+                        </div>
                       </label>
+                      <p className="mt-1 text-xs text-[var(--muted)]">
+                        {formatMoney(logisticaEditada)} · gestión administrativa
+                      </p>
+                    </div>
 
-                      <input
-                        type="number"
-                        min="0"
-                        max={subtotalEditado}
-                        value={
-                          editForm.descuento
-                        }
-                        onChange={(event) =>
-                          setEditForm(
-                            (actual) =>
-                              actual
-                                ? {
-                                    ...actual,
-                                    descuento:
-                                      Number(
-                                        event
-                                          .target
-                                          .value,
-                                      ),
-                                  }
-                                : actual,
-                          )
-                        }
-                        className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                      />
+                    <div>
+                      <label className="text-xs font-semibold">
+                        Transporte / entrega
+                        <div className="mt-1 flex gap-2">
+                          <select
+                            value={editForm.transporteModo}
+                            onChange={(event) =>
+                              setEditForm((actual) =>
+                                actual
+                                  ? {
+                                      ...actual,
+                                      transporteModo:
+                                        event.target.value as AjusteModo,
+                                    }
+                                  : actual,
+                              )
+                            }
+                            className="w-24 rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
+                          >
+                            <option value="fijo">COP</option>
+                            <option value="porcentaje">%</option>
+                          </select>
+                          <input
+                            type="number"
+                            min="0"
+                            max={editForm.transporteModo === "porcentaje" ? 100 : undefined}
+                            value={editForm.transporteValor}
+                            onChange={(event) =>
+                              setEditForm((actual) =>
+                                actual
+                                  ? {
+                                      ...actual,
+                                      transporteValor: Number(event.target.value),
+                                    }
+                                  : actual,
+                              )
+                            }
+                            className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                          />
+                        </div>
+                      </label>
+                      <p className="mt-1 text-xs text-[var(--muted)]">
+                        {formatMoney(transporteEditado)} · costo de entrega
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold">
+                        Descuento
+                        <div className="mt-1 flex gap-2">
+                          <select
+                            value={editForm.descuentoModo}
+                            onChange={(event) =>
+                              setEditForm((actual) =>
+                                actual
+                                  ? {
+                                      ...actual,
+                                      descuentoModo:
+                                        event.target.value as AjusteModo,
+                                    }
+                                  : actual,
+                              )
+                            }
+                            className="w-24 rounded-lg border border-[var(--border)] px-2 py-2 text-sm"
+                          >
+                            <option value="fijo">COP</option>
+                            <option value="porcentaje">%</option>
+                          </select>
+                          <input
+                            type="number"
+                            min="0"
+                            max={editForm.descuentoModo === "porcentaje" ? 100 : subtotalEditado}
+                            value={editForm.descuentoValor}
+                            onChange={(event) =>
+                              setEditForm((actual) =>
+                                actual
+                                  ? {
+                                      ...actual,
+                                      descuentoValor: Number(event.target.value),
+                                    }
+                                  : actual,
+                              )
+                            }
+                            className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                          />
+                        </div>
+                      </label>
+                      <p className="mt-1 text-xs text-[var(--muted)]">
+                        {formatMoney(descuentoEditado)} aplicados
+                      </p>
                     </div>
 
                     <div>
@@ -2106,7 +2603,7 @@ export default function DashboardPedidosPage() {
 
                     <div>
                       <label className="text-xs font-semibold">
-                        Municipalidad
+                        Municipio
                       </label>
 
                       <select
@@ -2412,6 +2909,40 @@ export default function DashboardPedidosPage() {
                     /1000
                   </p>
                 </section>
+
+                {cambioPrecioSeleccionado && (
+                  <section className="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+                    <h3 className="font-bold">
+                      Confirmación de cambio de precio
+                    </h3>
+
+                    <label className="mt-3 flex cursor-pointer items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={
+                          editForm.confirmarCambioPrecio
+                        }
+                        onChange={(event) =>
+                          setEditForm(
+                            (actual) =>
+                              actual
+                                ? {
+                                    ...actual,
+                                    confirmarCambioPrecio:
+                                      event.target.checked,
+                                  }
+                                : actual,
+                          )
+                        }
+                        className="mt-0.5"
+                      />
+
+                      <span>
+                        Confirmo que el cliente conoce y acepta que el precio de uno o más productos fue cambiado.
+                      </span>
+                    </label>
+                  </section>
+                )}
               </div>
 
               <div className="flex shrink-0 flex-col-reverse gap-3 border-t border-[var(--border)] bg-white p-4 sm:flex-row sm:justify-end sm:p-5">

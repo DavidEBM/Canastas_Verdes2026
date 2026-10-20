@@ -818,6 +818,13 @@ function normalizePartialPatch(
     );
   }
 
+  if ("mensajeDisponibilidad" in data) {
+    patch.mensajeDisponibilidad = text(
+      data.mensajeDisponibilidad,
+      120,
+    );
+  }
+
   if ("activo" in data) {
     if (
       typeof data.activo ===

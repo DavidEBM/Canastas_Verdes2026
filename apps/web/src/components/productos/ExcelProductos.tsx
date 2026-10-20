@@ -314,7 +314,7 @@ export default function ExcelProductos({
       ],
       ["6. Activo debe ser Sí o No."],
       [
-        "7. Los valores de Precio, CostoPcc, PrecioSugerido y PrecioVenta están expresados en COP.",
+        "7. Los valores de Precio, Costo de Producción, PrecioSugerido y PrecioVenta están expresados en COP.",
       ],
       [
         "8. PorcentajeLogistica y PorcentajeTransporte se expresan como números entre 0 y 100.",
@@ -327,7 +327,7 @@ export default function ExcelProductos({
         "11. NombreProductor debe coincidir con un productor existente.",
       ],
       [
-        "12. NombreMunicipio debe coincidir con una municipalidad existente.",
+        "12. NombreMunicipio debe coincidir con un municipio existente.",
       ],
       [
         "13. En ComponentesCanastas, CodigoCanasta debe ser el código de una canasta.",

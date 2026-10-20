@@ -1,362 +1,487 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowLeft,
+  ChevronRight,
+  ExternalLink,
   MapPin,
   Navigation,
-  Clock3,
-  Phone,
 } from "lucide-react";
 
-interface PuntoRecogida {
+interface Finca {
   id: string;
   nombre: string;
   direccion: string;
   municipio: string;
   IdMunicipalidad: string;
-  horaInicio: string;
-  horaFin: string;
   horario: string;
   telefono: string;
   activo: boolean;
+  esPuntoRecogida: boolean;
+  esPuntoRecogidaDefault: boolean;
   googleMapsUrl: string;
   googleMapsEmbedUrl: string;
 }
 
+interface MunicipioGroup {
+  id: string;
+  nombre: string;
+  fincas: Finca[];
+}
+
+type ViewMode = "inicio" | "municipio";
+
+function municipalityEmbedUrl(
+  municipio: MunicipioGroup,
+) {
+  const points = municipio.fincas.map(
+    (finca) =>
+      [
+        finca.nombre,
+        finca.direccion,
+        finca.municipio,
+        "Colombia",
+      ]
+        .filter(Boolean)
+        .join(", "),
+  );
+
+  if (points.length >= 2) {
+    const origin = encodeURIComponent(
+      points[0],
+    );
+    const destination = encodeURIComponent(
+      points[points.length - 1],
+    );
+    const waypoints = encodeURIComponent(
+      points.slice(1, -1).join("|"),
+    );
+
+    return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypoints}&travelmode=driving`;
+  }
+
+  const query = [
+    municipio.nombre,
+    "Colombia",
+  ].join(", ");
+
+  return `https://www.google.com/maps?q=${encodeURIComponent(
+    query,
+  )}&output=embed`;
+}
+
 export default function UbicacionesPage() {
-  const [ubicaciones, setUbicaciones] =
-    useState<PuntoRecogida[]>([]);
-
-  const [selectedLocation, setSelectedLocation] =
-    useState<PuntoRecogida | null>(null);
-
+  const [fincas, setFincas] = useState<Finca[]>([]);
+  const [viewMode, setViewMode] =
+    useState<ViewMode>("inicio");
+  const [municipioId, setMunicipioId] =
+    useState("");
+  const [selectedPickupId, setSelectedPickupId] =
+    useState("");
   const [loading, setLoading] =
     useState(true);
-
-  const [error, setError] =
-    useState("");
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    async function loadLocations() {
+    async function loadFincas() {
       try {
         setLoading(true);
         setError("");
 
         const response = await fetch(
           "/api/puntos-recogida",
-          {
-            cache: "no-store",
-          }
+          { cache: "no-store" },
         );
+        const result = await response.json();
 
-        const result =
-          await response.json();
-
-        if (
-          !response.ok ||
-          !result.success
-        ) {
+        if (!response.ok || !result.success) {
           throw new Error(
             result.message ||
-              "No fue posible cargar las ubicaciones."
+              "No fue posible cargar las fincas.",
           );
         }
 
-        const data: PuntoRecogida[] =
-          result.data ?? [];
-
-        setUbicaciones(data);
-
-        if (data.length > 0) {
-          setSelectedLocation(data[0]);
-        }
-      } catch (err) {
-        console.error(
-          "Error cargando ubicaciones:",
-          err
+        const data: Finca[] = result.data ?? [];
+        const pickup = data.find(
+          (item) => item.esPuntoRecogida,
+        );
+        const defaultPickup = data.find(
+          (item) =>
+            item.esPuntoRecogidaDefault,
         );
 
+        setFincas(data);
+        setSelectedPickupId(
+          defaultPickup?.id ??
+            pickup?.id ??
+            "",
+        );
+      } catch (err) {
+        console.error("Error cargando fincas:", err);
         setError(
           err instanceof Error
             ? err.message
-            : "No fue posible cargar las ubicaciones."
+            : "No fue posible cargar las fincas.",
         );
       } finally {
         setLoading(false);
       }
     }
 
-    loadLocations();
+    void loadFincas();
   }, []);
+
+  const lugaresRecogida = useMemo(
+    () =>
+      fincas.filter(
+        (finca) => finca.esPuntoRecogida,
+      ),
+    [fincas],
+  );
+
+  const municipios = useMemo<MunicipioGroup[]>(
+    () => {
+      const groups = new Map<
+        string,
+        MunicipioGroup
+      >();
+
+      fincas
+        .filter((finca) => !finca.esPuntoRecogida)
+        .forEach((finca) => {
+          const id =
+            finca.IdMunicipalidad ||
+            finca.municipio;
+          const current = groups.get(id);
+
+          if (current) {
+            current.fincas.push(finca);
+            return;
+          }
+
+          groups.set(id, {
+            id,
+            nombre: finca.municipio || id,
+            fincas: [finca],
+          });
+        });
+
+      return Array.from(groups.values()).sort(
+        (a, b) =>
+          a.nombre.localeCompare(b.nombre, "es"),
+      );
+    },
+    [fincas],
+  );
+
+  const selectedPickup =
+    lugaresRecogida.find(
+      (finca) => finca.id === selectedPickupId,
+    ) ?? lugaresRecogida[0] ?? null;
+
+  const selectedMunicipio = municipios.find(
+    (municipio) => municipio.id === municipioId,
+  );
+
+  const mapUrl =
+    viewMode === "municipio" && selectedMunicipio
+      ? municipalityEmbedUrl(selectedMunicipio)
+      : selectedPickup?.googleMapsEmbedUrl ?? "";
+
+  const mapTitle =
+    viewMode === "municipio" && selectedMunicipio
+      ? `Mapa de ${selectedMunicipio.nombre}`
+      : selectedPickup
+        ? `Mapa de ${selectedPickup.nombre}`
+        : "Mapa de fincas";
+
+  function openMunicipio(id: string) {
+    setMunicipioId(id);
+    setViewMode("municipio");
+  }
+
+  function goHome() {
+    setViewMode("inicio");
+    setMunicipioId("");
+  }
 
   return (
     <main className="min-h-screen bg-[var(--surface)]">
       <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-        {/* Encabezado */}
-        <div className="mb-8 text-center">
-          <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-[var(--primary)]">
-            Nuestros puntos
+        <div className="mb-8 max-w-3xl">
+          <p className="mb-2 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--primary)]">
+            Canastas Verdes · territorio
           </p>
 
-          <h1 className="text-3xl font-bold text-[var(--foreground)] sm:text-4xl">
-            Ubicaciones
+          <h1 className="text-3xl font-bold tracking-tight text-[var(--foreground)] sm:text-5xl">
+            Fincas y lugares de recogida
           </h1>
 
-          <p className="mx-auto mt-3 max-w-2xl text-[var(--muted)]">
-            Encuentra nuestros puntos de atención
-            y recogida de Canastas Verdes.
+          <p className="mt-4 text-base leading-7 text-[var(--muted)]">
+            Consulta nuestro lugar de recogida y explora las fincas por municipio. Selecciona una finca para abrir su ubicación exacta en Google Maps.
           </p>
         </div>
 
-        {/* Cargando */}
         {loading && (
-          <div className="rounded-2xl border border-[var(--border)] bg-white p-8 text-center text-[var(--muted)]">
+          <div className="rounded-3xl border border-[var(--border)] bg-white p-10 text-center text-[var(--muted)] shadow-sm">
             Cargando ubicaciones...
           </div>
         )}
 
-        {/* Error */}
         {!loading && error && (
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center text-red-700">
+          <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-red-700">
             {error}
           </div>
         )}
 
-        {/* Sin ubicaciones */}
-        {!loading &&
-          !error &&
-          ubicaciones.length === 0 && (
-            <div className="rounded-2xl border border-[var(--border)] bg-white p-8 text-center text-[var(--muted)]">
-              Actualmente no hay puntos de atención
-              disponibles.
-            </div>
-          )}
+        {!loading && !error && fincas.length === 0 && (
+          <div className="rounded-3xl border border-[var(--border)] bg-white p-10 text-center shadow-sm">
+            <MapPin
+              size={34}
+              className="mx-auto mb-3 text-[var(--primary)]"
+            />
+            <p className="font-semibold text-[var(--foreground)]">
+              Aún no hay fincas publicadas.
+            </p>
+            <p className="mt-2 text-sm text-[var(--muted)]">
+              El equipo administrador podrá agregarlas desde el apartado Fincas.
+            </p>
+          </div>
+        )}
 
-        {/* Contenido */}
-        {!loading &&
-          !error &&
-          selectedLocation && (
-            <>
-              {/* Mapa principal */}
-              <div className="mb-8 overflow-hidden rounded-2xl border border-[var(--border)] bg-white shadow-sm">
-                <div className="relative h-[360px] w-full sm:h-[440px]">
-                  {selectedLocation.googleMapsEmbedUrl ? (
-                    <iframe
-                      key={`${selectedLocation.id}-${selectedLocation.googleMapsEmbedUrl}`}
-                      title={`Mapa de ${selectedLocation.nombre}`}
-                      src={
-                        selectedLocation.googleMapsEmbedUrl
-                      }
-                      className="absolute inset-0 h-full w-full border-0"
-                      loading="lazy"
-                      referrerPolicy="no-referrer-when-downgrade"
-                      allowFullScreen
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center bg-[var(--surface)]">
-                      <div className="px-6 text-center">
-                        <MapPin
-                          size={42}
-                          className="mx-auto mb-3 text-[var(--primary)]"
-                        />
-
-                        <p className="font-semibold text-[var(--foreground)]">
-                          Mapa no disponible
-                        </p>
-
-                        <p className="mt-1 text-sm text-[var(--muted)]">
-                          La ubicación puede consultarse
-                          directamente en Google Maps.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Botón Google Maps */}
-                  {selectedLocation.googleMapsUrl && (
-                    <div className="absolute right-4 top-4">
-                      <a
-                        href={
-                          selectedLocation.googleMapsUrl
-                        }
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-[var(--primary)] shadow-md transition hover:bg-[var(--surface-hover)]"
-                      >
-                        <Navigation size={17} />
-                        Ver en el mapa
-                      </a>
-                    </div>
-                  )}
-                </div>
-
-                {/* Información del punto seleccionado */}
-                <div className="border-t border-[var(--border)] p-5">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        {!loading && !error && fincas.length > 0 && (
+          <div className="grid gap-7 lg:grid-cols-[minmax(0,1fr)_360px]">
+            <section className="order-1 overflow-hidden rounded-3xl border border-[var(--border)] bg-white shadow-sm lg:order-2">
+              <div className="relative h-[390px] sm:h-[520px]">
+                {mapUrl ? (
+                  <iframe
+                    key={mapUrl}
+                    title={mapTitle}
+                    src={mapUrl}
+                    className="absolute inset-0 h-full w-full border-0"
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    allowFullScreen
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center bg-[var(--surface)] p-8 text-center">
                     <div>
-                      <p className="text-sm text-[var(--muted)]">
-                        Punto seleccionado
+                      <MapPin
+                        size={42}
+                        className="mx-auto mb-3 text-[var(--primary)]"
+                      />
+                      <p className="font-semibold text-[var(--foreground)]">
+                        Mapa no disponible
                       </p>
-
-                      <h2 className="text-xl font-bold text-[var(--foreground)]">
-                        {selectedLocation.nombre}
-                      </h2>
-
-                      <p className="mt-1 text-sm text-[var(--muted)]">
-                        {selectedLocation.direccion},{" "}
-                        {selectedLocation.municipio}
+                      <p className="mt-2 text-sm text-[var(--muted)]">
+                        La ubicación se puede consultar en Google Maps desde la lista.
                       </p>
                     </div>
-
-                    <span className="w-fit rounded-full bg-[var(--secondary)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
-                      Disponible
-                    </span>
                   </div>
-                </div>
-              </div>
+                )}
 
-              {/* Tarjetas */}
-              <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-                {ubicaciones.map(
-                  (ubicacion) => {
-                    const selected =
-                      selectedLocation.id ===
-                      ubicacion.id;
-
-                    return (
-                      <button
-                        key={ubicacion.id}
-                        type="button"
-                        onClick={() =>
-                          setSelectedLocation(
-                            ubicacion
-                          )
-                        }
-                        className={`overflow-hidden rounded-2xl border bg-white text-left shadow-sm transition ${
-                          selected
-                            ? "border-[var(--primary)] ring-2 ring-[var(--secondary)]"
-                            : "border-[var(--border)] hover:border-[var(--primary)]"
-                        }`}
-                      >
-                        {/* Preview del mapa */}
-                        <div className="relative h-40 w-full overflow-hidden bg-[var(--surface)]">
-                          {ubicacion.googleMapsEmbedUrl ? (
-                            <iframe
-                              title={`Vista previa de ${ubicacion.nombre}`}
-                              src={
-                                ubicacion.googleMapsEmbedUrl
-                              }
-                              className="pointer-events-none absolute inset-0 h-full w-full border-0"
-                              loading="lazy"
-                              referrerPolicy="no-referrer-when-downgrade"
-                              tabIndex={-1}
-                            />
-                          ) : (
-                            <div className="flex h-full items-center justify-center">
-                              <MapPin
-                                size={34}
-                                className="text-[var(--primary)]"
-                              />
-                            </div>
-                          )}
-
-                          {/* Indicador */}
-                          <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[var(--primary)] shadow-md">
-                            <MapPin size={14} />
-                            Ver ubicación
-                          </div>
-                        </div>
-
-                        {/* Información */}
-                        <div className="p-5">
-                          <div className="mb-4 flex items-start justify-between gap-3">
-                            <div className="flex items-start gap-3">
-                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--secondary)] text-[var(--primary)]">
-                                <MapPin size={20} />
-                              </div>
-
-                              <div>
-                                <h2 className="font-semibold text-[var(--foreground)]">
-                                  {ubicacion.nombre}
-                                </h2>
-
-                                <p className="mt-1 text-sm text-[var(--muted)]">
-                                  {
-                                    ubicacion.municipio
-                                  }
-                                </p>
-                              </div>
-                            </div>
-
-                            <span className="rounded-full bg-[var(--secondary)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
-                              Disponible
-                            </span>
-                          </div>
-
-                          <div className="space-y-3 text-sm text-[var(--muted)]">
-                            {/* Dirección */}
-                            <div className="flex gap-3">
-                              <MapPin
-                                size={17}
-                                className="mt-0.5 shrink-0 text-[var(--primary)]"
-                              />
-
-                              <span>
-                                {
-                                  ubicacion.direccion
-                                }
-                              </span>
-                            </div>
-
-                            {/* Horario */}
-                            {ubicacion.horario && (
-                              <div className="flex gap-3">
-                                <Clock3
-                                  size={17}
-                                  className="mt-0.5 shrink-0 text-[var(--primary)]"
-                                />
-
-                                <span>
-                                  {
-                                    ubicacion.horario
-                                  }
-                                </span>
-                              </div>
-                            )}
-
-                            {/* Teléfono */}
-                            {ubicacion.telefono && (
-                              <div className="flex gap-3">
-                                <Phone
-                                  size={17}
-                                  className="mt-0.5 shrink-0 text-[var(--primary)]"
-                                />
-
-                                <span>
-                                  {
-                                    ubicacion.telefono
-                                  }
-                                </span>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Acción */}
-                          <div className="mt-5 flex items-center gap-2 text-sm font-semibold text-[var(--primary)]">
-                            <Navigation size={16} />
-
-                            {selected
-                              ? "Ubicación seleccionada"
-                              : "Mostrar esta ubicación"}
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  }
+                {viewMode === "municipio" && selectedMunicipio && (
+                  <div className="absolute bottom-4 left-4 right-4 rounded-2xl border border-white/70 bg-white/95 p-3 shadow-lg backdrop-blur">
+                    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-[var(--primary)]">
+                      <MapPin size={15} />
+                      Municipio seleccionado
+                    </div>
+                    <p className="mt-1 font-semibold text-[var(--foreground)]">
+                      {selectedMunicipio.nombre}
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      {selectedMunicipio.fincas.length} finca{selectedMunicipio.fincas.length === 1 ? "" : "s"} registrada{selectedMunicipio.fincas.length === 1 ? "" : "s"} para visitar.
+                    </p>
+                  </div>
                 )}
               </div>
-            </>
-          )}
+
+              <div className="border-t border-[var(--border)] p-5 sm:p-6">
+                {viewMode === "inicio" && selectedPickup ? (
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--primary)]">
+                        Lugar de recogida predeterminado
+                      </p>
+                      <h2 className="mt-2 text-xl font-bold text-[var(--foreground)]">
+                        {selectedPickup.nombre}
+                      </h2>
+                      <p className="mt-1 text-sm text-[var(--muted)]">
+                        {selectedPickup.direccion}, {selectedPickup.municipio}
+                      </p>
+                    </div>
+                    {selectedPickup.googleMapsUrl && (
+                      <a
+                        href={selectedPickup.googleMapsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex w-fit items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-sm font-semibold text-[var(--primary)] transition hover:bg-[var(--surface)]"
+                      >
+                        <Navigation size={16} />
+                        Ver ubicación
+                      </a>
+                    )}
+                  </div>
+                ) : selectedMunicipio ? (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--primary)]">
+                      Ubicaciones registradas
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                      El mapa muestra el municipio y conecta las ubicaciones registradas. Estas son las fincas disponibles para visitar; cada enlace abre su punto exacto.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+
+            <aside className="order-2 space-y-4 lg:order-1">
+              {viewMode === "municipio" ? (
+                <button
+                  type="button"
+                  onClick={goHome}
+                  className="flex w-full items-center gap-3 rounded-2xl border border-[var(--border)] bg-white px-4 py-3 text-left text-sm font-semibold text-[var(--foreground)] shadow-sm transition hover:border-[var(--primary)]"
+                >
+                  <ArrowLeft size={18} className="text-[var(--primary)]" />
+                  <span>Lugares de recogida y municipios</span>
+                </button>
+              ) : (
+                <div className="rounded-2xl border border-[var(--border)] bg-white p-5 shadow-sm">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--primary)]">
+                    Explora el territorio
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                    Primero encontrarás los lugares de recogida. Después, los municipios con fincas disponibles.
+                  </p>
+                </div>
+              )}
+
+              {viewMode === "inicio" ? (
+                <>
+                  <section className="rounded-2xl border border-[var(--border)] bg-white p-4 shadow-sm">
+                    <div className="mb-3 flex items-center justify-between px-1">
+                      <h2 className="font-bold text-[var(--foreground)]">
+                        Lugares de recogida
+                      </h2>
+                      <span className="rounded-full bg-[var(--secondary)] px-2.5 py-1 text-xs font-bold text-[var(--primary)]">
+                        {lugaresRecogida.length}
+                      </span>
+                    </div>
+
+                    <div className="space-y-2">
+                      {lugaresRecogida.length === 0 ? (
+                        <p className="rounded-xl bg-[var(--surface)] p-3 text-sm text-[var(--muted)]">
+                          El lugar de recogida aún no ha sido configurado.
+                        </p>
+                      ) : (
+                        lugaresRecogida.map((finca) => (
+                          <button
+                            key={finca.id}
+                            type="button"
+                            onClick={() => setSelectedPickupId(finca.id)}
+                            className={`flex w-full items-center justify-between gap-3 rounded-xl border p-3 text-left transition ${selectedPickup?.id === finca.id ? "border-[var(--primary)] bg-[var(--surface)]" : "border-transparent hover:border-[var(--border)] hover:bg-[var(--surface)]"}`}
+                          >
+                            <span className="min-w-0">
+                              <span className="flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
+                                <MapPin size={16} className="shrink-0 text-[var(--primary)]" />
+                                <span className="truncate">{finca.nombre}</span>
+                              </span>
+                              <span className="mt-1 block truncate pl-6 text-xs text-[var(--muted)]">
+                                {finca.direccion}
+                              </span>
+                            </span>
+                            {finca.esPuntoRecogidaDefault && (
+                              <span className="shrink-0 rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-700">
+                                Default
+                              </span>
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="rounded-2xl border border-[var(--border)] bg-white p-4 shadow-sm">
+                    <div className="mb-3 flex items-center justify-between px-1">
+                      <h2 className="font-bold text-[var(--foreground)]">
+                        Municipios
+                      </h2>
+                      <span className="rounded-full bg-[var(--surface)] px-2.5 py-1 text-xs font-bold text-[var(--muted)]">
+                        {municipios.length}
+                      </span>
+                    </div>
+
+                    <div className="space-y-2">
+                      {municipios.map((municipio) => (
+                        <button
+                          key={municipio.id}
+                          type="button"
+                          onClick={() => openMunicipio(municipio.id)}
+                          className="flex w-full items-center justify-between rounded-xl border border-transparent p-3 text-left transition hover:border-[var(--border)] hover:bg-[var(--surface)]"
+                        >
+                          <span>
+                            <span className="block text-sm font-semibold text-[var(--foreground)]">
+                              {municipio.nombre}
+                            </span>
+                            <span className="mt-1 block text-xs text-[var(--muted)]">
+                              {municipio.fincas.length} finca{municipio.fincas.length === 1 ? "" : "s"}
+                            </span>
+                          </span>
+                          <ChevronRight size={18} className="text-[var(--primary)]" />
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                </>
+              ) : selectedMunicipio ? (
+                <section className="rounded-2xl border border-[var(--border)] bg-white p-4 shadow-sm">
+                  <div className="mb-4 px-1">
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--primary)]">
+                      Municipio
+                    </p>
+                    <h2 className="mt-1 text-xl font-bold text-[var(--foreground)]">
+                      {selectedMunicipio.nombre}
+                    </h2>
+                  </div>
+
+                  <div className="space-y-2">
+                    {selectedMunicipio.fincas.map((finca, index) => (
+                      <a
+                        key={finca.id}
+                        href={finca.googleMapsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group block rounded-xl border border-[var(--border)] p-3 transition hover:border-[var(--primary)] hover:bg-[var(--surface)]"
+                      >
+                        <div className="flex items-start gap-3">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-xs font-bold text-white">
+                            {index + 1}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block font-semibold text-[var(--foreground)]">
+                              {finca.nombre}
+                            </span>
+                            <span className="mt-1 block text-sm text-[var(--muted)]">
+                              {finca.direccion}
+                            </span>
+                            <span className="mt-1 block text-xs text-[var(--muted)]">
+                              {finca.municipio}
+                            </span>
+                            <span className="mt-1 flex items-center gap-1 text-xs font-semibold text-[var(--primary)]">
+                              <ExternalLink size={13} />
+                              Abrir ubicación exacta
+                            </span>
+                          </span>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+            </aside>
+          </div>
+        )}
       </section>
     </main>
   );

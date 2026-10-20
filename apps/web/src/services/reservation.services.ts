@@ -82,7 +82,7 @@ export async function createReservation(
   }
 
   /* =======================================================
-     Validar cesta
+     Validar Canasta
   ======================================================= */
 
   if (!Array.isArray(items)) {

@@ -96,6 +96,12 @@ function ProductCard({
     product.activo === true &&
     product.stock > 0;
 
+  const availabilityLabel =
+    (product.activo !== true
+      ? product.mensajeDisponibilidad?.trim()
+      : "") ||
+    "Sin stock";
+
   const imageUrl =
     getImageUrl(product);
 
@@ -182,9 +188,7 @@ function ProductCard({
           </div>
         )}
 
-        {/* =================================================
-            Categoría
-        ================================================= */}
+        {/* Categoría */}
 
         {product.categoria && (
           <span className="absolute left-3 top-3 rounded-full bg-[var(--background)]/95 px-3 py-1 text-xs font-semibold text-[var(--primary)] shadow-sm backdrop-blur">
@@ -192,14 +196,12 @@ function ProductCard({
           </span>
         )}
 
-        {/* =================================================
-            No stock
-        ================================================= */}
+        {/* Sin stock */}
 
         {!available && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/45">
             <span className="rounded-full bg-white px-4 py-2 text-sm font-bold text-red-600">
-              No Stock
+              {availabilityLabel}
             </span>
           </div>
         )}
@@ -254,7 +256,7 @@ function ProductCard({
             </>
           ) : (
             <span className="font-semibold text-red-600">
-              No Stock
+              {availabilityLabel}
             </span>
           )}
         </div>
@@ -338,7 +340,7 @@ function ProductCard({
                   <path d="M3 4h2l2.4 11.4a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 2-1.6L21 8H6" />
                 </svg>
 
-                Agregar a la cesta
+                Agregar a la Canasta
               </button>
             </div>
           ) : (

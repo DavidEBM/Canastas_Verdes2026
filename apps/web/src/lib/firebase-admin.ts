@@ -4,10 +4,11 @@ import { getFirestore } from "firebase-admin/firestore";
 
 const projectId = process.env.FIREBASE_PROJECT_ID;
 const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(
-  /\\n/g,
-  "\n",
-);
+const privateKey = process.env.FIREBASE_PRIVATE_KEY
+  ?.trim()
+  .replace(/^['"]|['"]$/g, "")
+  .replace(/\\n/g, "\n")
+  .replace(/\r/g, "");
 
 if (!projectId || !clientEmail || !privateKey) {
   throw new Error(

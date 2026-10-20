@@ -2,13 +2,16 @@
 
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
 import ProductGrid from "@/components/tienda/ProductGrid";
 import type { Product } from "@/services/productos.service";
+import { matchesTolerantSearch } from "@/lib/search";
 import {
   useCart,
   type CartProduct,
@@ -57,6 +60,11 @@ export default function TiendaPage() {
   const [municipalities, setMunicipalities] =
     useState<Municipality[]>([]);
 
+  const deferredSearch = useDeferredValue(search);
+  const productsRequestRef = useRef<AbortController | null>(null);
+  const municipalitiesRequestRef = useRef<AbortController | null>(null);
+  const lastVisibilityRefreshRef = useRef(0);
+
   const { openCart } = useCart();
 
   /* =========================================================
@@ -65,6 +73,10 @@ export default function TiendaPage() {
 
   const loadProducts = useCallback(
     async (isRefresh = false) => {
+      productsRequestRef.current?.abort();
+      const controller = new AbortController();
+      productsRequestRef.current = controller;
+
       try {
         if (isRefresh) {
           setRefreshing(true);
@@ -74,27 +86,39 @@ export default function TiendaPage() {
 
         setError(null);
 
-        const response = await fetch(
-          "/api/productos",
-        );
+        const response = await fetch("/api/productos", {
+          signal: controller.signal,
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
 
         const result: unknown =
-          await response.json();
+          await response.json().catch(() => null);
+
+        const responseData =
+          result && typeof result === "object"
+            ? (result as Record<string, unknown>)
+            : null;
+
+        const serverMessage =
+          responseData &&
+          typeof responseData.message === "string"
+            ? responseData.message
+            : null;
 
         if (
           !response.ok ||
-          !result ||
-          typeof result !== "object" ||
-          !("data" in result) ||
-          !Array.isArray(result.data)
+          !responseData ||
+          !Array.isArray(responseData.data)
         ) {
           throw new Error(
-            "No fue posible obtener los productos.",
+            serverMessage ||
+              `No fue posible obtener los productos (HTTP ${response.status}).`,
           );
         }
 
         const data =
-          result.data as Product[];
+          responseData.data as Product[];
 
         const activeProducts =
           data.filter(
@@ -108,15 +132,25 @@ export default function TiendaPage() {
           ),
         );
       } catch (err) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
         console.error(
           "Error cargando productos:",
           err,
         );
 
         setError(
-          "No fue posible cargar los productos. Intenta nuevamente.",
+          err instanceof Error && err.message
+            ? err.message
+            : "No fue posible cargar los productos. Intenta nuevamente.",
         );
       } finally {
+        if (controller.signal.aborted) {
+          return;
+        }
+
         if (isRefresh) {
           setRefreshing(false);
         } else {
@@ -133,17 +167,23 @@ export default function TiendaPage() {
 
   const loadMunicipalities =
     useCallback(async () => {
+      municipalitiesRequestRef.current?.abort();
+      const controller = new AbortController();
+      municipalitiesRequestRef.current = controller;
+
       try {
-        const response = await fetch(
-          "/api/municipalidades/disponibles",
-        );
+        const response = await fetch("/api/municipalidades/disponibles", {
+          signal: controller.signal,
+          headers: { Accept: "application/json" },
+          cache: "force-cache",
+        });
 
         const result: unknown =
           await response.json();
 
         if (!response.ok) {
           throw new Error(
-            "No fue posible obtener las ubicaciones.",
+            "No fue posible obtener las fincas.",
           );
         }
 
@@ -231,6 +271,10 @@ export default function TiendaPage() {
 
         setMunicipalities(parsed);
       } catch (err) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
         console.error(
           "Error cargando municipalidades:",
           err,
@@ -245,6 +289,7 @@ export default function TiendaPage() {
   ========================================================= */
 
   useEffect(() => {
+    lastVisibilityRefreshRef.current = Date.now();
     void loadProducts();
     void loadMunicipalities();
   }, [
@@ -258,10 +303,14 @@ export default function TiendaPage() {
 
   useEffect(() => {
     const handleVisibility = () => {
+      const now = Date.now();
+
       if (
         document.visibilityState ===
-        "visible"
+          "visible" &&
+        now - lastVisibilityRefreshRef.current >= 5 * 60 * 1000
       ) {
+        lastVisibilityRefreshRef.current = now;
         void loadProducts(true);
         void loadMunicipalities();
       }
@@ -311,11 +360,6 @@ export default function TiendaPage() {
 
   const filteredProducts =
     useMemo(() => {
-      const normalizedSearch =
-        search
-          .trim()
-          .toLowerCase();
-
       return products.filter(
         (product) => {
           if (
@@ -331,29 +375,14 @@ export default function TiendaPage() {
             return false;
           }
 
-          if (
-            normalizedSearch
-          ) {
-            const fields = [
-              product.nombre,
-              product.descripcion,
-              product.code,
-              product.categoria,
-              product.unidad,
-            ];
-
-            const matches =
-              fields.some((value) =>
-                value
-                  .toLowerCase()
-                  .includes(
-                    normalizedSearch,
-                  ),
-              );
-
-            if (!matches) {
-              return false;
-            }
+          if (!matchesTolerantSearch([
+            product.nombre,
+            product.descripcion,
+            product.code,
+            product.categoria,
+            product.unidad,
+          ], deferredSearch)) {
+            return false;
           }
 
           if (
@@ -377,7 +406,7 @@ export default function TiendaPage() {
       );
     }, [
       products,
-      search,
+      deferredSearch,
       category,
       municipality,
       hideOutOfStock,
@@ -446,7 +475,7 @@ export default function TiendaPage() {
             <p className="mt-4 max-w-2xl text-base leading-7 text-[var(--muted)] sm:text-lg">
               Encuentra frutas, verduras y
               productos provenientes del campo
-              directamente en nuestra tienda.
+              directamente en nuestra plataforma.
             </p>
           </div>
         </div>
@@ -521,7 +550,7 @@ export default function TiendaPage() {
               <path d="M3 4h2l2.4 11.4a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 2-1.6L21 8H6" />
             </svg>
 
-            Ver mi cesta
+            Ver mi Canasta
           </button>
         </div>
 
@@ -555,7 +584,7 @@ export default function TiendaPage() {
             )}
           </select>
 
-          {/* Ubicación */}
+          {/* Finca */}
 
           <select
             value={municipality}
@@ -567,7 +596,7 @@ export default function TiendaPage() {
             className="h-11 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
           >
             <option value="all">
-              Todas las ubicaciones
+              Todas las fincas
             </option>
 
             {municipalities.map(
@@ -692,7 +721,7 @@ export default function TiendaPage() {
                 ? "No encontramos productos que coincidan con los filtros seleccionados."
                 : hideOutOfStock
                   ? "Actualmente no hay productos con stock disponibles."
-                  : "Actualmente no hay productos disponibles en la tienda."
+                  : "Actualmente no hay productos disponibles en la plataforma."
             }
           />
         </div>

@@ -10,8 +10,17 @@ const ROLES = [
   "repartidor",
   "admin",
 ] as const;
+const USER_LABELS = [
+  "usuario_nuevo",
+  "usuario_frecuente",
+  "comprador_frecuente",
+  "asociacion_agricultores",
+  "mayorista",
+] as const;
+const USER_LABEL_DAYS = 30;
 
 type Role = (typeof ROLES)[number];
+type UserLabel = (typeof USER_LABELS)[number];
 
 function isRole(
   value: unknown,
@@ -20,6 +29,42 @@ function isRole(
     typeof value === "string" &&
     ROLES.includes(value as Role)
   );
+}
+
+function isUserLabel(value: unknown): value is UserLabel {
+  return (
+    typeof value === "string" &&
+    USER_LABELS.includes(value as UserLabel)
+  );
+}
+
+function storedDate(value: unknown): Date | null {
+  if (
+    value &&
+    typeof value === "object" &&
+    "toDate" in value &&
+    typeof value.toDate === "function"
+  ) {
+    return value.toDate();
+  }
+
+  return value instanceof Date ? value : null;
+}
+
+function resolveLabel(data: FirebaseFirestore.DocumentData): UserLabel {
+  const current = isUserLabel(data.EtiquetaUsuario)
+    ? data.EtiquetaUsuario
+    : "usuario_nuevo";
+  const registeredAt = storedDate(data.FechaRegistro);
+  const elapsedDays = registeredAt
+    ? (Date.now() - registeredAt.getTime()) / 86400000
+    : 0;
+
+  if (current === "usuario_nuevo" && elapsedDays >= USER_LABEL_DAYS) {
+    return "usuario_frecuente";
+  }
+
+  return current;
 }
 
 function errorResponse(error: unknown) {
@@ -106,6 +151,20 @@ export async function GET(request: Request) {
           )
             ? firestoreRole
             : "consumidor";
+          const label = resolveLabel(data ?? {});
+
+          if (label !== data?.EtiquetaUsuario) {
+            await adminDb
+              .collection("usuarios")
+              .doc(user.uid)
+              .set(
+                {
+                  EtiquetaUsuario: label,
+                  ultimaActualizacion: new Date(),
+                },
+                { merge: true },
+              );
+          }
 
           return {
             uid: user.uid,
@@ -114,6 +173,9 @@ export async function GET(request: Request) {
               user.displayName ?? "",
             disabled: user.disabled,
             role,
+            label,
+            labelRegisteredAt:
+              storedDate(data?.FechaRegistro)?.toISOString() ?? null,
           };
         },
       ),
@@ -160,13 +222,18 @@ export async function POST(request: Request) {
       body as {
         usuarioId?: unknown;
         rol?: unknown;
+        etiqueta?: unknown;
       };
 
+    const validRole = input.rol === undefined || isRole(input.rol);
+    const validLabel = input.etiqueta === undefined || isUserLabel(input.etiqueta);
+
     if (
-      typeof input.usuarioId !==
-        "string" ||
+      typeof input.usuarioId !== "string" ||
       !input.usuarioId.trim() ||
-      !isRole(input.rol)
+      !validRole ||
+      !validLabel ||
+      (input.rol === undefined && input.etiqueta === undefined)
     ) {
       return NextResponse.json(
         {
@@ -193,17 +260,26 @@ export async function POST(request: Request) {
     const userSnapshot =
       await userRef.get();
 
+    const changes: Record<string, unknown> = {
+      ultimaActualizacion: new Date(),
+    };
+
+    if (input.rol !== undefined) {
+      changes.Rol = input.rol;
+    }
+
+    if (input.etiqueta !== undefined) {
+      changes.EtiquetaUsuario = input.etiqueta;
+    }
+
     if (userSnapshot.exists) {
-      await userRef.update({
-        Rol: input.rol,
-        ultimaActualizacion:
-          new Date(),
-      });
+      await userRef.update(changes);
     } else {
       await userRef.set({
-        Rol: input.rol,
-        ultimaActualizacion:
-          new Date(),
+        ...changes,
+        Rol: input.rol ?? "consumidor",
+        EtiquetaUsuario: input.etiqueta ?? "usuario_nuevo",
+        FechaRegistro: new Date(),
       });
     }
 
@@ -212,6 +288,7 @@ export async function POST(request: Request) {
       data: {
         usuarioId: uid,
         rol: input.rol,
+        etiqueta: input.etiqueta,
       },
     });
   } catch (error) {
