@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { auth, authPersistenceReady } from "@/lib/firebase";
 
 interface ProductoRecibo {
   productoId: string;
@@ -285,13 +286,24 @@ export default function ReciboPage() {
         setLoading(true);
         setError("");
 
+        await authPersistenceReady;
+        const currentUser = auth.currentUser;
+
+        if (!currentUser) {
+          throw new Error(
+            "Debes iniciar sesión para consultar el recibo.",
+          );
+        }
+
+        const token = await currentUser.getIdToken();
         const response = await fetch(
-          `/api/pedidos/${encodeURIComponent(
-            pedidoId,
-          )}/recibo?publico=1`,
+          `/api/pedidos/${encodeURIComponent(pedidoId)}/recibo?formato=json`,
           {
             method: "GET",
             cache: "no-store",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
           },
         );
 

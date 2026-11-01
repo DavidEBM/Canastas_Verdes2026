@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { requireAdmin } from "@/lib/require-admin";
+import { requirePrivilegedAdmin } from "@/lib/require-privileged-admin";
 import {
   ensureSystemLabels,
   legacyLabelMap,
@@ -53,6 +54,34 @@ function errorResponse(error: unknown) {
         success: false,
         message:
           "Solo un administrador puede gestionar roles.",
+      },
+      { status: 403 },
+    );
+  }
+
+  if (
+    error instanceof Error &&
+    error.message === "PRIVILEGED_ADMIN_NOT_CONFIGURED"
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        message:
+          "La gestión privilegiada no está configurada en el servidor.",
+      },
+      { status: 503 },
+    );
+  }
+
+  if (
+    error instanceof Error &&
+    error.message === "PRIVILEGED_ADMIN_FORBIDDEN"
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        message:
+          "Solo el administrador con permisos elevados puede modificar cuentas administrativas.",
       },
       { status: 403 },
     );
@@ -145,6 +174,11 @@ export async function GET(request: Request) {
       success: true,
       data: users,
       labels,
+      canManageAdminRoles:
+        administrator.email_verified === true &&
+        typeof administrator.email === "string" &&
+        administrator.email.trim().toLowerCase() ===
+          process.env.PRIVILEGED_ADMIN_EMAIL?.trim().toLowerCase(),
       canDeleteProfiles:
         administrator.email_verified === true &&
         typeof administrator.email === "string" &&
@@ -165,7 +199,7 @@ export async function GET(request: Request) {
  */
 export async function POST(request: Request) {
   try {
-    await requireAdmin(request);
+    const administrator = await requireAdmin(request);
 
     const body: unknown =
       await request.json();
@@ -226,6 +260,32 @@ export async function POST(request: Request) {
     const currentData = userSnapshot.exists
       ? userSnapshot.data() ?? {}
       : {};
+
+    const currentRole =
+      typeof currentData.Rol === "string"
+        ? currentData.Rol.trim().toLowerCase()
+        : "consumidor";
+
+    if (
+      input.rol !== undefined &&
+      uid === administrator.uid
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "No puedes cambiar tu propio rol desde este panel.",
+        },
+        { status: 409 },
+      );
+    }
+
+    if (
+      input.rol !== undefined &&
+      (input.rol === "admin" || currentRole === "admin")
+    ) {
+      await requirePrivilegedAdmin(request);
+    }
 
     const changes: Record<string, unknown> = {
       ultimaActualizacion: new Date(),

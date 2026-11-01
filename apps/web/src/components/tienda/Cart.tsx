@@ -246,13 +246,13 @@ export default function Cart() {
           Panel lateral
       ================================================= */}
       <aside
-        className="fixed right-0 top-0 z-[70] flex h-dvh w-full max-w-md flex-col border-l border-[var(--border)] bg-[var(--background)] shadow-2xl"
+        className="fixed right-0 top-0 z-[70] flex h-dvh w-[min(100%,28rem)] flex-col border-l border-[var(--border)] bg-[var(--background)] shadow-2xl"
         aria-label="Canasta de compras"
       >
         {/* =================================================
             Encabezado
         ================================================= */}
-        <header className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-5 py-4">
+        <header className="flex shrink-0 items-center justify-between gap-4 border-b border-[var(--border)] px-5 py-4">
           <div>
             <h2 className="text-lg font-bold text-[var(--foreground)]">
               Tu Canasta

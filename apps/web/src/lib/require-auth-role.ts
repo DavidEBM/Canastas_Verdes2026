@@ -5,6 +5,31 @@ export type UserRole =
   | "repartidor"
   | "admin";
 
+export async function getAuthoritativeUserRole(
+  uid: string,
+): Promise<UserRole | null> {
+  const userSnapshot = await adminDb
+    .collection("usuarios")
+    .doc(uid)
+    .get();
+
+  if (!userSnapshot.exists) {
+    return null;
+  }
+
+  const value = userSnapshot.data()?.Rol;
+  const role =
+    typeof value === "string"
+      ? value.trim().toLowerCase()
+      : "";
+
+  return role === "consumidor" ||
+    role === "repartidor" ||
+    role === "admin"
+    ? role
+    : null;
+}
+
 export async function requireAuthRole(
   request: Request,
 ) {
@@ -39,29 +64,10 @@ export async function requireAuthRole(
     throw new Error("NO_AUTH");
   }
 
-  const userSnapshot =
-    await adminDb
-      .collection("usuarios")
-      .doc(decoded.uid)
-      .get();
-
-  if (!userSnapshot.exists) {
-    throw new Error("FORBIDDEN");
-  }
-
-  const userData =
-    userSnapshot.data();
-
   const roleValue =
-    typeof userData?.Rol === "string"
-      ? userData.Rol.trim().toLowerCase()
-      : "";
+    await getAuthoritativeUserRole(decoded.uid);
 
-  if (
-    roleValue !== "consumidor" &&
-    roleValue !== "repartidor" &&
-    roleValue !== "admin"
-  ) {
+  if (!roleValue) {
     throw new Error("FORBIDDEN");
   }
 

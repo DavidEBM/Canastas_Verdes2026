@@ -568,7 +568,7 @@ export default function TiendaPage() {
 
         {/* FILTROS */}
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {/* Categoría */}
 
           <select
@@ -625,7 +625,7 @@ export default function TiendaPage() {
 
           {/* Stock */}
 
-          <label className="flex h-11 cursor-pointer items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]">
+          <label className="flex min-w-0 h-11 cursor-pointer items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)]">
             <input
               type="checkbox"
               checked={hideOutOfStock}
@@ -653,7 +653,7 @@ export default function TiendaPage() {
               </svg>
             </span>
 
-            <span className="font-medium">
+            <span className="min-w-0 break-words font-medium">
               Ocultar sin stock
             </span>
           </label>
@@ -704,7 +704,7 @@ export default function TiendaPage() {
         {/* ERROR */}
 
         {error && (
-          <div className="mt-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="mt-6 rounded-xl border border-[var(--danger-foreground)]/20 bg-[var(--danger-soft)] p-4 text-sm text-[var(--danger-foreground)]">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p>{error}</p>
 
@@ -712,7 +712,7 @@ export default function TiendaPage() {
                 type="button"
                 onClick={handleRefresh}
                 disabled={refreshing}
-                className="self-start rounded-md bg-white px-3 py-2 text-xs font-semibold text-red-700 shadow-sm disabled:cursor-not-allowed disabled:opacity-50 sm:self-auto"
+                className="self-start rounded-lg border border-[var(--danger-foreground)]/15 bg-white px-3 py-2 text-xs font-semibold text-[var(--danger-foreground)] shadow-sm transition-colors hover:bg-[var(--surface)] disabled:cursor-not-allowed disabled:opacity-50 sm:self-auto"
               >
                 {refreshing
                   ? "Actualizando..."

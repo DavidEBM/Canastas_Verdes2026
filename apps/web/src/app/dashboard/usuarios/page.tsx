@@ -72,6 +72,8 @@ export default function DashboardUsuariosPage() {
 
   const [canDeleteProfiles, setCanDeleteProfiles] =
     useState(false);
+  const [canManageAdminRoles, setCanManageAdminRoles] =
+    useState(false);
 
   const request = useCallback(
     async (
@@ -156,6 +158,12 @@ export default function DashboardUsuariosPage() {
             "canDeleteProfiles" in result &&
             result.canDeleteProfiles === true,
           );
+          setCanManageAdminRoles(
+            result &&
+            typeof result === "object" &&
+            "canManageAdminRoles" in result &&
+            result.canManageAdminRoles === true,
+          );
         } else {
           throw new Error(
             "La respuesta de usuarios no tiene un formato válido.",
@@ -218,6 +226,16 @@ export default function DashboardUsuariosPage() {
     if (!managedUser) {
       setError(
         "El usuario seleccionado no existe.",
+      );
+      return;
+    }
+
+    if (
+      !canManageAdminRoles &&
+      (nextRole === "admin" || managedUser.role === "admin")
+    ) {
+      setError(
+        "Solo el administrador con permisos elevados puede gestionar cuentas administrativas.",
       );
       return;
     }
@@ -360,7 +378,10 @@ export default function DashboardUsuariosPage() {
           <p className="mt-2 text-sm text-[var(--muted)]">
             Administra los permisos de los
             usuarios registrados en Canastas
-            Verdes.
+            Verdes.{" "}
+            {canManageAdminRoles
+              ? "Tu cuenta tiene permisos elevados."
+              : "Las cuentas administrativas requieren permisos elevados."}
           </p>
         </div>
 
@@ -383,7 +404,7 @@ export default function DashboardUsuariosPage() {
           Entiendase por<strong> Repartidor </strong>
           a aquellos encargados de entregas para domicilios o encargados de los lugares de entregas presenciales en los almacenes de recogida.<br />
           Entiendase por<strong> Administrador </strong>
-          a todos los encargados con permisos para crear, modificar, eliminar, asignar pedidos, gestionar roles, lugares, productos y etc.
+          a los encargados con acceso al dashboard completo. La gestión de cuentas administrativas y la eliminación de perfiles requieren permisos elevados.
         </p>
       </div>
 
@@ -530,6 +551,10 @@ export default function DashboardUsuariosPage() {
                               <option
                                 key={role}
                                 value={role}
+                                disabled={
+                                  role === "admin" &&
+                                  !canManageAdminRoles
+                                }
                               >
                                 {
                                   roleLabels[

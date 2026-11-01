@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { getAuthoritativeUserRole } from "@/lib/require-auth-role";
 
 export const runtime = "nodejs";
 
@@ -163,64 +164,19 @@ async function authenticate(
     const user =
       await adminAuth.verifyIdToken(token);
 
-    /*
-     * ========================================================
-     * 1. Intentar obtener el rol desde Firebase Custom Claims
-     * ========================================================
-     */
+    const role = await getAuthoritativeUserRole(user.uid);
 
-    const claimRole =
-      roleFromClaims(user);
-
-    if (claimRole) {
+    if (!role) {
       return {
-        ok: true as const,
-        user,
-        role: claimRole,
+        ok: false as const,
+        response: errorResponse(
+          "Tu perfil no tiene un rol válido.",
+          403,
+        ),
       };
     }
 
-    /*
-     * ========================================================
-     * 2. Obtener el rol desde usuarios/{uid}.Rol
-     * ========================================================
-     */
-
-    const usuarioSnapshot =
-      await adminDb
-        .collection("usuarios")
-        .doc(user.uid)
-        .get();
-
-    if (usuarioSnapshot.exists) {
-      const usuarioData =
-        usuarioSnapshot.data() as {
-          Rol?: unknown;
-        };
-
-      const firestoreRole =
-        normalizeRole(
-          usuarioData.Rol,
-        );
-
-      return {
-        ok: true as const,
-        user,
-        role: firestoreRole,
-      };
-    }
-
-    /*
-     * ========================================================
-     * 3. Usuario autenticado sin perfil
-     * ========================================================
-     */
-
-    return {
-      ok: true as const,
-      user,
-      role: "consumidor" as const,
-    };
+    return { ok: true as const, user, role };
   } catch (error) {
     console.error(
       "Error autenticando usuario en /api/repartos:",

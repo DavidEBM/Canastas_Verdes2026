@@ -5,6 +5,7 @@ import {
   adminAuth,
   adminDb,
 } from "@/lib/firebase-admin";
+import { getAuthoritativeUserRole } from "@/lib/require-auth-role";
 
 import {
   normalizeEstado,
@@ -152,40 +153,11 @@ async function authenticate(
       token,
     );
 
-  let role =
-    roleFromClaims(
-      user as Record<
-        string,
-        unknown
-      >,
-    );
+  const role =
+    await getAuthoritativeUserRole(user.uid);
 
   if (!role) {
-    const usuarioSnap =
-      await adminDb
-        .collection("usuarios")
-        .doc(user.uid)
-        .get();
-
-    if (
-      usuarioSnap.exists
-    ) {
-      const usuarioData =
-        usuarioSnap.data() as Record<
-          string,
-          unknown
-        >;
-
-      role =
-        normalizeRole(
-          usuarioData.Rol ??
-            usuarioData.rol ??
-            usuarioData.Role ??
-            usuarioData.role,
-        );
-    } else {
-      role = "consumidor";
-    }
+    throw new Error("FORBIDDEN");
   }
 
   return {
@@ -1656,43 +1628,10 @@ export async function PATCH(
                     delivererId,
                   );
 
-                let delivererRole =
-                  roleFromClaims(
-                    deliverer.customClaims ??
-                      {},
+                const delivererRole =
+                  await getAuthoritativeUserRole(
+                    deliverer.uid,
                   );
-
-                if (
-                  !delivererRole
-                ) {
-                  const delivererSnap =
-                    await adminDb
-                      .collection(
-                        "usuarios",
-                      )
-                      .doc(
-                        deliverer.uid,
-                      )
-                      .get();
-
-                  if (
-                    delivererSnap.exists
-                  ) {
-                    const data =
-                      delivererSnap.data() as Record<
-                        string,
-                        unknown
-                      >;
-
-                    delivererRole =
-                      normalizeRole(
-                        data.Rol ??
-                          data.rol ??
-                          data.Role ??
-                          data.role,
-                      );
-                  }
-                }
 
                 if (
                   delivererRole !==
@@ -1703,9 +1642,7 @@ export async function PATCH(
                   );
                 }
 
-                if (
-                  deliverer.disabled
-                ) {
+                if (deliverer.disabled) {
                   throw new Error(
                     "DISABLED_DELIVERER",
                   );
@@ -2109,43 +2046,10 @@ export async function PATCH(
                   delivererId,
                 );
 
-              let delivererRole =
-                roleFromClaims(
-                  deliverer.customClaims ??
-                    {},
+              const delivererRole =
+                await getAuthoritativeUserRole(
+                  deliverer.uid,
                 );
-
-              if (
-                !delivererRole
-              ) {
-                const delivererSnap =
-                  await adminDb
-                    .collection(
-                      "usuarios",
-                    )
-                    .doc(
-                      deliverer.uid,
-                    )
-                    .get();
-
-                if (
-                  delivererSnap.exists
-                ) {
-                  const data =
-                    delivererSnap.data() as Record<
-                      string,
-                      unknown
-                    >;
-
-                  delivererRole =
-                    normalizeRole(
-                      data.Rol ??
-                        data.rol ??
-                        data.Role ??
-                        data.role,
-                    );
-                }
-              }
 
               if (
                 delivererRole !==

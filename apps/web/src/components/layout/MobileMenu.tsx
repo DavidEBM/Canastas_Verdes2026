@@ -48,10 +48,10 @@ export default function MobileMenu({
   };
 
   return (
-    <div className="border-t border-[var(--border)] bg-[var(--background)] md:hidden">
-      <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6">
+    <div className="border-t border-[var(--border)] bg-[var(--background)] xl:hidden">
+      <div className="mx-auto max-h-[calc(100dvh-4rem)] max-w-7xl overflow-y-auto px-4 py-4 sm:px-6">
 
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1.5">
           {navigation.map((item) => (
             <Link
               key={item.href}

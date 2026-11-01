@@ -4,6 +4,7 @@ import {
   adminAuth,
   adminDb,
 } from "@/lib/firebase-admin";
+import { getAuthoritativeUserRole } from "@/lib/require-auth-role";
 
 export const runtime = "nodejs";
 
@@ -135,40 +136,11 @@ async function authenticate(
       token,
     );
 
-  let role =
-    roleFromClaims(
-      user as Record<
-        string,
-        unknown
-      >,
-    );
+  const role =
+    await getAuthoritativeUserRole(user.uid);
 
   if (!role) {
-    const usuarioSnap =
-      await adminDb
-        .collection("usuarios")
-        .doc(user.uid)
-        .get();
-
-    if (
-      usuarioSnap.exists
-    ) {
-      const usuarioData =
-        usuarioSnap.data() as Record<
-          string,
-          unknown
-        >;
-
-      role =
-        normalizeRole(
-          usuarioData.Rol ??
-            usuarioData.rol ??
-            usuarioData.Role ??
-            usuarioData.role,
-        );
-    } else {
-      role = "usuario";
-    }
+    throw new Error("FORBIDDEN");
   }
 
   return {

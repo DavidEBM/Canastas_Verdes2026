@@ -106,16 +106,16 @@ export default function HomePage() {
       </section>
 
       <section className="border-t border-[var(--border)] bg-[var(--surface)]">
-        <div className="mx-auto max-w-7xl px-4 py-16 text-center sm:px-6 lg:px-8 lg:py-20">
-          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+        <div className="mx-auto flex max-w-7xl flex-col items-center px-4 py-16 text-center sm:px-6 lg:px-8 lg:py-20">
+          <h2 className="mx-auto text-3xl font-bold tracking-tight sm:text-4xl">
             ¿Listo para comenzar?
           </h2>
-          <p className="mx-auto mt-4 max-w-2xl leading-7 text-[var(--muted)]">
+          <p className="mx-auto mt-4 w-full max-w-2xl text-center leading-7 text-[var(--muted)]">
             Únete a cientos de familias que ya disfrutan de productos frescos y orgánicos directo del campo.
           </p>
           <Link
             href="/tienda"
-            className="mt-8 inline-flex min-h-11 items-center justify-center rounded-md bg-[var(--primary)] px-6 text-sm font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
+            className="mx-auto mt-8 inline-flex min-h-11 items-center justify-center rounded-md bg-[var(--primary)] px-6 text-center text-sm font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
           >
             Explorar Productos
           </Link>

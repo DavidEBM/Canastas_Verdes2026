@@ -60,7 +60,7 @@ export default function Navbar() {
         <Link
           href="/"
           onClick={closeMenu}
-          className="flex min-w-0 shrink-0 items-center gap-2"
+          className="flex min-w-0 shrink-0 items-center gap-2 max-md:pr-2"
           aria-label="Canastas Verdes - Inicio"
         >
           {/* Logo único */}
@@ -68,9 +68,7 @@ export default function Navbar() {
             className="
               relative h-10 w-10 shrink-0 overflow-hidden rounded-full
               border border-[var(--border)] bg-[var(--surface)]
-              md:static
-              max-md:absolute max-md:left-1/2 max-md:top-1/2
-              max-md:-translate-x-1/2 max-md:-translate-y-1/2
+              static
             "
           >
             <Image
@@ -86,7 +84,7 @@ export default function Navbar() {
           {/* Nombre */}
           <span
             className="
-              text-xl font-bold tracking-tight
+              whitespace-nowrap text-xl font-bold tracking-tight
               text-[var(--foreground)]
               sm:text-2xl
             "
@@ -99,12 +97,12 @@ export default function Navbar() {
         </Link>
 
         {/* Navegación escritorio */}
-        <div className="hidden items-center gap-5 md:flex">
+        <div className="hidden min-w-0 items-center gap-3 xl:flex xl:gap-5">
           {navigation.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              className="text-sm font-medium text-[var(--foreground)] transition-colors hover:text-[var(--primary)]"
+              className="whitespace-nowrap text-sm font-medium text-[var(--foreground)] transition-colors hover:text-[var(--primary)]"
             >
               {item.label}
             </Link>
@@ -114,7 +112,7 @@ export default function Navbar() {
           {!authLoading && role === "admin" && (
             <Link
               href="/dashboard"
-              className="text-sm font-semibold text-[var(--primary)] transition-colors hover:opacity-80"
+              className="whitespace-nowrap text-sm font-semibold text-[var(--primary)] transition-colors hover:opacity-80"
             >
               Dashboard
             </Link>
@@ -124,7 +122,7 @@ export default function Navbar() {
           {!authLoading && role === "repartidor" && (
             <Link
               href="/dashboard/repartos"
-              className="text-sm font-semibold text-[var(--primary)] transition-colors hover:opacity-80"
+              className="whitespace-nowrap text-sm font-semibold text-[var(--primary)] transition-colors hover:opacity-80"
             >
               Repartos
             </Link>
@@ -134,7 +132,7 @@ export default function Navbar() {
           {!authLoading && user && (
             <Link
               href="/pedidos"
-              className="text-sm font-medium text-[var(--foreground)] transition-colors hover:text-[var(--primary)]"
+              className="whitespace-nowrap text-sm font-medium text-[var(--foreground)] transition-colors hover:text-[var(--primary)]"
             >
               Mis pedidos
             </Link>
@@ -144,7 +142,7 @@ export default function Navbar() {
           <button
             type="button"
             onClick={openCart}
-            className="relative inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--primary)]"
+            className="relative inline-flex shrink-0 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--primary)]"
             aria-label={`Abrir canasta${
               totalItems > 0
                 ? `, ${totalItems} productos`
@@ -181,14 +179,14 @@ export default function Navbar() {
             (user ? (
               <Link
                 href="/perfil"
-                className="rounded-lg border border-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)] hover:text-[var(--primary-foreground)]"
+                className="whitespace-nowrap rounded-lg border border-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)] hover:text-[var(--primary-foreground)]"
               >
                 Mi cuenta
               </Link>
             ) : (
               <Link
                 href="/login"
-                className="rounded-lg border border-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)] hover:text-[var(--primary-foreground)]"
+                className="whitespace-nowrap rounded-lg border border-[var(--primary)] px-4 py-2 text-sm font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)] hover:text-[var(--primary-foreground)]"
               >
                 Iniciar sesión
               </Link>
@@ -196,7 +194,7 @@ export default function Navbar() {
         </div>
 
         {/* Controles móviles */}
-        <div className="ml-auto flex items-center gap-2 md:hidden">
+        <div className="ml-auto flex items-center gap-2 xl:hidden">
           {/* Canasta */}
           <button
             type="button"

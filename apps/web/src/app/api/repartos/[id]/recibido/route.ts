@@ -7,6 +7,7 @@ import {
   adminAuth,
   adminDb,
 } from "@/lib/firebase-admin";
+import { getAuthoritativeUserRole } from "@/lib/require-auth-role";
 import {
   normalizeMedioPago,
   paymentChange,
@@ -173,22 +174,9 @@ export async function POST(
         token,
       );
 
-    const userSnapshot =
-      await adminDb
-        .collection("usuarios")
-        .doc(decoded.uid)
-        .get();
-
-    const userData =
-      userSnapshot.exists
-        ? userSnapshot.data()
-        : null;
-
     const role =
       normalizeRole(
-        decoded.role ??
-          decoded.rol ??
-          userData?.Rol,
+        await getAuthoritativeUserRole(decoded.uid),
       );
 
     if (

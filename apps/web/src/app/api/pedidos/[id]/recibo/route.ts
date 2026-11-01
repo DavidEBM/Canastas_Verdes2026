@@ -6,6 +6,7 @@ import {
 } from "@/lib/repartos/pdf";
 import { getPublicAppUrl } from "@/lib/recibos/url";
 import { normalizeEstado } from "@/lib/pedidos/estados";
+import { getAuthoritativeUserRole } from "@/lib/require-auth-role";
 
 export const runtime = "nodejs";
 
@@ -119,56 +120,17 @@ async function authenticate(
       token,
     );
 
-  let role =
-    roleFromClaims(
-      user as Record<
-        string,
-        unknown
-      >,
-    );
+  const role =
+    await getAuthoritativeUserRole(user.uid);
 
   if (!role) {
-    const snap =
-      await adminDb
-        .collection("usuarios")
-        .doc(user.uid)
-        .get();
-
-    if (
-      snap.exists
-    ) {
-      const data =
-        snap.data() as Record<
-          string,
-          unknown
-        >;
-
-      role =
-        normalizeRole(
-          data.Rol ??
-            data.rol ??
-            data.Role ??
-            data.role,
-        );
-    } else {
-      role = "consumidor";
-    }
+    throw new Error("FORBIDDEN");
   }
 
   return {
     user,
     role,
   };
-}
-
-async function authenticateOptional(
-  request: Request,
-) {
-  try {
-    return await authenticate(request);
-  } catch {
-    return null;
-  }
 }
 
 function errorResponse(
@@ -250,17 +212,12 @@ export async function GET(
      * =====================================================
      */
 
-    const publicQuery =
-      new URL(request.url).searchParams.get(
-        "publico",
-      ) === "1";
+    const session = await authenticate(request);
+    const jsonQuery =
+      new URL(request.url).searchParams.get("formato") === "json";
 
-    const session = publicQuery
-      ? await authenticateOptional(request)
-      : await authenticate(request);
-
-    const user = session?.user;
-    const role = session?.role ?? "consumidor";
+    const user = session.user;
+    const role = session.role;
 
     const { id } =
       await params;
@@ -321,7 +278,6 @@ export async function GET(
       user?.uid;
 
     if (
-      !publicQuery &&
       role !== "admin" &&
       !isOwner &&
       !isAssignedDeliverer
@@ -351,7 +307,6 @@ export async function GET(
     }
 
     if (
-      !publicQuery &&
       estado !==
       "entregado"
     ) {
@@ -791,7 +746,7 @@ export async function GET(
         ventaCompletada,
       };
 
-    if (publicQuery) {
+    if (jsonQuery) {
       const nombreCliente = [
         cliente.nombres,
         cliente.apellidos,

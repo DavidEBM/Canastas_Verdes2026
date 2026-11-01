@@ -4,18 +4,26 @@
   --background: #ffffff;
   --foreground: #17351f;
 
-  --surface: #f1f8f2;
-  --surface-hover: #e3f2e5;
+  --surface: #f4f8f3;
+  --surface-hover: #e4f1e4;
 
-  --border: #cfe3d2;
+  --border: #c9ddcc;
 
   --primary: #1f6b3a;
   --primary-foreground: #ffffff;
 
-  --secondary: #dff1e2;
+  --secondary: #dcefe0;
   --secondary-foreground: #1f6b3a;
 
-  --muted: #5f7465;
+  --muted: #536b5b;
+  --muted-foreground: #3e5546;
+  --accent: #d6a52e;
+  --accent-foreground: #2a210b;
+  --danger-soft: #fff1f0;
+  --danger-foreground: #a32621;
+  --success: #176b44;
+  --focus-ring: #2f8f58;
+  --shadow-soft: 0 10px 30px rgb(23 53 31 / 8%);
 
   --danger: #dc2626;
 
@@ -43,7 +51,7 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family:
-    Arial,
+    "Trebuchet MS",
     Helvetica,
     sans-serif;
   line-height: 1.5;
@@ -81,6 +89,19 @@ button:focus-visible,
 a:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+@media (max-width: 640px) {
+  button,
+  a {
+    min-height: 2.75rem;
+  }
 }
 
 img,

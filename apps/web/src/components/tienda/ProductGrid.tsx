@@ -140,7 +140,7 @@ function ProductCard({
     };
 
   return (
-    <article className="group flex h-full flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)] shadow-sm transition-shadow hover:shadow-md">
+    <article className="group flex min-w-0 h-full flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--background)] shadow-[var(--shadow-soft)] transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-lg">
       {/* =================================================
           Imagen
       ================================================= */}
@@ -200,7 +200,7 @@ function ProductCard({
 
         {!available && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/45">
-            <span className="rounded-full bg-white px-4 py-2 text-sm font-bold text-red-600">
+            <span className="rounded-full border border-[var(--danger-foreground)]/15 bg-[var(--danger-soft)] px-4 py-2 text-center text-sm font-bold text-[var(--danger-foreground)] shadow-sm">
               {availabilityLabel}
             </span>
           </div>
@@ -211,22 +211,22 @@ function ProductCard({
           Contenido
       ================================================= */}
 
-      <div className="flex flex-1 flex-col p-4">
+      <div className="flex flex-1 flex-col gap-0.5 p-5">
         {/* Código */}
 
-        <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+        <p className="break-words text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
           Código: {product.code}
         </p>
 
         {/* Nombre */}
 
-        <h3 className="mt-1 text-lg font-bold text-[var(--foreground)]">
+        <h3 className="mt-1 min-h-14 break-words text-lg font-bold leading-7 text-[var(--foreground)]">
           {product.nombre}
         </h3>
 
         {/* Descripción */}
 
-        <p className="mt-2 line-clamp-2 min-h-12 text-sm leading-6 text-[var(--muted)]">
+        <p className="mt-1 line-clamp-2 min-h-12 text-sm leading-6 text-[var(--muted-foreground)]">
           {product.descripcion}
         </p>
 
@@ -239,14 +239,14 @@ function ProductCard({
             )}
           </span>
 
-          <span className="ml-2 text-sm text-[var(--muted)]">
+          <span className="ml-2 text-sm text-[var(--muted-foreground)]">
             / {product.unidad}
           </span>
         </div>
 
         {/* Stock */}
 
-        <div className="mt-2 text-xs text-[var(--muted)]">
+        <div className="mt-2 min-h-5 text-xs text-[var(--muted-foreground)]">
           {available ? (
             <>
               Disponible:{" "}
@@ -255,7 +255,7 @@ function ProductCard({
               </span>
             </>
           ) : (
-            <span className="font-semibold text-red-600">
+            <span className="font-semibold text-[var(--danger-foreground)]">
               {availabilityLabel}
             </span>
           )}
@@ -312,7 +312,7 @@ function ProductCard({
                 onClick={
                   handleAddToCart
                 }
-                className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90"
+                className="mt-auto flex min-h-11 w-full min-w-0 items-center justify-center gap-2 rounded-xl bg-[var(--primary)] px-3 text-center text-sm font-semibold text-[var(--primary-foreground)] transition-[background-color,transform] hover:bg-[#18552e] hover:-translate-y-px"
               >
                 <svg
                   width="18"
