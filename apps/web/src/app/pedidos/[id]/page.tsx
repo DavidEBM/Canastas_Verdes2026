@@ -743,6 +743,8 @@ export default function PedidoDetallePage() {
                                 producto.imagen ||
                                 producto.imgPath
                               }
+                              width={64}
+                              height={64}
                               alt={getProductoNombre(
                                 producto
                               )}

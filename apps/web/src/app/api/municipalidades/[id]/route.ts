@@ -100,7 +100,7 @@ function getErrorResponse(
 
       case "ADMIN_REQUIRED":
         return jsonError(
-          "Solo un administrador puede gestionar municipalidades.",
+          "Solo un administrador puede gestionar municipios.",
           403,
         );
     }
@@ -129,7 +129,7 @@ export async function PUT(
 
     if (!ref) {
       return jsonError(
-        "La municipalidad no existe.",
+        "El municipio no existe.",
         404,
       );
     }
@@ -190,7 +190,7 @@ export async function PUT(
       typeof body.nombre !== "string"
     ) {
       return jsonError(
-        "El nombre de la municipalidad es obligatorio.",
+        "El nombre del municipio es obligatorio.",
         400,
       );
     }
@@ -231,7 +231,7 @@ export async function PUT(
 
     if (duplicate) {
       return jsonError(
-        "Ya existe una municipalidad activa con ese nombre.",
+        "Ya existe un municipio activo con ese nombre.",
         409,
       );
     }
@@ -254,7 +254,7 @@ export async function PUT(
   } catch (error) {
     return getErrorResponse(
       error,
-      "No fue posible actualizar la municipalidad.",
+      "No fue posible actualizar el municipio.",
     );
   }
 }
@@ -279,7 +279,7 @@ export async function DELETE(
 
     if (!ref) {
       return jsonError(
-        "La municipalidad no existe.",
+        "El municipio no existe.",
         404,
       );
     }
@@ -293,7 +293,7 @@ export async function DELETE(
      */
     if (data?.Activo !== false) {
       return jsonError(
-        "Solo se pueden eliminar municipalidades desactivadas.",
+        "Solo se pueden eliminar municipios desactivados.",
         409,
       );
     }
@@ -308,7 +308,7 @@ export async function DELETE(
   } catch (error) {
     return getErrorResponse(
       error,
-      "No fue posible eliminar la municipalidad.",
+        "No fue posible eliminar el municipio.",
     );
   }
 }

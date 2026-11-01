@@ -3,6 +3,10 @@ import { FieldValue } from "firebase-admin/firestore";
 
 import { adminDb } from "@/lib/firebase-admin";
 import { requireAdmin } from "@/lib/require-admin";
+import {
+  resolveAvailability,
+  type AvailabilityConfiguration,
+} from "@/lib/availability";
 
 export const runtime = "nodejs";
 
@@ -12,6 +16,52 @@ const PRODUCTORES_COLLECTION = "productores";
 const MAX_CODE_LENGTH = 50;
 const MAX_NAME_LENGTH = 150;
 const MAX_TEXT_LENGTH = 500;
+const PUBLIC_PRODUCTS_CACHE_TTL = 30_000;
+
+let publicProductsCache:
+  | { expiresAt: number; data: unknown[] }
+  | null = null;
+
+function normalizeAvailabilityConfiguration(
+  id: string,
+  value: FirebaseFirestore.DocumentData,
+): AvailabilityConfiguration | null {
+  const scope = value.scope;
+
+  if (
+    scope !== "default" &&
+    scope !== "producto" &&
+    scope !== "categoria" &&
+    scope !== "grupo"
+  ) {
+    return null;
+  }
+
+  const message = text(value.message, 160);
+  const targetId = text(value.targetId, 200);
+
+  if (!message || (scope !== "default" && !targetId)) {
+    return null;
+  }
+
+  return {
+    id,
+    scope,
+    targetId: scope === "default" ? "__default__" : targetId,
+    message,
+    active: value.active === true,
+    color: text(value.color, 30),
+    variant:
+      value.variant === "solid" || value.variant === "outline"
+        ? value.variant
+        : "soft",
+    priority:
+      typeof value.priority === "number" && Number.isFinite(value.priority)
+        ? value.priority
+        : 0,
+    updatedAt: value.updatedAt,
+  };
+}
 
 type CanastaComponent = {
   productoId: string;
@@ -445,6 +495,14 @@ export async function GET(request: Request) {
 
     if (isAdminView) {
       await requireAdmin(request);
+    } else if (
+      publicProductsCache &&
+      publicProductsCache.expiresAt > Date.now()
+    ) {
+      return NextResponse.json({
+        success: true,
+        data: publicProductsCache.data,
+      });
     }
 
     const productsRef = adminDb.collection(COLLECTION);
@@ -452,15 +510,90 @@ export async function GET(request: Request) {
       ? await productsRef.get()
       : await productsRef.where("activo", "==", true).get();
 
+    const [availabilitySnapshot, producersSnapshot, farmsSnapshot] =
+      await Promise.all([
+        adminDb
+          .collection("configuracionesDisponibilidad")
+          .where("active", "==", true)
+          .get(),
+        adminDb.collection(PRODUCTORES_COLLECTION).get(),
+        adminDb.collection("puntosRecogida").get(),
+      ]);
+
+    const availabilityConfigurations = availabilitySnapshot.docs
+      .map((document) =>
+        normalizeAvailabilityConfiguration(
+          document.id,
+          document.data(),
+        ),
+      )
+      .filter(
+        (configuration): configuration is AvailabilityConfiguration =>
+          Boolean(configuration),
+      );
+
+    const fincaNames = new Map<string, string>();
+    for (const document of producersSnapshot.docs) {
+      const value = document.data();
+      const name = text(value.nombre ?? value.Nombre, 150);
+      if (name) fincaNames.set(document.id, name);
+    }
+    for (const document of farmsSnapshot.docs) {
+      const value = document.data();
+      const name = text(value.nombre ?? value.Nombre, 150);
+      if (name && !fincaNames.has(document.id)) {
+        fincaNames.set(document.id, name);
+      }
+    }
+
     const data =
       snapshot.docs.map(
         (document) => {
           const productData =
             document.data();
 
+           const productId = document.id;
+           const legacyMessage = text(
+             productData.mensajeDisponibilidad,
+             160,
+           );
+           const productConfigurations = legacyMessage
+             ? [
+                 ...availabilityConfigurations,
+                 {
+                   id: `legacy-${productId}`,
+                   scope: "producto" as const,
+                   targetId: productId,
+                   message: legacyMessage,
+                   active: true,
+                   color: "",
+                   variant: "soft" as const,
+                   priority: -100,
+                 },
+               ]
+             : availabilityConfigurations;
+           const availability = resolveAvailability(
+             {
+               id: productId,
+               categoria: text(productData.categoria, 200),
+               grupo: text(productData.grupo, 200),
+               grupos: Array.isArray(productData.grupos)
+                 ? productData.grupos.filter(
+                     (value): value is string => typeof value === "string",
+                   )
+                 : [],
+             },
+             productConfigurations,
+           );
+
           return {
-            id: document.id,
+             id: productId,
             ...productData,
+
+             fincaNombre:
+               fincaNames.get(text(productData.IdProductor, 200)) ?? "",
+
+             availability,
 
             precio:
               numberValue(
@@ -518,6 +651,13 @@ export async function GET(request: Request) {
           };
         },
       );
+
+    if (!isAdminView) {
+      publicProductsCache = {
+        data,
+        expiresAt: Date.now() + PUBLIC_PRODUCTS_CACHE_TTL,
+      };
+    }
 
     return NextResponse.json({
       success: true,
@@ -845,6 +985,7 @@ export async function POST(
     await ref.set(
       firestoreData,
     );
+    publicProductsCache = null;
 
     return NextResponse.json(
       {

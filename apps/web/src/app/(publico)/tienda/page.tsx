@@ -11,7 +11,10 @@ import {
 
 import ProductGrid from "@/components/tienda/ProductGrid";
 import type { Product } from "@/services/productos.service";
-import { matchesTolerantSearch } from "@/lib/search";
+import {
+  createSearchIndex,
+  matchesSearchIndex,
+} from "@/lib/search";
 import {
   useCart,
   type CartProduct,
@@ -354,14 +357,29 @@ export default function TiendaPage() {
     );
   }, [products]);
 
+  const indexedProducts = useMemo(
+    () =>
+      products.map((product) => ({
+        product,
+        searchIndex: createSearchIndex([
+          product.nombre,
+          product.descripcion,
+          product.code,
+          product.categoria,
+          product.unidad,
+        ]),
+      })),
+    [products],
+  );
+
   /* =========================================================
      Filtrado
   ========================================================= */
 
   const filteredProducts =
     useMemo(() => {
-      return products.filter(
-        (product) => {
+      return indexedProducts
+        .filter(({ product, searchIndex }) => {
           if (
             product.activo !== true
           ) {
@@ -375,13 +393,7 @@ export default function TiendaPage() {
             return false;
           }
 
-          if (!matchesTolerantSearch([
-            product.nombre,
-            product.descripcion,
-            product.code,
-            product.categoria,
-            product.unidad,
-          ], deferredSearch)) {
+          if (!matchesSearchIndex(searchIndex, deferredSearch)) {
             return false;
           }
 
@@ -402,10 +414,10 @@ export default function TiendaPage() {
           }
 
           return true;
-        },
-      );
+        })
+        .map(({ product }) => product);
     }, [
-      products,
+      indexedProducts,
       deferredSearch,
       category,
       municipality,
@@ -596,7 +608,7 @@ export default function TiendaPage() {
             className="h-11 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
           >
             <option value="all">
-              Todas las fincas
+              Todos los municipios
             </option>
 
             {municipalities.map(
@@ -625,7 +637,7 @@ export default function TiendaPage() {
               className="peer sr-only"
             />
 
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-transparent transition-all peer-checked:border-[var(--primary)] peer-checked:bg-[var(--primary)] peer-checked:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--primary)]/25">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--background)] text-transparent transition-[background-color,border-color,color] peer-checked:border-[var(--primary)] peer-checked:bg-[var(--primary)] peer-checked:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--primary)]/25">
               <svg
                 width="14"
                 height="14"

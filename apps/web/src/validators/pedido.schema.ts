@@ -45,7 +45,7 @@ export const pedidoProductoSchema = z.object({
     .string()
     .min(
       1,
-      "La municipalidad es obligatoria",
+      "El municipio es obligatorio",
     ),
 });
 
@@ -80,7 +80,7 @@ export const crearPedidoSchema = z.object({
     .string()
     .min(
       1,
-      "La municipalidad de entrega es obligatoria",
+      "El municipio de entrega es obligatorio",
     ),
 
   direccionEntrega: z

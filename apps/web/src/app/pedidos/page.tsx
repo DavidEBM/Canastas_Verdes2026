@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/useAuth";
+import { matchesTolerantSearch } from "@/lib/search";
 import type { Pedido } from "@/lib/repartos/types";
 
 const EMPTY_ORDERS_IMAGE =
@@ -57,6 +58,10 @@ type ProductoPedido = Pedido["productos"][number] & {
 };
 
 type PedidoUsuario = Pedido & {
+  numeroPedido?: number | null;
+  numeroPedidoVisible?: string;
+  usuarioNombre?: string;
+  repartidorNombre?: string;
   tipoEntrega?: TipoEntrega | null;
   TipoEntrega?: TipoEntrega | null;
 
@@ -71,9 +76,24 @@ type PedidoUsuario = Pedido & {
 
   IdMunicipalidad?: string;
   idMunicipalidad?: string;
+  municipioNombre?: string;
 
   nombreCliente?: string;
 };
+
+function pedidoDateValue(value: unknown): number {
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  if (value && typeof value === "object" && "seconds" in value) {
+    const seconds = Number((value as { seconds?: unknown }).seconds);
+    return Number.isFinite(seconds) ? seconds * 1000 : 0;
+  }
+
+  return value instanceof Date ? value.getTime() : 0;
+}
 
 interface PedidosApiResponse {
   success?: boolean;
@@ -391,6 +411,8 @@ export default function PedidosPage() {
 
   const [error, setError] = useState("");
 
+  const [busqueda, setBusqueda] = useState("");
+
   const [selectedPedido, setSelectedPedido] =
     useState<PedidoUsuario | null>(null);
 
@@ -444,6 +466,12 @@ export default function PedidosPage() {
         ).filter(
           (pedido) =>
             pedido.usuarioId === user.uid,
+        ).sort((left, right) =>
+          pedidoDateValue(right.fechaCreacion) -
+            pedidoDateValue(left.fechaCreacion) ||
+          (right.numeroPedido ?? 0) -
+            (left.numeroPedido ?? 0) ||
+          right.id.localeCompare(left.id),
         );
 
         if (!cancelled) {
@@ -475,6 +503,35 @@ export default function PedidosPage() {
       cancelled = true;
     };
   }, [user, authLoading]);
+
+  const pedidosVisibles = useMemo(
+    () => pedidos.filter((pedido) => {
+      const punto = pedido.puntoRecogida;
+      return matchesTolerantSearch(
+        [
+          pedido.id,
+          pedido.numeroPedido,
+          pedido.numeroPedidoVisible,
+          pedido.usuarioNombre,
+          pedido.nombreCliente,
+          pedido.repartidorNombre,
+          pedido.repartidorId,
+          pedido.direccionEntrega,
+          pedido.IdMunicipalidad,
+          pedido.municipioNombre,
+          pedido.IdPuntoRecogida,
+          pedido.telefonoEntrega,
+          getTipoEntrega(pedido),
+          punto?.nombre,
+          punto?.direccion,
+          punto?.municipio,
+          ...getPedidoProductos(pedido).map((producto) => `${producto.nombre} ${producto.code}`),
+        ],
+        busqueda,
+      );
+    }),
+    [busqueda, pedidos],
+  );
 
   if (authLoading || loading) {
     return (
@@ -609,7 +666,29 @@ export default function PedidosPage() {
           </div>
         ) : (
           <div className="space-y-5">
-            {pedidos.map((pedido) => {
+            <section className="rounded-2xl border border-[var(--border)] bg-white p-4 shadow-sm">
+              <label htmlFor="buscar-mis-pedidos" className="block text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                Buscar en mis pedidos
+              </label>
+              <input
+                id="buscar-mis-pedidos"
+                type="search"
+                value={busqueda}
+                onChange={(event) => setBusqueda(event.target.value)}
+                placeholder="Número, ID, repartidor, dirección o punto de recogida..."
+                className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
+              />
+              <p className="mt-2 text-xs text-[var(--muted)]">
+                Mostrando {pedidosVisibles.length} de {pedidos.length} pedidos.
+              </p>
+            </section>
+
+            {pedidosVisibles.length === 0 ? (
+              <div className="rounded-2xl border border-[var(--border)] bg-white p-10 text-center shadow-sm">
+                <p className="font-semibold">No encontramos pedidos con ese criterio.</p>
+                <p className="mt-1 text-sm text-[var(--muted)]">Prueba con el número, la dirección o el punto de recogida.</p>
+              </div>
+            ) : pedidosVisibles.map((pedido) => {
               const tipoEntrega =
                 getTipoEntrega(pedido);
 
@@ -629,11 +708,8 @@ export default function PedidosPage() {
                             href={`/pedidos/${pedido.id}?success=1`}
                             className="text-sm font-bold text-[var(--primary)] underline-offset-2 transition hover:underline"
                           >
-                            Pedido #
-                            {pedido.id.slice(
-                              0,
-                              8,
-                            )}
+                            {pedido.numeroPedidoVisible ||
+                              `Pedido #${pedido.id.slice(0, 8)}`}
                           </Link>
 
                           <span
@@ -780,6 +856,12 @@ export default function PedidosPage() {
                             </p>
                           </div>
 
+                          {pedido.municipioNombre && (
+                            <p className="pl-6 text-xs text-[var(--muted)]">
+                              {pedido.municipioNombre}
+                            </p>
+                          )}
+
                           {(pedido.telefonoEntrega ||
                             pedido.telefono) && (
                             <div className="flex items-center gap-2">
@@ -912,7 +994,7 @@ export default function PedidosPage() {
             }
           }}
         >
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-xl">
+          <div className="modal-scroll max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-xl">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-white px-5 py-4 md:px-6">
               <div>
                 <h2 className="text-lg font-bold text-[var(--foreground)]">
@@ -982,8 +1064,7 @@ export default function PedidosPage() {
                   </p>
 
                   <p className="text-sm font-medium text-[var(--foreground)]">
-                    {selectedPedido.IdMunicipalidad ||
-                      selectedPedido.idMunicipalidad ||
+                    {selectedPedido.municipioNombre ||
                       "No especificada"}
                   </p>
                 </div>

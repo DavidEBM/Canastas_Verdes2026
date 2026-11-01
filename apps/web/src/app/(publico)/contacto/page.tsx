@@ -452,7 +452,7 @@ HERO
 
             <div className="mt-3 flex flex-wrap gap-3">
               <a
-                href="https://wa.me/573001234567"
+                href="https://wa.me/c/573154073347"
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Escribir por WhatsApp"
@@ -464,7 +464,7 @@ HERO
               </a>
 
               <a
-                href="https://www.instagram.com/canastasverdes/"
+                href="https://www.instagram.com/canastasverdespasto/"
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Visitar Instagram de Canastas Verdes"

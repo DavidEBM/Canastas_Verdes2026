@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCart, type CartProduct } from "@/hooks/useCart";
 
 interface ProductCardProps {
@@ -51,10 +52,18 @@ export default function ProductCard({
     availableStock > 0;
 
   const availabilityLabel =
+    product.availability?.message?.trim() ||
     (product.activo !== true
       ? product.mensajeDisponibilidad?.trim()
       : "") ||
     "Sin stock";
+
+  const availabilityClass =
+    product.availability?.variant === "solid"
+      ? "text-white shadow-lg"
+      : product.availability?.variant === "outline"
+        ? "border-2 bg-white/95 shadow-lg"
+        : "shadow-lg";
 
   /* =======================================================
      Imagen
@@ -91,16 +100,18 @@ export default function ProductCard({
   ======================================================= */
 
   return (
-    <article className="group flex h-full flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)] shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg">
+    <article className="group flex h-full flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)] shadow-sm transition-[transform,box-shadow] duration-200 hover:-translate-y-1 hover:shadow-lg">
       {/* =================================================
           Imagen
       ================================================= */}
 
       <div className="relative aspect-square overflow-hidden bg-[var(--surface)]">
-        <img
+        <Image
           src={imageSource}
+          width={600}
+          height={600}
           alt={product.nombre}
-          loading="lazy"
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
           className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
           onError={(event) => {
             const image =
@@ -149,7 +160,25 @@ export default function ProductCard({
 
         {!hasStock && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/45">
-            <span className="rounded-lg bg-[var(--background)] px-4 py-2 text-sm font-bold text-[var(--danger)] shadow-lg">
+            <span
+              className={`rounded-lg bg-[var(--background)] px-4 py-2 text-sm font-bold text-[var(--danger)] ${availabilityClass}`}
+              style={
+                product.availability
+                  ? {
+                      borderColor:
+                        product.availability.color,
+                      backgroundColor:
+                        product.availability.variant === "solid"
+                          ? product.availability.color
+                          : undefined,
+                      color:
+                        product.availability.variant === "solid"
+                          ? "#fff"
+                          : product.availability.color,
+                    }
+                  : undefined
+              }
+            >
               {availabilityLabel}
             </span>
           </div>
@@ -173,6 +202,12 @@ export default function ProductCard({
           {product.descripcion && (
             <p className="mt-1 line-clamp-2 text-sm leading-5 text-[var(--muted)]">
               {product.descripcion}
+            </p>
+          )}
+
+          {product.fincaNombre && (
+            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--primary)]">
+              Finca: {product.fincaNombre}
             </p>
           )}
 
@@ -278,7 +313,7 @@ export default function ProductCard({
             type="button"
             onClick={handleAdd}
             disabled={!hasStock}
-            className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-semibold text-[var(--primary-foreground)] transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:bg-[var(--muted)] disabled:opacity-60"
+            className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-semibold text-[var(--primary-foreground)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:bg-[var(--muted)] disabled:opacity-60"
           >
             {hasStock ? (
               <>

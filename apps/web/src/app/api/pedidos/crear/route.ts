@@ -6,6 +6,7 @@ import {
   calcularPrecioLinea,
   etiquetaTipoPrecio,
 } from "@/lib/pedidos/precios";
+import { syncAutomaticLabels } from "@/lib/user-labels";
 
 export const runtime = "nodejs";
 
@@ -184,7 +185,7 @@ export async function POST(request: Request) {
       municipality.length > 150
     ) {
       return errorResponse(
-        "Revisa los productos y la municipalidad.",
+        "Revisa los productos y el municipio.",
         400,
       );
     }
@@ -266,6 +267,19 @@ export async function POST(request: Request) {
       .collection("reservas")
       .doc();
 
+    const orderCounterRef = adminDb
+      .collection("secuencias")
+      .doc("pedidos");
+    const counterSnapshot = await orderCounterRef.get();
+    let initialOrderNumber = Number(counterSnapshot.data()?.ultimoNumero ?? 0);
+    if (!counterSnapshot.exists) {
+      const existingOrders = await adminDb.collection("pedidos").get();
+      initialOrderNumber = existingOrders.docs.reduce((max, document) => {
+        const value = Number(document.data().numeroPedido ?? 0);
+        return Number.isFinite(value) ? Math.max(max, value) : max;
+      }, 0);
+    }
+
     /*
      * ================================================
      * Transacción
@@ -274,6 +288,12 @@ export async function POST(request: Request) {
 
     const result = await adminDb.runTransaction(
       async (transaction) => {
+        const orderCounterSnapshot = await transaction.get(orderCounterRef);
+        const lastOrderNumber = orderCounterSnapshot.exists
+          ? Number(orderCounterSnapshot.data()?.ultimoNumero ?? 0)
+          : initialOrderNumber;
+        const numeroPedido = lastOrderNumber + 1;
+
         /*
          * ==========================================
          * Validar municipalidad
@@ -614,6 +634,15 @@ export async function POST(request: Request) {
          * ==========================================
          */
 
+        transaction.set(
+          orderCounterRef,
+          {
+            ultimoNumero: numeroPedido,
+            actualizadoEn: FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+
         for (
           let index = 0;
           index < items.length;
@@ -684,6 +713,10 @@ export async function POST(request: Request) {
           pedidoRef,
           {
             usuarioId: user.uid,
+
+            numeroPedido,
+
+            numeroPedidoVisible: `CV-${String(numeroPedido).padStart(6, "0")}`,
 
             productos,
 
@@ -759,10 +792,16 @@ export async function POST(request: Request) {
           pedidoId:
             pedidoRef.id,
 
+          numeroPedido,
+
           total: subtotal,
         };
       },
     );
+
+    await syncAutomaticLabels(user.uid).catch((error) => {
+      console.error("No fue posible sincronizar etiquetas automáticas:", error);
+    });
 
     /*
      * ================================================
@@ -789,7 +828,7 @@ export async function POST(request: Request) {
       switch (error.message) {
         case "MUNICIPALITY_NOT_FOUND":
           return errorResponse(
-            "La municipalidad seleccionada no existe.",
+            "El municipio seleccionado no existe.",
             409,
           );
 

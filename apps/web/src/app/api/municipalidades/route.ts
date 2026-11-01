@@ -28,7 +28,7 @@ function getErrorResponse(error: unknown, fallback: string) {
 
       case "ADMIN_REQUIRED":
         return jsonError(
-          "Solo un administrador puede gestionar municipalidades.",
+          "Solo un administrador puede gestionar municipios.",
           403,
         );
     }
@@ -85,7 +85,7 @@ export async function GET(request: Request) {
   } catch (error) {
     return getErrorResponse(
       error,
-      "No fue posible cargar las municipalidades.",
+      "No fue posible cargar los municipios.",
     );
   }
 }
@@ -107,7 +107,7 @@ export async function POST(request: Request) {
       typeof body.nombre !== "string"
     ) {
       return jsonError(
-        "El nombre de la municipalidad es obligatorio.",
+        "El nombre del municipio es obligatorio.",
         400,
       );
     }
@@ -141,7 +141,7 @@ export async function POST(request: Request) {
 
     if (duplicate) {
       return jsonError(
-        "Ya existe una municipalidad activa con ese nombre.",
+        "Ya existe un municipio activo con ese nombre.",
         409,
       );
     }
@@ -174,7 +174,7 @@ export async function POST(request: Request) {
   } catch (error) {
     return getErrorResponse(
       error,
-      "No fue posible crear la municipalidad.",
+      "No fue posible crear el municipio.",
     );
   }
 }

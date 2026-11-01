@@ -56,6 +56,8 @@ import { matchesTolerantSearch } from "@/lib/search";
 
   type ProductForm = Omit<Product, "id">;
 
+  type ImageFilter = "" | "with-image" | "without-image";
+
   type CatalogOption = {
     id: string;
     nombre: string;
@@ -179,6 +181,11 @@ import { matchesTolerantSearch } from "@/lib/search";
   function numberValue(value: unknown) {
     const number = Number(value);
     return Number.isFinite(number) ? number : 0;
+  }
+
+  function productHasImage(product: Product) {
+    return typeof product.imgPath === "string" &&
+      product.imgPath.trim().length > 0;
   }
 
   function percentageValue(value: unknown, fieldName: string) {
@@ -621,6 +628,8 @@ import { matchesTolerantSearch } from "@/lib/search";
       useState("");
     const [statusFilter, setStatusFilter] =
       useState<"" | "active" | "inactive">("");
+    const [imageFilter, setImageFilter] =
+      useState<ImageFilter>("");
     const [selectedOnly, setSelectedOnly] =
       useState(false);
 
@@ -914,6 +923,12 @@ import { matchesTolerantSearch } from "@/lib/search";
             ? product.activo
             : !product.activo);
 
+        const matchesImage =
+          !imageFilter ||
+          (imageFilter === "with-image"
+            ? productHasImage(product)
+            : !productHasImage(product));
+
         const matchesSelected =
           !selectedOnly ||
           selectedIds.has(product.id);
@@ -924,6 +939,7 @@ import { matchesTolerantSearch } from "@/lib/search";
           matchesProducer &&
           matchesMunicipality &&
           matchesStatus &&
+          matchesImage &&
           matchesSelected
         );
       });
@@ -936,6 +952,7 @@ import { matchesTolerantSearch } from "@/lib/search";
       producerFilter,
       municipalityFilter,
       statusFilter,
+      imageFilter,
       selectedOnly,
       selectedIds,
     ]);
@@ -946,6 +963,7 @@ import { matchesTolerantSearch } from "@/lib/search";
       setProducerFilter("");
       setMunicipalityFilter("");
       setStatusFilter("");
+      setImageFilter("");
       setSelectedOnly(false);
     };
 
@@ -2733,6 +2751,8 @@ import { matchesTolerantSearch } from "@/lib/search";
                   {imagePreviewUrl ? (
                     <img
                       src={imagePreviewUrl}
+                      width={440}
+                      height={220}
                       alt={
                         form.nombre
                           ? `Imagen de ${form.nombre}`
@@ -3041,6 +3061,29 @@ import { matchesTolerantSearch } from "@/lib/search";
 
                 <option value="inactive">
                   Inactivos
+                </option>
+              </select>
+
+              <select
+                value={imageFilter}
+                onChange={(event) =>
+                  setImageFilter(
+                    event.target.value as ImageFilter,
+                  )
+                }
+                aria-label="Filtrar productos por imagen"
+                className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+              >
+                <option value="">
+                  Todas las imágenes
+                </option>
+
+                <option value="with-image">
+                  Con imagen
+                </option>
+
+                <option value="without-image">
+                  Sin imagen
                 </option>
               </select>
 
@@ -3446,7 +3489,7 @@ import { matchesTolerantSearch } from "@/lib/search";
 
         {bulkOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4">
-            <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--background)] p-5 shadow-2xl">
+            <div className="modal-scroll max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--background)] p-5 shadow-2xl">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-xl font-bold">

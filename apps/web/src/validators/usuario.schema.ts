@@ -55,7 +55,7 @@ export const usuarioSchema = z.object({
     .trim()
     .min(
       1,
-      "La municipalidad es obligatoria",
+      "El municipio es obligatorio",
     ),
 
   direccion: z
@@ -119,7 +119,7 @@ export const registroUsuarioSchema = z.object({
     .trim()
     .min(
       1,
-      "La municipalidad es obligatoria",
+      "El municipio es obligatorio",
     ),
 
   direccion: z

@@ -6,6 +6,19 @@ import { requireAdmin } from "@/lib/require-admin";
 
 export const runtime = "nodejs";
 
+async function validateLocation(IdMunicipalidad: string, IdVereda: string) {
+  if (!IdMunicipalidad && !IdVereda) return { municipio: "", vereda: "" };
+  const municipality = await adminDb.collection("municipalidades").doc(IdMunicipalidad).get();
+  if (!municipality.exists || municipality.data()?.Activo === false) throw new Error("El municipio seleccionado no existe o está inactivo.");
+  let vereda = "";
+  if (IdVereda) {
+    const veredaSnapshot = await adminDb.collection("veredas").doc(IdVereda).get();
+    if (!veredaSnapshot.exists || veredaSnapshot.data()?.activo === false || veredaSnapshot.data()?.IdMunicipalidad !== IdMunicipalidad) throw new Error("La vereda seleccionada no pertenece al municipio indicado.");
+    vereda = String(veredaSnapshot.data()?.nombre ?? "").trim();
+  }
+  return { municipio: String(municipality.data()?.Nombre ?? municipality.data()?.nombre ?? "").trim(), vereda };
+}
+
 interface RouteContext {
   params: Promise<{
     id: string;
@@ -65,6 +78,10 @@ export async function GET(
         telefono: String(data.telefono ?? ""),
         correo: String(data.correo ?? ""),
         direccion: String(data.direccion ?? ""),
+        IdMunicipalidad: String(data.IdMunicipalidad ?? ""),
+        IdVereda: String(data.IdVereda ?? ""),
+        municipio: String(data.municipio ?? ""),
+        vereda: String(data.vereda ?? ""),
         activo: data.activo !== false,
         fechaCreacion:
           data.fechaCreacion?.toDate?.()?.toISOString() ?? null,
@@ -153,6 +170,9 @@ export async function PUT(
       typeof body.direccion === "string"
         ? body.direccion.trim()
         : "";
+
+    const IdMunicipalidad = typeof body.IdMunicipalidad === "string" ? body.IdMunicipalidad.trim() : "";
+    const IdVereda = typeof body.IdVereda === "string" ? body.IdVereda.trim() : "";
 
     const activo =
       typeof body.activo === "boolean"
@@ -280,6 +300,8 @@ export async function PUT(
      * Actualizar productor
      */
 
+    const location = await validateLocation(IdMunicipalidad, IdVereda);
+
     await productorRef.update({
       nombre,
       nombreNormalizado: normalizedName,
@@ -287,6 +309,10 @@ export async function PUT(
       telefono,
       correo,
       direccion,
+      IdMunicipalidad,
+      IdVereda,
+      municipio: location.municipio,
+      vereda: location.vereda,
       activo,
       fechaActualizacion:
         FieldValue.serverTimestamp(),
@@ -298,6 +324,17 @@ export async function PUT(
     });
   } catch (error) {
     console.error("Error actualizando productor:", error);
+
+    if (
+      error instanceof Error &&
+      (error.message.includes("municipio") ||
+        error.message.includes("vereda"))
+    ) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: 400 },
+      );
+    }
 
     return NextResponse.json(
       {

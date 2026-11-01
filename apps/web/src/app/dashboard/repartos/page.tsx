@@ -3,12 +3,14 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 
 import { auth } from "@/lib/firebase";
 import { useAuth } from "@/hooks/useAuth";
 import RepartoCard from "@/components/repartos/RepartoCard";
+import { matchesTolerantSearch } from "@/lib/search";
 
 import type {
   Reparto,
@@ -39,6 +41,9 @@ export default function DashboardRepartosPage() {
 
   const [filtro, setFiltro] =
     useState<FiltroEstado>("todos");
+
+  const [busqueda, setBusqueda] =
+    useState("");
 
   const [loading, setLoading] =
     useState(true);
@@ -128,14 +133,42 @@ export default function DashboardRepartosPage() {
   // FILTRADO
   // =========================================================
 
-  const repartosFiltrados =
-    filtro === "todos"
-      ? repartos
-      : repartos.filter(
-          (reparto) =>
-            reparto.pedido.estado ===
-            filtro,
-        );
+  const repartosFiltrados = useMemo(
+    () => repartos.filter((reparto) => {
+      if (
+        filtro !== "todos" &&
+        reparto.pedido.estado !== filtro
+      ) {
+        return false;
+      }
+
+      return matchesTolerantSearch(
+        [
+          reparto.id,
+          reparto.pedido.numeroPedido,
+          reparto.pedido.numeroPedidoVisible,
+          reparto.cliente.nombreCompleto,
+          reparto.cliente.nombres,
+          reparto.cliente.apellidos,
+          reparto.repartidor?.nombreCompleto,
+          reparto.repartidor?.nombres,
+          reparto.repartidor?.apellidos,
+          reparto.repartidor?.id,
+          reparto.cliente.direccion,
+          reparto.pedido.direccionEntrega,
+          reparto.municipalidad.nombre,
+          reparto.pedido.tipoEntrega,
+          reparto.pedido.IdPuntoRecogida,
+          reparto.pedido.puntoRecogida?.nombre,
+          reparto.pedido.puntoRecogida?.direccion,
+          reparto.pedido.puntoRecogida?.municipio,
+          ...reparto.pedido.productos.map((producto) => `${producto.nombre} ${producto.code}`),
+        ],
+        busqueda,
+      );
+    }),
+    [busqueda, filtro, repartos],
+  );
 
   // =========================================================
   // ESTADO DE AUTENTICACIÓN
@@ -318,6 +351,23 @@ export default function DashboardRepartosPage() {
           Entregados
         </FilterButton>
       </div>
+
+      <section className="rounded-2xl border border-[var(--border)] bg-white p-4 shadow-sm">
+        <label htmlFor="buscar-repartos" className="block text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+          Buscar pedido o entrega
+        </label>
+        <input
+          id="buscar-repartos"
+          type="search"
+          value={busqueda}
+          onChange={(event) => setBusqueda(event.target.value)}
+          placeholder="Número, cliente, repartidor, dirección o punto de recogida..."
+          className="mt-2 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
+        />
+        <p className="mt-2 text-xs text-[var(--muted)]">
+          Mostrando {repartosFiltrados.length} de {repartos.length} pedidos.
+        </p>
+      </section>
 
       {/* ================================================ */}
       {/* ERROR */}

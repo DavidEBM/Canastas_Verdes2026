@@ -36,6 +36,10 @@ interface ProductoPedido {
 
 interface PedidoData {
   usuarioId?: unknown;
+  numeroPedido?: unknown;
+  numeroPedidoVisible?: unknown;
+  medioPago?: unknown;
+  pago?: unknown;
   productos?: unknown;
   subtotal?: unknown;
   subtotalProductos?: unknown;
@@ -48,6 +52,10 @@ interface PedidoData {
   reservaId?: unknown;
   IdMunicipalidad?: unknown;
   direccionEntrega?: unknown;
+  telefonoEntrega?: unknown;
+  tipoEntrega?: unknown;
+  IdPuntoRecogida?: unknown;
+  puntoRecogida?: unknown;
   repartidorId?: unknown;
   fechaCreacion?: unknown;
   ultimaActualizacion?: unknown;
@@ -66,6 +74,8 @@ interface UsuarioData {
 interface MunicipalidadData {
   Id?: unknown;
   Nombre?: unknown;
+  nombre?: unknown;
+  name?: unknown;
 }
 
 /*
@@ -276,6 +286,25 @@ function normalizeText(
   return stringValue(value)
     .replace(/_/g, " ")
     .trim();
+}
+
+function normalizePickup(
+  value: unknown,
+) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const data = value as Record<string, unknown>;
+  const nombre = normalizeText(data.nombre ?? data.Nombre);
+  const direccion = normalizeText(data.direccion ?? data.Direccion);
+  const municipio = normalizeText(data.municipio ?? data.Municipio);
+
+  if (!nombre && !direccion && !municipio) {
+    return null;
+  }
+
+  return { nombre, direccion, municipio };
 }
 
 function normalizeEstado(
@@ -830,10 +859,12 @@ export async function GET(
 
         const municipalidadNombre =
           normalizeText(
-            municipalidad?.Nombre,
+            municipalidad?.Nombre ??
+              municipalidad?.nombre ??
+              municipalidad?.name,
           ) ||
           municipalidadId ||
-          "Municipalidad";
+          "Municipio";
 
         /*
          * ----------------------------------------------------
@@ -989,7 +1020,20 @@ export async function GET(
          */
 
         const modalidadEntrega =
-          "domicilio" as const;
+          pedido.tipoEntrega === "recogida"
+            ? ("recogida" as const)
+            : ("domicilio" as const);
+
+        const numeroPedido = Number(pedido.numeroPedido);
+        const numeroPedidoValido = Number.isFinite(numeroPedido)
+          ? numeroPedido
+          : null;
+        const numeroPedidoVisible =
+          normalizeText(pedido.numeroPedidoVisible) ||
+          (numeroPedidoValido !== null
+            ? `CV-${String(numeroPedidoValido).padStart(6, "0")}`
+            : "");
+        const puntoRecogida = normalizePickup(pedido.puntoRecogida);
 
         /*
          * ----------------------------------------------------
@@ -999,6 +1043,19 @@ export async function GET(
 
         const pedidoNormalizado = {
           id,
+
+          numeroPedido: numeroPedidoValido,
+
+          numeroPedidoVisible,
+
+          medioPago:
+            stringValue(pedido.medioPago) || null,
+
+          pago:
+            pedido.pago &&
+            typeof pedido.pago === "object"
+              ? pedido.pago
+              : null,
 
           usuarioId,
 
@@ -1022,10 +1079,20 @@ export async function GET(
           IdMunicipalidad:
             municipalidadId,
 
+          IdPuntoRecogida:
+            stringValue(pedido.IdPuntoRecogida) || null,
+
           direccionEntrega:
             normalizeText(
               pedido.direccionEntrega,
             ),
+
+          telefonoEntrega:
+            stringValue(pedido.telefonoEntrega) || null,
+
+          tipoEntrega: modalidadEntrega,
+
+          puntoRecogida,
 
           repartidorId:
             repartidorId || null,
@@ -1122,7 +1189,11 @@ export async function GET(
             b.pedido.fechaCreacion,
           );
 
-        return dateB - dateA;
+        return (
+          dateB - dateA ||
+          (b.pedido.numeroPedido ?? 0) - (a.pedido.numeroPedido ?? 0) ||
+          b.id.localeCompare(a.id)
+        );
       },
     );
 

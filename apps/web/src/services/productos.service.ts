@@ -47,11 +47,19 @@ export interface Product {
   /* Relaciones */
   IdProductor: string;
   IdMunicipalidad: string;
+  fincaNombre: string;
 
   /* Imágenes */
   imgPath: string;
   imageName: string;
   mensajeDisponibilidad: string;
+  availability?: {
+    message: string;
+    color: string;
+    variant: "soft" | "solid" | "outline";
+    source: "default" | "producto" | "categoria" | "grupo";
+    configurationId: string | null;
+  };
 
   /* Estado */
   activo: boolean;
@@ -195,6 +203,9 @@ function mapProduct(
         data.IdMunicipalidad,
       ),
 
+    fincaNombre:
+      stringValue(data.fincaNombre),
+
     /* Imágenes */
     imgPath:
       stringValue(data.imgPath),
@@ -206,6 +217,12 @@ function mapProduct(
       stringValue(
         data.mensajeDisponibilidad,
       ),
+
+    availability:
+      data.availability &&
+      typeof data.availability === "object"
+        ? (data.availability as Product["availability"])
+        : undefined,
 
     /* Estado */
     activo:

@@ -6,6 +6,22 @@ import { requireAdmin } from "@/lib/require-admin";
 
 export const runtime = "nodejs";
 
+async function validateLocation(
+  IdMunicipalidad: string,
+  IdVereda: string,
+) {
+  if (!IdMunicipalidad && !IdVereda) return { municipio: "", vereda: "" };
+  const municipality = await adminDb.collection("municipalidades").doc(IdMunicipalidad).get();
+  if (!municipality.exists || municipality.data()?.Activo === false) throw new Error("El municipio seleccionado no existe o está inactivo.");
+  let vereda = "";
+  if (IdVereda) {
+    const veredaSnapshot = await adminDb.collection("veredas").doc(IdVereda).get();
+    if (!veredaSnapshot.exists || veredaSnapshot.data()?.activo === false || veredaSnapshot.data()?.IdMunicipalidad !== IdMunicipalidad) throw new Error("La vereda seleccionada no pertenece al municipio indicado.");
+    vereda = String(veredaSnapshot.data()?.nombre ?? "").trim();
+  }
+  return { municipio: String(municipality.data()?.Nombre ?? municipality.data()?.nombre ?? "").trim(), vereda };
+}
+
 /*
  * ============================================================
  * GET
@@ -32,6 +48,10 @@ export async function GET(request: Request) {
         telefono: String(item.telefono ?? ""),
         correo: String(item.correo ?? ""),
         direccion: String(item.direccion ?? ""),
+        IdMunicipalidad: String(item.IdMunicipalidad ?? ""),
+        IdVereda: String(item.IdVereda ?? ""),
+        municipio: String(item.municipio ?? ""),
+        vereda: String(item.vereda ?? ""),
         activo: item.activo !== false,
         fechaCreacion: item.fechaCreacion?.toDate?.()?.toISOString() ?? null,
         fechaActualizacion:
@@ -93,6 +113,9 @@ export async function POST(request: Request) {
       typeof body.direccion === "string"
         ? body.direccion.trim()
         : "";
+
+    const IdMunicipalidad = typeof body.IdMunicipalidad === "string" ? body.IdMunicipalidad.trim() : "";
+    const IdVereda = typeof body.IdVereda === "string" ? body.IdVereda.trim() : "";
 
     const activo =
       typeof body.activo === "boolean"
@@ -205,6 +228,7 @@ export async function POST(request: Request) {
      * Crear productor
      */
 
+    const location = await validateLocation(IdMunicipalidad, IdVereda);
     const productorRef = adminDb.collection("productores").doc();
 
     await productorRef.set({
@@ -214,6 +238,10 @@ export async function POST(request: Request) {
       telefono,
       correo,
       direccion,
+      IdMunicipalidad,
+      IdVereda,
+      municipio: location.municipio,
+      vereda: location.vereda,
       activo,
 
       fechaCreacion: FieldValue.serverTimestamp(),
@@ -230,6 +258,17 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     console.error("Error creando productor:", error);
+
+    if (
+      error instanceof Error &&
+      (error.message.includes("municipio") ||
+        error.message.includes("vereda"))
+    ) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: 400 },
+      );
+    }
 
     return NextResponse.json(
       {

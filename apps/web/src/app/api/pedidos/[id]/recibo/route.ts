@@ -770,6 +770,24 @@ export async function GET(
           data.firma ??
           null,
 
+        pago:
+          data.pago &&
+          typeof data.pago === "object"
+            ? data.pago as RepartoPDFData["pago"]
+            : typeof data.medioPago === "string"
+              ? {
+                  medioPago: data.medioPago,
+                  efectivoRecibido:
+                    typeof data.efectivoRecibido === "number"
+                      ? data.efectivoRecibido
+                      : null,
+                  cambio:
+                    typeof data.cambio === "number"
+                      ? data.cambio
+                      : null,
+                }
+              : null,
+
         ventaCompletada,
       };
 
@@ -870,6 +888,36 @@ export async function GET(
                 ),
               }
             : null,
+          pago:
+            data.pago &&
+            typeof data.pago === "object"
+              ? {
+                  medioPago:
+                    typeof (data.pago as Record<string, unknown>).medioPago === "string"
+                      ? (data.pago as Record<string, unknown>).medioPago
+                      : null,
+                  efectivoRecibido:
+                    typeof (data.pago as Record<string, unknown>).efectivoRecibido === "number"
+                      ? (data.pago as Record<string, unknown>).efectivoRecibido
+                      : null,
+                  cambio:
+                    typeof (data.pago as Record<string, unknown>).cambio === "number"
+                      ? (data.pago as Record<string, unknown>).cambio
+                      : null,
+                }
+              : typeof data.medioPago === "string"
+                ? {
+                    medioPago: data.medioPago,
+                    efectivoRecibido:
+                      typeof data.efectivoRecibido === "number"
+                        ? data.efectivoRecibido
+                        : null,
+                    cambio:
+                      typeof data.cambio === "number"
+                        ? data.cambio
+                        : null,
+                  }
+                : null,
           verificacion: {
             valido: estado === "entregado",
             mensaje:

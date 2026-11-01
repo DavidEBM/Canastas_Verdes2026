@@ -18,6 +18,10 @@ interface Productor {
   telefono: string;
   correo: string;
   direccion: string;
+  IdMunicipalidad: string;
+  IdVereda: string;
+  municipio: string;
+  vereda: string;
   activo: boolean;
   fechaCreacion: string | null;
   fechaActualizacion: string | null;
@@ -29,8 +33,13 @@ interface ProductorForm {
   telefono: string;
   correo: string;
   direccion: string;
+  IdMunicipalidad: string;
+  IdVereda: string;
   activo: boolean;
 }
+
+interface Municipio { id: string; nombre: string; activo: boolean }
+interface Vereda { id: string; nombre: string; IdMunicipalidad: string; activo: boolean }
 
 const EMPTY_FORM: ProductorForm = {
   nombre: "",
@@ -38,6 +47,8 @@ const EMPTY_FORM: ProductorForm = {
   telefono: "",
   correo: "",
   direccion: "",
+  IdMunicipalidad: "",
+  IdVereda: "",
   activo: true,
 };
 
@@ -66,6 +77,10 @@ function normalizeProductor(data: Partial<Productor> & { id: string }): Producto
     telefono: data.telefono ?? "",
     correo: data.correo ?? "",
     direccion: data.direccion ?? "",
+    IdMunicipalidad: data.IdMunicipalidad ?? "",
+    IdVereda: data.IdVereda ?? "",
+    municipio: data.municipio ?? "",
+    vereda: data.vereda ?? "",
     activo: data.activo !== false,
     fechaCreacion: data.fechaCreacion ?? null,
     fechaActualizacion: data.fechaActualizacion ?? null,
@@ -88,6 +103,8 @@ export default function ProductoresPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const [form, setForm] = useState<ProductorForm>(EMPTY_FORM);
+  const [municipios, setMunicipios] = useState<Municipio[]>([]);
+  const [veredas, setVeredas] = useState<Vereda[]>([]);
 
   const getToken = useCallback(async () => {
     if (!user) {
@@ -146,11 +163,35 @@ export default function ProductoresPage() {
     }
   }, [getToken, role, user]);
 
+  const loadLocationCatalogs = useCallback(async () => {
+    if (!user || role !== "admin") return;
+    try {
+      const token = await getToken();
+      const [municipalitiesResponse, veredasResponse] = await Promise.all([
+        fetch("/api/municipalidades", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }),
+        fetch("/api/veredas", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }),
+      ]);
+      const municipalitiesData = await municipalitiesResponse.json().catch(() => null);
+      const veredasData = await veredasResponse.json().catch(() => null);
+      if (!municipalitiesResponse.ok || !veredasResponse.ok) throw new Error("No fue posible cargar municipios y veredas.");
+      setMunicipios(Array.isArray(municipalitiesData?.data) ? municipalitiesData.data : []);
+      setVeredas(Array.isArray(veredasData?.data) ? veredasData.data : []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No fue posible cargar la información geográfica.");
+    }
+  }, [getToken, role, user]);
+
   useEffect(() => {
     if (!authLoading && user && role === "admin") {
       void loadProductores();
+      void loadLocationCatalogs();
     }
-  }, [authLoading, loadProductores, role, user]);
+  }, [authLoading, loadLocationCatalogs, loadProductores, role, user]);
+
+  const availableVeredas = useMemo(
+    () => veredas.filter((vereda) => vereda.activo && vereda.IdMunicipalidad === form.IdMunicipalidad),
+    [form.IdMunicipalidad, veredas],
+  );
 
   const filteredProductores = useMemo(() => {
     return productores.filter((productor) => {
@@ -197,6 +238,8 @@ export default function ProductoresPage() {
       telefono: productor.telefono,
       correo: productor.correo,
       direccion: productor.direccion,
+          IdMunicipalidad: productor.IdMunicipalidad,
+          IdVereda: productor.IdVereda,
       activo: productor.activo,
     });
 
@@ -252,6 +295,8 @@ export default function ProductoresPage() {
         telefono: form.telefono.trim(),
         correo: form.correo.trim(),
         direccion: form.direccion.trim(),
+        IdMunicipalidad: form.IdMunicipalidad,
+        IdVereda: form.IdVereda,
         activo: form.activo,
       };
 
@@ -678,6 +723,39 @@ export default function ProductoresPage() {
             </div>
 
             {/* Descripción */}
+
+            <div>
+              <label htmlFor="productor-municipio" className="mb-1.5 block text-sm font-semibold text-[var(--foreground)]">
+                Municipio
+              </label>
+              <select
+                id="productor-municipio"
+                value={form.IdMunicipalidad}
+                onChange={(event) => setForm((current) => ({ ...current, IdMunicipalidad: event.target.value, IdVereda: "" }))}
+                disabled={saving}
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)] disabled:opacity-60"
+              >
+                <option value="">Seleccionar municipio</option>
+                {municipios.filter((municipio) => municipio.activo).map((municipio) => <option key={municipio.id} value={municipio.id}>{municipio.nombre}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="productor-vereda" className="mb-1.5 block text-sm font-semibold text-[var(--foreground)]">
+                Vereda
+              </label>
+              <select
+                id="productor-vereda"
+                value={form.IdVereda}
+                onChange={(event) => handleFormChange("IdVereda", event.target.value)}
+                disabled={saving || !form.IdMunicipalidad}
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)] disabled:opacity-60"
+              >
+                <option value="">{form.IdMunicipalidad ? "Seleccionar vereda" : "Selecciona primero un municipio"}</option>
+                {availableVeredas.map((vereda) => <option key={vereda.id} value={vereda.id}>{vereda.nombre}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-[var(--muted)]">Solo se muestran veredas compatibles con el municipio.</p>
+            </div>
 
             <div className="md:col-span-2">
               <label

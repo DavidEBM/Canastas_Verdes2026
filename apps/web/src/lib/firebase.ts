@@ -4,7 +4,12 @@ import {
   getAuth,
   setPersistence,
 } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
@@ -35,5 +40,21 @@ export const authPersistenceReady = setPersistence(
   );
 });
 
-export const db = getFirestore(app);
+function createFirestore() {
+try {
+  return initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager(),
+    }),
+  });
+} catch (error) {
+  console.warn(
+    "No fue posible activar la caché persistente de Firestore; se usará la caché en memoria.",
+    error,
+  );
+  return getFirestore(app);
+}
+}
+
+export const db = createFirestore();
 export const storage = getStorage(app);

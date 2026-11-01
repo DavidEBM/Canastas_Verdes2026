@@ -150,7 +150,7 @@ export default function DashboardPage() {
             <Link
               key={section.href}
               href={section.href}
-              className="group rounded-2xl border border-[var(--border)] bg-[var(--background)] p-5 transition-all hover:-translate-y-0.5 hover:border-[var(--primary)] hover:shadow-sm"
+              className="group rounded-2xl border border-[var(--border)] bg-[var(--background)] p-5 transition-[transform,border-color,box-shadow] hover:-translate-y-0.5 hover:border-[var(--primary)] hover:shadow-sm"
             >
               <h3 className="font-bold text-[var(--primary)]">
                 {section.title}

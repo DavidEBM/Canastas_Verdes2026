@@ -8,6 +8,9 @@ import {
 } from "react";
 
 import { useAuth } from "@/hooks/useAuth";
+import PaymentConfirmationModal, {
+  type PaymentConfirmation,
+} from "@/components/pagos/PaymentConfirmationModal";
 import { matchesTolerantSearch } from "@/lib/search";
 import {
   calcularPrecioLinea,
@@ -48,8 +51,12 @@ interface PedidoProducto {
 
 interface Pedido {
   id: string;
+  numeroPedido?: number | null;
+  numeroPedidoVisible?: string;
   usuarioId: string;
   nombreCliente: string;
+  usuarioNombre?: string;
+  repartidorNombre?: string;
   productos: PedidoProducto[];
   subtotal: number;
   subtotalProductos?: number;
@@ -75,6 +82,7 @@ interface Pedido {
   estado: Estado;
   reservaId: string | null;
   IdMunicipalidad: string;
+  municipioNombre?: string;
   direccionEntrega: string;
   telefonoEntrega?: string;
   tipoEntrega?: TipoEntrega;
@@ -393,6 +401,12 @@ export default function DashboardPedidosPage() {
   const [saving, setSaving] =
     useState<string | null>(null);
 
+  const [pedidoPago, setPedidoPago] =
+    useState<Pedido | null>(null);
+
+  const [pedidoPagoEdicion, setPedidoPagoEdicion] =
+    useState<Pedido | null>(null);
+
   const [pedidoEditando, setPedidoEditando] =
     useState<Pedido | null>(null);
 
@@ -473,12 +487,16 @@ export default function DashboardPedidosPage() {
         setLoading(true);
         setError(null);
 
-        const query =
-          estadoFiltro === "todos"
-            ? ""
-            : `?estado=${encodeURIComponent(
-                estadoFiltro,
-              )}`;
+        const params = new URLSearchParams();
+        if (estadoFiltro !== "todos") {
+          params.set("estado", estadoFiltro);
+        }
+        if (busqueda.trim()) {
+          params.set("q", busqueda.trim());
+        }
+        const query = params.toString()
+          ? `?${params.toString()}`
+          : "";
 
         const result = await api(
           `/api/pedidos${query}`,
@@ -497,7 +515,7 @@ export default function DashboardPedidosPage() {
         setLoading(false);
       }
     },
-    [api, estadoFiltro, role, user],
+    [api, busqueda, estadoFiltro, role, user],
   );
 
   const loadRepartidores = useCallback(
@@ -613,9 +631,16 @@ export default function DashboardPedidosPage() {
   ]);
 
   const cambiarEstado = async (
-  pedido: Pedido,
-  estado: Estado,
-) => {
+    pedido: Pedido,
+    estado: Estado,
+    payment?: PaymentConfirmation,
+  ) => {
+    if (estado === "entregado" && !payment) {
+      setError(null);
+      setPedidoPago(pedido);
+      return;
+    }
+
   try {
     setSaving(pedido.id);
     setError(null);
@@ -626,6 +651,13 @@ export default function DashboardPedidosPage() {
       {
         pedidoId: pedido.id,
         nuevoEstado: estado,
+        ...(payment
+          ? {
+              medioPago: payment.medioPago,
+              efectivoRecibido:
+                payment.efectivoRecibido,
+            }
+          : {}),
       },
     );
 
@@ -682,6 +714,7 @@ export default function DashboardPedidosPage() {
             : item,
         ),
       );
+      setPedidoPago(null);
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -1088,7 +1121,9 @@ export default function DashboardPedidosPage() {
     });
   };
 
-  const guardarEdicion = async () => {
+  const guardarEdicion = async (
+    payment?: PaymentConfirmation,
+  ) => {
     if (
       !pedidoEditando ||
       !editForm
@@ -1212,6 +1247,15 @@ export default function DashboardPedidosPage() {
       return;
     }
 
+    if (
+      editForm.estado === "entregado" &&
+      pedidoEditando.estado !== "entregado" &&
+      !payment
+    ) {
+      setPedidoPagoEdicion(pedidoEditando);
+      return;
+    }
+
     try {
       setGuardandoEdicion(true);
 
@@ -1275,6 +1319,13 @@ export default function DashboardPedidosPage() {
             "entregado",
           confirmarCambioPrecio:
             editForm.confirmarCambioPrecio,
+          ...(payment
+            ? {
+                medioPago: payment.medioPago,
+                efectivoRecibido:
+                  payment.efectivoRecibido,
+              }
+            : {}),
         },
       );
 
@@ -1298,6 +1349,7 @@ export default function DashboardPedidosPage() {
       }
 
       cerrarEditor();
+      setPedidoPagoEdicion(null);
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -1315,14 +1367,28 @@ export default function DashboardPedidosPage() {
         (pedido) => {
           return matchesTolerantSearch([
             pedido.id,
+            pedido.numeroPedidoVisible ?? "",
+            pedido.numeroPedido ?? "",
             pedido.usuarioId,
             pedido.nombreCliente,
+            pedido.usuarioNombre ?? "",
             pedido.direccionEntrega,
             pedido.IdMunicipalidad,
+            pedido.municipioNombre ?? "",
+            pedido.IdPuntoRecogida ?? "",
+            pedido.telefonoEntrega ?? "",
             pedido.repartidorId ??
               "",
+            pedido.repartidorNombre ??
+              "",
+            pedido.tipoEntrega ?? "",
+            pedido.IdMunicipalidad,
             pedido.puntoRecogida
               ?.nombre ?? "",
+            pedido.puntoRecogida
+              ?.direccion ?? "",
+            pedido.puntoRecogida
+              ?.municipio ?? "",
             ...pedido.productos.map(
               (producto) =>
                 `${producto.nombre} ${producto.code}`,
@@ -1493,7 +1559,7 @@ export default function DashboardPedidosPage() {
                     event.target.value,
                   )
                 }
-                placeholder="ID, consumidor, dirección, producto..."
+                placeholder="ID, cliente, repartidor, dirección o punto de recogida..."
                 className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2.5 text-sm outline-none focus:border-[var(--primary)]"
               />
             </div>
@@ -1616,11 +1682,7 @@ export default function DashboardPedidosPage() {
                         <div>
                           <div className="flex flex-wrap items-center gap-3">
                             <span className="text-lg font-bold">
-                              Pedido #
-                              {pedido.id.slice(
-                                0,
-                                8,
-                              )}
+                              {pedido.numeroPedidoVisible || `Pedido #${pedido.id.slice(0, 8)}`}
                             </span>
 
                             <span
@@ -1639,6 +1701,12 @@ export default function DashboardPedidosPage() {
                           <p className="mt-2 text-xs text-[var(--muted)]">
                             {formatDate(
                               pedido.fechaCreacion,
+                            )}
+                            {(pedido.usuarioNombre || pedido.nombreCliente) && (
+                              <> · Cliente: {pedido.usuarioNombre || pedido.nombreCliente}</>
+                            )}
+                            {pedido.repartidorNombre && (
+                              <> · Repartidor: {pedido.repartidorNombre}</>
                             )}
                           </p>
 
@@ -1671,7 +1739,8 @@ export default function DashboardPedidosPage() {
 
                           <p className="font-medium">
                             {
-                              pedido.IdMunicipalidad
+                              pedido.municipioNombre ||
+                              "Municipio no registrado"
                             }
                           </p>
                         </div>
@@ -1759,7 +1828,8 @@ export default function DashboardPedidosPage() {
 
                               <p className="mt-1 text-sm">
                                 {
-                                  pedido.IdMunicipalidad
+                                  pedido.municipioNombre ||
+                                  "Municipio no registrado"
                                 }
                               </p>
                             </div>
@@ -2107,7 +2177,7 @@ export default function DashboardPedidosPage() {
       {pedidoEditando &&
         editForm && (
           <div className="fixed inset-0 z-50 bg-black/50 sm:flex sm:items-center sm:justify-center sm:p-4">
-            <div className="flex h-full w-full flex-col bg-white sm:h-auto sm:max-h-[94vh] sm:max-w-5xl sm:rounded-2xl">
+            <div className="modal-scroll flex h-full w-full flex-col bg-white sm:h-auto sm:max-h-[94vh] sm:max-w-5xl sm:rounded-2xl">
               <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-4 py-4 sm:px-6">
                 <div>
                   <h2 className="text-xl font-bold">
@@ -2115,7 +2185,7 @@ export default function DashboardPedidosPage() {
                   </h2>
 
                   <p className="text-xs text-[var(--muted)]">
-                    #{pedidoEditando.id}
+                    {pedidoEditando.numeroPedidoVisible || `#${pedidoEditando.id}`}
                   </p>
                 </div>
 
@@ -2978,6 +3048,35 @@ export default function DashboardPedidosPage() {
             </div>
           </div>
         )}
+
+      <PaymentConfirmationModal
+        open={Boolean(pedidoPago || pedidoPagoEdicion)}
+        total={(pedidoPagoEdicion ?? pedidoPago)?.total ?? 0}
+        loading={Boolean(
+          (pedidoPagoEdicion ?? pedidoPago) &&
+            (saving === (pedidoPagoEdicion ?? pedidoPago)?.id ||
+              guardandoEdicion),
+        )}
+        error={error}
+        onCancel={() => {
+          if (!saving && !guardandoEdicion) {
+            setPedidoPago(null);
+            setPedidoPagoEdicion(null);
+            setError(null);
+          }
+        }}
+        onConfirm={(payment) => {
+          if (pedidoPagoEdicion) {
+            void guardarEdicion(payment);
+          } else if (pedidoPago) {
+            void cambiarEstado(
+              pedidoPago,
+              "entregado",
+              payment,
+            );
+          }
+        }}
+      />
     </>
   );
 }

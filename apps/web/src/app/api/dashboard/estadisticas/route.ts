@@ -87,7 +87,9 @@ type ProductorDocumento = {
 };
 
 type MunicipalidadDocumento = {
+  Nombre?: unknown;
   nombre?: unknown;
+  name?: unknown;
   departamento?: unknown;
   activo?: unknown;
 };
@@ -170,6 +172,26 @@ function timestampToDate(value: unknown): Date | null {
   return null;
 }
 
+function parseDateBoundary(
+  value: string,
+  endExclusive = false,
+): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+
+  const date = new Date(`${value}T00:00:00-05:00`);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  if (endExclusive) {
+    date.setUTCDate(date.getUTCDate() + 1);
+  }
+
+  return date;
+}
+
 function normalizeRole(value: unknown): Rol | null {
   const role = stringValue(value).toLowerCase();
 
@@ -206,7 +228,7 @@ function queryValue(
 function withinDateRange(
   date: Date | null,
   desde: Date | null,
-  hasta: Date | null,
+  hastaExclusive: Date | null,
 ): boolean {
   if (!date) {
     return false;
@@ -216,7 +238,7 @@ function withinDateRange(
     return false;
   }
 
-  if (hasta && date > hasta) {
+  if (hastaExclusive && date >= hastaExclusive) {
     return false;
   }
 
@@ -232,6 +254,18 @@ function displayName(
     `${stringValue(first)} ${stringValue(last)}`.trim();
 
   return name || fallback;
+}
+
+function municipalityName(
+  data: MunicipalidadDocumento | undefined,
+  fallback: string,
+): string {
+  return (
+    stringValue(data?.Nombre) ||
+    stringValue(data?.nombre) ||
+    stringValue(data?.name) ||
+    fallback
+  );
 }
 
 export async function GET(request: Request) {
@@ -298,9 +332,9 @@ export async function GET(request: Request) {
     let hasta: Date | null = null;
 
     if (desdeValue) {
-      desde = new Date(`${desdeValue}T00:00:00`);
+      desde = parseDateBoundary(desdeValue);
 
-      if (Number.isNaN(desde.getTime())) {
+      if (!desde) {
         return errorResponse(
           "La fecha inicial no es válida.",
           400,
@@ -309,14 +343,24 @@ export async function GET(request: Request) {
     }
 
     if (hastaValue) {
-      hasta = new Date(`${hastaValue}T23:59:59.999`);
+      hasta = parseDateBoundary(
+        hastaValue,
+        true,
+      );
 
-      if (Number.isNaN(hasta.getTime())) {
+      if (!hasta) {
         return errorResponse(
           "La fecha final no es válida.",
           400,
         );
       }
+    }
+
+    if (desde && hasta && desde > hasta) {
+      return errorResponse(
+        "La fecha inicial no puede ser posterior a la fecha final.",
+        400,
+      );
     }
 
     /*
@@ -706,11 +750,10 @@ export async function GET(request: Request) {
             IdMunicipalidad:
               municipioProductorId,
             municipalidad:
-              stringValue(
-                municipalidadesMap.get(
-                  municipioProductorId,
-                )?.nombre,
-              ) || municipioProductorId,
+              municipalityName(
+                municipalidadesMap.get(municipioProductorId),
+                municipioProductorId,
+              ),
             cantidadVendida: cantidad,
             ventas,
             costo,
@@ -773,10 +816,10 @@ export async function GET(request: Request) {
               municipioProductorId,
               {
                 id: municipioProductorId,
-                nombre:
-                  stringValue(
-                    municipalidad?.nombre,
-                  ) || municipioProductorId,
+                nombre: municipalityName(
+                  municipalidad,
+                  municipioProductorId,
+                ),
                 departamento:
                   stringValue(
                     municipalidad?.departamento,
@@ -854,10 +897,10 @@ export async function GET(request: Request) {
             pedidoMunicipioId,
             {
               id: pedidoMunicipioId,
-              nombre:
-                stringValue(
-                  municipalidad?.nombre,
-                ) || pedidoMunicipioId,
+              nombre: municipalityName(
+                municipalidad,
+                pedidoMunicipioId,
+              ),
               departamento:
                 stringValue(
                   municipalidad?.departamento,
@@ -956,11 +999,10 @@ export async function GET(request: Request) {
           IdMunicipalidad: municipioId,
 
           municipalidad:
-            stringValue(
-              municipalidadesMap.get(
-                municipioId,
-              )?.nombre,
-            ) || municipioId,
+            municipalityName(
+              municipalidadesMap.get(municipioId),
+              municipioId,
+            ),
 
           precio:
             numberValue(product.precio),
@@ -1009,7 +1051,7 @@ export async function GET(request: Request) {
         return {
           id: doc.id,
           nombre:
-            stringValue(data.nombre) || doc.id,
+            municipalityName(data, doc.id),
           departamento:
             stringValue(data.departamento),
           activo: data.activo === true,

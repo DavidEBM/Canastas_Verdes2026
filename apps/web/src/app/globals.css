@@ -66,6 +66,23 @@ button:disabled {
   cursor: not-allowed;
 }
 
+button,
+a,
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
 img,
 svg,
 video,
@@ -169,4 +186,8 @@ ol {
 
 .background-overlay-green::before {
   background: rgb(23 53 31 / 65%);
+}
+
+.modal-scroll {
+  overscroll-behavior: contain;
 }

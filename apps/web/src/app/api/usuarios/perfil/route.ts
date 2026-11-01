@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { syncAutomaticLabels } from "@/lib/user-labels";
 
 export const runtime = "nodejs";
 
@@ -9,9 +10,7 @@ export const runtime = "nodejs";
  * Versión vigente de los términos y condiciones.
  */
 const VERSION_TERMINOS = "1.0";
-const DEFAULT_USER_LABEL = "usuario_nuevo";
-const FREQUENT_USER_LABEL = "usuario_frecuente";
-const USER_LABEL_DAYS = 30;
+const DEFAULT_USER_LABEL = "default";
 
 function getStoredDate(value: unknown): Date | null {
   if (
@@ -24,28 +23,6 @@ function getStoredDate(value: unknown): Date | null {
   }
 
   return value instanceof Date ? value : null;
-}
-
-function resolveUserLabel(data: FirebaseFirestore.DocumentData): string {
-  const current =
-    typeof data.EtiquetaUsuario === "string" &&
-    data.EtiquetaUsuario.trim()
-      ? data.EtiquetaUsuario.trim().toLowerCase()
-      : DEFAULT_USER_LABEL;
-
-  const registeredAt = getStoredDate(data.FechaRegistro);
-  const elapsedDays = registeredAt
-    ? (Date.now() - registeredAt.getTime()) / 86400000
-    : 0;
-
-  if (
-    current === DEFAULT_USER_LABEL &&
-    elapsedDays >= USER_LABEL_DAYS
-  ) {
-    return FREQUENT_USER_LABEL;
-  }
-
-  return current;
 }
 
 /**
@@ -423,6 +400,8 @@ export async function POST(request: Request) {
         !existingData.EtiquetaUsuario.trim()
       ) {
         updates.EtiquetaUsuario = DEFAULT_USER_LABEL;
+        updates.Etiquetas = [DEFAULT_USER_LABEL];
+        updates.etiquetasAutomaticas = [DEFAULT_USER_LABEL];
       }
 
       if (!getStoredDate(existingData.FechaRegistro)) {
@@ -434,6 +413,8 @@ export async function POST(request: Request) {
           FieldValue.serverTimestamp();
         await userRef.set(updates, { merge: true });
       }
+
+      await syncAutomaticLabels(decoded.uid);
 
       const existingDisplayName =
         (await adminAuth.getUser(decoded.uid)).displayName?.trim() ?? "";
@@ -483,6 +464,8 @@ export async function POST(request: Request) {
       Direccion: direccion,
       Rol: "consumidor",
       EtiquetaUsuario: DEFAULT_USER_LABEL,
+      Etiquetas: [DEFAULT_USER_LABEL],
+      etiquetasAutomaticas: [DEFAULT_USER_LABEL],
       FechaRegistro: FieldValue.serverTimestamp(),
 
       AceptacionTerminos: {
@@ -575,16 +558,9 @@ export async function GET(request: Request) {
       );
     }
 
-    const data =
-      snapshot.data();
-    const etiquetaUsuario = resolveUserLabel(data ?? {});
-
-    if (etiquetaUsuario !== data?.EtiquetaUsuario) {
-      await userRef.update({
-        EtiquetaUsuario: etiquetaUsuario,
-        ultimaActualizacion: FieldValue.serverTimestamp(),
-      });
-    }
+    const data = snapshot.data();
+    const labelIds = await syncAutomaticLabels(decoded.uid);
+    const etiquetaUsuario = labelIds[0] ?? DEFAULT_USER_LABEL;
 
     const aceptacion =
       data?.AceptacionTerminos;
@@ -631,6 +607,8 @@ export async function GET(request: Request) {
             : "consumidor",
 
         EtiquetaUsuario: etiquetaUsuario,
+
+        Etiquetas: labelIds,
 
         FechaRegistro:
           getStoredDate(data?.FechaRegistro)?.toISOString() ?? null,

@@ -2,6 +2,14 @@ import { NextResponse } from "next/server";
 
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { requireAdmin } from "@/lib/require-admin";
+import {
+  ensureSystemLabels,
+  legacyLabelMap,
+  listUserLabels,
+  normalizeLabelIds,
+  storedDate,
+  syncAutomaticLabels,
+} from "@/lib/user-labels";
 
 export const runtime = "nodejs";
 
@@ -10,17 +18,8 @@ const ROLES = [
   "repartidor",
   "admin",
 ] as const;
-const USER_LABELS = [
-  "usuario_nuevo",
-  "usuario_frecuente",
-  "comprador_frecuente",
-  "asociacion_agricultores",
-  "mayorista",
-] as const;
-const USER_LABEL_DAYS = 30;
 
 type Role = (typeof ROLES)[number];
-type UserLabel = (typeof USER_LABELS)[number];
 
 function isRole(
   value: unknown,
@@ -29,42 +28,6 @@ function isRole(
     typeof value === "string" &&
     ROLES.includes(value as Role)
   );
-}
-
-function isUserLabel(value: unknown): value is UserLabel {
-  return (
-    typeof value === "string" &&
-    USER_LABELS.includes(value as UserLabel)
-  );
-}
-
-function storedDate(value: unknown): Date | null {
-  if (
-    value &&
-    typeof value === "object" &&
-    "toDate" in value &&
-    typeof value.toDate === "function"
-  ) {
-    return value.toDate();
-  }
-
-  return value instanceof Date ? value : null;
-}
-
-function resolveLabel(data: FirebaseFirestore.DocumentData): UserLabel {
-  const current = isUserLabel(data.EtiquetaUsuario)
-    ? data.EtiquetaUsuario
-    : "usuario_nuevo";
-  const registeredAt = storedDate(data.FechaRegistro);
-  const elapsedDays = registeredAt
-    ? (Date.now() - registeredAt.getTime()) / 86400000
-    : 0;
-
-  if (current === "usuario_nuevo" && elapsedDays >= USER_LABEL_DAYS) {
-    return "usuario_frecuente";
-  }
-
-  return current;
 }
 
 function errorResponse(error: unknown) {
@@ -120,10 +83,14 @@ function errorResponse(error: unknown) {
  */
 export async function GET(request: Request) {
   try {
-    await requireAdmin(request);
+    const administrator = await requireAdmin(request);
 
-    const usersResult =
-      await adminAuth.listUsers(1000);
+    await ensureSystemLabels();
+    const [usersResult, labels] = await Promise.all([
+      adminAuth.listUsers(1000),
+      listUserLabels(),
+    ]);
+    const labelMap = new Map(labels.map((label) => [label.id, label]));
 
     const users = await Promise.all(
       usersResult.users.map(
@@ -134,10 +101,9 @@ export async function GET(request: Request) {
               .doc(user.uid)
               .get();
 
-          const data =
-            userSnapshot.exists
-              ? userSnapshot.data()
-              : undefined;
+          const data = userSnapshot.exists
+            ? userSnapshot.data() ?? {}
+            : {};
 
           const firestoreRole =
             typeof data?.Rol === "string"
@@ -151,29 +117,23 @@ export async function GET(request: Request) {
           )
             ? firestoreRole
             : "consumidor";
-          const label = resolveLabel(data ?? {});
-
-          if (label !== data?.EtiquetaUsuario) {
-            await adminDb
-              .collection("usuarios")
-              .doc(user.uid)
-              .set(
-                {
-                  EtiquetaUsuario: label,
-                  ultimaActualizacion: new Date(),
-                },
-                { merge: true },
-              );
-          }
+          const labelIds = await syncAutomaticLabels(user.uid);
 
           return {
             uid: user.uid,
             email: user.email ?? "",
-            displayName:
-              user.displayName ?? "",
+            displayName: user.displayName ?? data.NombreCompleto ?? "",
             disabled: user.disabled,
             role,
-            label,
+            labelIds,
+            labels: labelIds
+              .map((id) => labelMap.get(id))
+              .filter(Boolean)
+              .map((label) => ({
+                id: label!.id,
+                name: label!.name,
+                color: label!.color,
+              })),
             labelRegisteredAt:
               storedDate(data?.FechaRegistro)?.toISOString() ?? null,
           };
@@ -184,6 +144,12 @@ export async function GET(request: Request) {
     return NextResponse.json({
       success: true,
       data: users,
+      labels,
+      canDeleteProfiles:
+        administrator.email_verified === true &&
+        typeof administrator.email === "string" &&
+        administrator.email.trim().toLowerCase() ===
+          process.env.PRIVILEGED_ADMIN_EMAIL?.trim().toLowerCase(),
     });
   } catch (error) {
     return errorResponse(error);
@@ -218,22 +184,20 @@ export async function POST(request: Request) {
       );
     }
 
-    const input =
-      body as {
-        usuarioId?: unknown;
-        rol?: unknown;
-        etiqueta?: unknown;
-      };
+    const input = body as {
+      usuarioId?: unknown;
+      rol?: unknown;
+      etiqueta?: unknown;
+      addLabelId?: unknown;
+      removeLabelId?: unknown;
+    };
 
     const validRole = input.rol === undefined || isRole(input.rol);
-    const validLabel = input.etiqueta === undefined || isUserLabel(input.etiqueta);
 
     if (
       typeof input.usuarioId !== "string" ||
       !input.usuarioId.trim() ||
-      !validRole ||
-      !validLabel ||
-      (input.rol === undefined && input.etiqueta === undefined)
+      !validRole
     ) {
       return NextResponse.json(
         {
@@ -259,6 +223,9 @@ export async function POST(request: Request) {
 
     const userSnapshot =
       await userRef.get();
+    const currentData = userSnapshot.exists
+      ? userSnapshot.data() ?? {}
+      : {};
 
     const changes: Record<string, unknown> = {
       ultimaActualizacion: new Date(),
@@ -269,7 +236,79 @@ export async function POST(request: Request) {
     }
 
     if (input.etiqueta !== undefined) {
-      changes.EtiquetaUsuario = input.etiqueta;
+      const legacyValue =
+        typeof input.etiqueta === "string"
+          ? input.etiqueta.trim().toLowerCase()
+          : "";
+      const labelId = legacyLabelMap[legacyValue] ?? legacyValue;
+      const labels = await listUserLabels();
+      if (!labelId || !labels.some((label) => label.id === labelId)) {
+        return NextResponse.json(
+          { success: false, message: "La etiqueta seleccionada no existe." },
+          { status: 400 },
+        );
+      }
+      changes.Etiquetas = [labelId];
+      changes.EtiquetaUsuario = labelId;
+    }
+
+    if (
+      input.addLabelId !== undefined ||
+      input.removeLabelId !== undefined
+    ) {
+      const labels = await listUserLabels();
+      const labelIds = new Set(normalizeLabelIds(currentData));
+      const addLabelId =
+        typeof input.addLabelId === "string"
+          ? input.addLabelId.trim()
+          : "";
+      const removeLabelId =
+        typeof input.removeLabelId === "string"
+          ? input.removeLabelId.trim()
+          : "";
+
+      if (
+        addLabelId &&
+        !labels.some((label) => label.id === addLabelId)
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "La etiqueta seleccionada no existe.",
+          },
+          { status: 400 },
+        );
+      }
+
+      if (
+        removeLabelId &&
+        !labels.some((label) => label.id === removeLabelId)
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "La etiqueta seleccionada no existe.",
+          },
+          { status: 400 },
+        );
+      }
+
+      if (addLabelId) labelIds.add(addLabelId);
+      if (removeLabelId) labelIds.delete(removeLabelId);
+      changes.Etiquetas = [...labelIds];
+      changes.EtiquetaUsuario = [...labelIds][0] ?? "default";
+    }
+
+    if (
+      input.rol === undefined &&
+      input.etiqueta === undefined &&
+      input.addLabelId === undefined &&
+      input.removeLabelId === undefined
+    ) {
+      return NextResponse.json(
+        { success: false, message: "No se indicó ningún cambio." },
+        { status: 400 },
+      );
     }
 
     if (userSnapshot.exists) {
@@ -278,10 +317,14 @@ export async function POST(request: Request) {
       await userRef.set({
         ...changes,
         Rol: input.rol ?? "consumidor",
-        EtiquetaUsuario: input.etiqueta ?? "usuario_nuevo",
+        Etiquetas: (changes.Etiquetas as string[] | undefined) ?? ["default"],
+        EtiquetaUsuario:
+          (changes.EtiquetaUsuario as string | undefined) ?? "default",
         FechaRegistro: new Date(),
       });
     }
+
+    const labelIds = await syncAutomaticLabels(uid);
 
     return NextResponse.json({
       success: true,
@@ -289,6 +332,7 @@ export async function POST(request: Request) {
         usuarioId: uid,
         rol: input.rol,
         etiqueta: input.etiqueta,
+        labelIds,
       },
     });
   } catch (error) {

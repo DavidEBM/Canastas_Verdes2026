@@ -10,8 +10,13 @@
     "test": "turbo test",
     "typecheck": "turbo typecheck",
     "clean": "turbo clean",
-    "importData": "tsx scripts/importData.ts",
-    "rollbackData": "tsx scripts/rollbackData.ts"
+    "importData": "tsx scripts/migrations/importData.ts",
+    "rollbackData": "tsx scripts/migrations/rollbackData.ts",
+    "migrateOrderNumbers": "tsx scripts/migrations/migrateOrderNumbers.ts",
+    "test:scripts": "vitest run --config scripts/vitest.config.ts",
+    "test:security": "vitest run --config scripts/vitest.config.ts scripts/security",
+    "test:concurrency": "vitest run --config scripts/vitest.config.ts scripts/tests/concurrency",
+    "test:all": "pnpm test && pnpm test:scripts"
   },
   "devDependencies": {
     "dotenv": "^17.4.2",
@@ -19,6 +24,7 @@
     "tsx": "^4.23.13",
     "turbo": "^2.5.6",
     "typescript": "^5.9.3",
+    "vitest": "^3.0.0",
     "xlsx": "^0.18.5"
   }
 }

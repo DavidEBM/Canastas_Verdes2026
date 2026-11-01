@@ -7,6 +7,10 @@ import {
   adminAuth,
   adminDb,
 } from "@/lib/firebase-admin";
+import {
+  normalizeMedioPago,
+  paymentChange,
+} from "@/lib/pagos";
 
 export const runtime = "nodejs";
 
@@ -19,6 +23,8 @@ type RecibidoBody = {
   metodo: "manuscrita" | "texto";
   valor: string;
   recibidoPor?: string;
+  medioPago?: unknown;
+  efectivoRecibido?: unknown;
 };
 
 type ProductoDocumento = {
@@ -51,6 +57,9 @@ type PedidoDocumento = {
   estado?: unknown;
   repartidorId?: unknown;
   productos?: unknown;
+  total?: unknown;
+  precioFinal?: unknown;
+  subtotal?: unknown;
 };
 
 type CatalogoDocumento = {
@@ -211,6 +220,21 @@ export async function POST(
     const body =
       (await request.json()) as RecibidoBody;
 
+    const medioPago = normalizeMedioPago(
+      body.medioPago,
+    );
+
+    if (!medioPago) {
+      return errorResponse(
+        "Debes seleccionar un medio de pago válido.",
+        400,
+      );
+    }
+
+    const efectivoRecibido = numberValue(
+      body.efectivoRecibido,
+    );
+
     const metodo = body.metodo;
     const valor =
       stringValue(body.valor);
@@ -315,6 +339,33 @@ export async function POST(
               "PEDIDO_SIN_PRODUCTOS",
             );
           }
+
+          const totalPedido = Math.max(
+            0,
+            numberValue(
+              pedido.total ??
+                pedido.precioFinal ??
+                pedido.subtotal,
+            ),
+          );
+
+          if (
+            medioPago === "efectivo" &&
+            (efectivoRecibido <= 0 ||
+              efectivoRecibido < totalPedido)
+          ) {
+            throw new Error(
+              "EFECTIVO_INSUFICIENTE",
+            );
+          }
+
+          const cambio =
+            medioPago === "efectivo"
+              ? paymentChange(
+                  totalPedido,
+                  efectivoRecibido,
+                )
+              : 0;
 
           /*
            * ========================================
@@ -818,6 +869,28 @@ export async function POST(
                   FieldValue.serverTimestamp(),
               },
 
+              medioPago,
+
+              pago: {
+                medioPago,
+                valorPedido: totalPedido,
+                efectivoRecibido:
+                  medioPago === "efectivo"
+                    ? efectivoRecibido
+                    : null,
+                cambio,
+                registradoPor:
+                  decoded.uid,
+                fechaPago:
+                  FieldValue.serverTimestamp(),
+              },
+
+              fechaPago:
+                FieldValue.serverTimestamp(),
+
+              fechaEntrega:
+                FieldValue.serverTimestamp(),
+
               fechaRecibido:
                 FieldValue.serverTimestamp(),
 
@@ -841,6 +914,12 @@ export async function POST(
             utilidad:
               utilidadTotal,
             margen,
+            medioPago,
+            efectivoRecibido:
+              medioPago === "efectivo"
+                ? efectivoRecibido
+                : null,
+            cambio,
           };
         },
       );
@@ -890,6 +969,13 @@ export async function POST(
     ) {
       return errorResponse(
         "El pedido no contiene productos.",
+        400,
+      );
+    }
+
+    if (code === "EFECTIVO_INSUFICIENTE") {
+      return errorResponse(
+        "El efectivo recibido debe cubrir el total del pedido.",
         400,
       );
     }

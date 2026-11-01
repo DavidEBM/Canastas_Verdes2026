@@ -1,0 +1,19 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "vitest": [
+        "../../apps/web/node_modules/vitest"
+      ],
+      "vitest/*": [
+        "../../apps/web/node_modules/vitest/*"
+      ],
+      "@/*": [
+        "../../apps/web/src/*"
+      ]
+    }
+  },
+  "include": [
+    "./**/*.ts"
+  ]
+}

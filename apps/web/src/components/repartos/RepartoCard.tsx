@@ -5,6 +5,10 @@ import { useCallback, useState } from "react";
 import FirmaRecibido, {
   type FirmaRecibidoData,
 } from "@/components/repartos/FirmaRecibido";
+import PaymentConfirmationModal, {
+  type PaymentConfirmation,
+} from "@/components/pagos/PaymentConfirmationModal";
+import { paymentLabel } from "@/lib/pagos";
 
 import type { Reparto } from "@/lib/repartos/types";
 
@@ -144,6 +148,9 @@ export default function RepartoCard({
     setMostrarRecepcion,
   ] = useState(false);
 
+  const [mostrarPago, setMostrarPago] =
+    useState(false);
+
   const [
     firmaRecibido,
     setFirmaRecibido,
@@ -264,7 +271,9 @@ export default function RepartoCard({
     }
   }
 
-  async function registrarRecepcion() {
+  async function registrarRecepcion(
+    payment: PaymentConfirmation,
+  ) {
     if (
       !firmaRecibido ||
       !firmaRecibido.valido
@@ -305,6 +314,9 @@ export default function RepartoCard({
               "texto"
                 ? firmaRecibido.valor
                 : nombre,
+            medioPago: payment.medioPago,
+            efectivoRecibido:
+              payment.efectivoRecibido,
           }),
         },
       );
@@ -323,6 +335,7 @@ export default function RepartoCard({
       );
 
       setMostrarRecepcion(false);
+      setMostrarPago(false);
       setFirmaRecibido(null);
 
       onRefresh?.();
@@ -437,7 +450,7 @@ export default function RepartoCard({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-bold text-[var(--foreground)]">
-                Pedido #{reparto.id}
+                {pedido.numeroPedidoVisible || `Pedido #${reparto.id}`}
               </span>
 
               <span
@@ -648,6 +661,20 @@ export default function RepartoCard({
                     "No registrada"}
                 </p>
               )}
+
+              {reparto.modalidadEntrega === "recogida" &&
+                pedido.puntoRecogida && (
+                  <p className="sm:col-span-2">
+                    <strong>Punto de recogida:</strong>{" "}
+                    {pedido.puntoRecogida.nombre || "Sin nombre"}
+                    {pedido.puntoRecogida.direccion
+                      ? ` · ${pedido.puntoRecogida.direccion}`
+                      : ""}
+                    {pedido.puntoRecogida.municipio
+                      ? ` · ${pedido.puntoRecogida.municipio}`
+                      : ""}
+                  </p>
+                )}
             </div>
           </section>
 
@@ -880,6 +907,8 @@ export default function RepartoCard({
                                 .firma
                                 .valor
                             }
+                            width={512}
+                            height={128}
                             alt="Firma del receptor"
                             className="max-h-32 max-w-full"
                           />
@@ -903,6 +932,29 @@ export default function RepartoCard({
                 </div>
               </section>
             )}
+
+          {pedido.medioPago && (
+            <section className="mt-4 rounded-xl border border-[var(--border)] bg-white p-4 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">
+                    Medio de pago registrado
+                  </p>
+                  <p className="mt-1 font-bold text-[var(--foreground)]">
+                    {paymentLabel(pedido.medioPago)}
+                  </p>
+                </div>
+                {pedido.medioPago === "efectivo" && pedido.pago && (
+                  <div className="text-right text-xs text-[var(--muted)]">
+                    <p>Recibido: {formatPrice(pedido.pago.efectivoRecibido)}</p>
+                    <p className="font-semibold text-[var(--primary)]">
+                      Cambio: {formatPrice(pedido.pago.cambio)}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
 
           {pedido.estado ===
             "en_camino" && (
@@ -962,9 +1014,14 @@ export default function RepartoCard({
                         procesando ||
                         !firmaRecibido?.valido
                       }
-                      onClick={
-                        registrarRecepcion
-                      }
+                      onClick={() => {
+                        if (!firmaRecibido?.valido) {
+                          return;
+                        }
+
+                        setError(null);
+                        setMostrarPago(true);
+                      }}
                       className="rounded-lg bg-[var(--primary)] px-5 py-3 font-bold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {procesando
@@ -1028,6 +1085,22 @@ export default function RepartoCard({
           </div>
         </div>
       )}
+
+      <PaymentConfirmationModal
+        open={mostrarPago}
+        total={reparto.costos.total ?? pedido.total ?? 0}
+        loading={procesando}
+        error={error}
+        onCancel={() => {
+          if (!procesando) {
+            setMostrarPago(false);
+            setError(null);
+          }
+        }}
+        onConfirm={(payment) => {
+          void registrarRecepcion(payment);
+        }}
+      />
     </article>
   );
 }

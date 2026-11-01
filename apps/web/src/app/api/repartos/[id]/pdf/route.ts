@@ -5,7 +5,10 @@ import {
   adminDb,
 } from "@/lib/firebase-admin";
 
-import { generarPDFReparto } from "@/lib/repartos/pdf";
+import {
+  generarPDFReparto,
+  type RepartoPDFData,
+} from "@/lib/repartos/pdf";
 import { getPublicAppUrl } from "@/lib/recibos/url";
 
 import type {
@@ -877,6 +880,19 @@ export async function GET(
         ? pedidoData.firma
         : null;
 
+    const pago =
+      pedidoData.pago &&
+      typeof pedidoData.pago === "object"
+        ? pedidoData.pago
+        : typeof pedidoData.medioPago === "string"
+          ? {
+              medioPago: pedidoData.medioPago,
+              efectivoRecibido:
+                pedidoData.efectivoRecibido,
+              cambio: pedidoData.cambio,
+            }
+          : null;
+
     /*
      * ========================================================
      * GENERAR PDF
@@ -907,6 +923,8 @@ export async function GET(
         },
 
         firma,
+
+        pago: pago as RepartoPDFData["pago"],
       }, {
         baseUrl: getPublicAppUrl(request),
       });

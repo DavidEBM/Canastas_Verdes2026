@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect } from "react";
 
 import {
@@ -49,9 +50,12 @@ function CartItemRow({
     <article className="flex gap-3 border-b border-[var(--border)] py-4 last:border-b-0">
       {/* Imagen */}
       <div className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-[var(--surface)]">
-        <img
+        <Image
           src={imageSource}
+          width={80}
+          height={80}
           alt={product.nombre}
+          sizes="80px"
           className="h-full w-full object-cover"
         />
       </div>

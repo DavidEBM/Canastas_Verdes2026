@@ -86,7 +86,7 @@ export const productoSchema = z.object({
     ),
 
   /**
-   * Referencia a la municipalidad
+   * Referencia al municipio
    * donde está ubicado el productor.
    */
   IdMunicipalidad: z
@@ -94,7 +94,7 @@ export const productoSchema = z.object({
     .trim()
     .min(
       1,
-      "La municipalidad es obligatoria",
+      "El municipio es obligatorio",
     ),
 
   /**

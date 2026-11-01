@@ -333,6 +333,15 @@ export default function EstadisticasPage() {
   const [showFilters, setShowFilters] =
     useState(true);
 
+  const [exporting, setExporting] =
+    useState(false);
+
+  const [exportMessage, setExportMessage] =
+    useState("");
+
+  const [exportError, setExportError] =
+    useState("");
+
   useEffect(() => {
     const unsubscribe =
       onAuthStateChanged(
@@ -503,6 +512,82 @@ export default function EstadisticasPage() {
     setMunicipio("");
     setRepartidor("");
   };
+
+  const fechaActual = () => {
+    const now = new Date();
+    const offset = now.getTimezoneOffset() * 60000;
+    return new Date(now.getTime() - offset)
+      .toISOString()
+      .slice(0, 10);
+  };
+
+  const exportarConsolidado = useCallback(async () => {
+    setExportMessage("");
+    setExportError("");
+
+    if (!desde || !hasta) {
+      setExportError(
+        "Selecciona la fecha inicial y la fecha final para exportar.",
+      );
+      return;
+    }
+
+    if (desde > hasta) {
+      setExportError(
+        "La fecha inicial no puede ser posterior a la fecha final.",
+      );
+      return;
+    }
+
+    if (!user) {
+      setExportError("Debes iniciar sesión para exportar.");
+      return;
+    }
+
+    try {
+      setExporting(true);
+      const token = await user.getIdToken();
+      const response = await fetch(
+        `/api/dashboard/estadisticas/export?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        },
+      );
+
+      if (!response.ok) {
+        let message = "No fue posible generar el archivo Excel.";
+        try {
+          const result = await response.json();
+          message = result?.message || message;
+        } catch {
+          // La respuesta de error no era JSON.
+        }
+        throw new Error(message);
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `consolidado-canastas-verdes-${desde}-${hasta}.xlsx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setExportMessage(
+        `Consolidado exportado para el periodo ${desde} a ${hasta}.`,
+      );
+    } catch (caught) {
+      setExportError(
+        caught instanceof Error
+          ? caught.message
+          : "No fue posible generar el archivo Excel.",
+      );
+    } finally {
+      setExporting(false);
+    }
+  }, [desde, hasta, user]);
 
   const hasFilters =
     Boolean(desde) ||
@@ -826,6 +911,46 @@ export default function EstadisticasPage() {
               </div>
             </div>
           ) : null}
+        </section>
+
+        <section className="mb-6 overflow-hidden rounded-2xl border border-[var(--primary)]/20 bg-[var(--secondary)]/35 shadow-sm">
+          <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--primary)]">
+                Exportación administrativa
+              </p>
+              <h2 className="mt-1 text-lg font-bold text-[var(--foreground)]">
+                Consolidado comercial en Excel
+              </h2>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-[var(--muted)]">
+                Genera las hojas Canastas, Productos, Reporte_Ptor, Reporte_Canastas y Productores con los datos reales del periodo seleccionado. Se usa fecha de creación del pedido y se incluyen ambos días completos.
+              </p>
+            </div>
+
+            <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => setHasta(fechaActual())}
+                className="rounded-xl border border-[var(--primary)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--primary)] transition hover:bg-[var(--surface)]"
+              >
+                Usar hoy como fecha final
+              </button>
+              <button
+                type="button"
+                onClick={() => void exportarConsolidado()}
+                disabled={exporting}
+                className="rounded-xl bg-[var(--primary)] px-4 py-2.5 text-sm font-bold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {exporting ? "Generando Excel…" : "Exportar Excel"}
+              </button>
+            </div>
+          </div>
+
+          {(exportError || exportMessage) && (
+            <div className={`border-t px-5 py-3 text-sm ${exportError ? "border-red-200 bg-red-50 text-red-700" : "border-green-200 bg-green-50 text-green-800"}`}>
+              {exportError || exportMessage}
+            </div>
+          )}
         </section>
 
         {/* TABS */}

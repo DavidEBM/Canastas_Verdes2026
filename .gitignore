@@ -152,4 +152,6 @@ packages
 scripts
 pruebas-playwright/
 packages/
-scripts/
+!scripts/
+
+# MigraciÃ³n segura de numeraciÃ³n de pedidos.

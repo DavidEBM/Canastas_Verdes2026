@@ -8,6 +8,11 @@ import {
   puedeTransicionar,
 } from "@/lib/pedidos/estados";
 import { sendUserNotification } from "@/lib/send-user-notification";
+import {
+  normalizeMedioPago,
+  numberValue,
+  paymentChange,
+} from "@/lib/pagos";
 
 export const runtime = "nodejs";
 
@@ -70,6 +75,26 @@ function errorResponse(
           { status: 409 },
         );
 
+      case "MEDIO_PAGO_INVALIDO":
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "Debes seleccionar un medio de pago válido.",
+          },
+          { status: 400 },
+        );
+
+      case "EFECTIVO_INSUFICIENTE":
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "El efectivo recibido debe cubrir el total del pedido.",
+          },
+          { status: 400 },
+        );
+
       case "USUARIO_PEDIDO_INVALIDO":
         return NextResponse.json(
           {
@@ -101,7 +126,7 @@ export async function POST(
   request: Request,
 ) {
   try {
-    await requireAdmin(
+    const auth = await requireAdmin(
       request,
     );
 
@@ -120,10 +145,14 @@ export async function POST(
     const {
       pedidoId,
       nuevoEstado,
+      medioPago,
+      efectivoRecibido,
     } =
       body as {
         pedidoId?: unknown;
         nuevoEstado?: unknown;
+        medioPago?: unknown;
+        efectivoRecibido?: unknown;
       };
 
     if (
@@ -181,9 +210,56 @@ export async function POST(
               data.estado,
             ) ?? "pendiente";
 
+          const medioPagoNormalizado =
+            normalizeMedioPago(medioPago);
+          const pagoEnEfectivo = numberValue(
+            efectivoRecibido,
+          );
+
+          if (estado === "entregado") {
+            if (!medioPagoNormalizado) {
+              throw new Error(
+                "MEDIO_PAGO_INVALIDO",
+              );
+            }
+
+            const totalPedido = Math.max(
+              0,
+              numberValue(
+                data.total ??
+                  data.precioFinal ??
+                  data.subtotal,
+              ),
+            );
+
+            if (
+              medioPagoNormalizado ===
+                "efectivo" &&
+              (pagoEnEfectivo <= 0 ||
+                pagoEnEfectivo < totalPedido)
+            ) {
+              throw new Error(
+                "EFECTIVO_INSUFICIENTE",
+              );
+            }
+
+            const cambio =
+              medioPagoNormalizado ===
+                "efectivo"
+                ? paymentChange(
+                    totalPedido,
+                    pagoEnEfectivo,
+                  )
+                : 0;
+
+            if (estadoActual !== "entregado") {
+              // Se adjunta al resultado y se persiste después de validar la transición.
+            }
+          }
+
           if (
-            estadoActual ===
-            estado
+            estadoActual === estado &&
+            estado !== "entregado"
           ) {
             return {
               cambio: false,
@@ -207,10 +283,8 @@ export async function POST(
           }
 
           if (
-            !puedeTransicionar(
-              estadoActual,
-              estado,
-            )
+            !puedeTransicionar(estadoActual, estado) &&
+            !(estadoActual === "entregado" && estado === "entregado")
           ) {
             throw new Error(
               "TRANSICION_INVALIDA",
@@ -260,6 +334,38 @@ export async function POST(
           ) {
             updates.fechaCancelacion =
               FieldValue.serverTimestamp();
+          }
+
+          if (estado === "entregado") {
+            const totalPedido = Math.max(
+              0,
+              numberValue(
+                data.total ??
+                  data.precioFinal ??
+                  data.subtotal,
+              ),
+            );
+            const cambio =
+              medioPagoNormalizado === "efectivo"
+                ? paymentChange(
+                    totalPedido,
+                    pagoEnEfectivo,
+                  )
+                : 0;
+
+            updates.medioPago = medioPagoNormalizado;
+            updates.pago = {
+              medioPago: medioPagoNormalizado,
+              valorPedido: totalPedido,
+              efectivoRecibido:
+                medioPagoNormalizado === "efectivo"
+                  ? pagoEnEfectivo
+                  : null,
+              cambio,
+              registradoPor: auth.uid,
+              fechaPago: FieldValue.serverTimestamp(),
+            };
+            updates.fechaPago = FieldValue.serverTimestamp();
           }
 
           transaction.update(

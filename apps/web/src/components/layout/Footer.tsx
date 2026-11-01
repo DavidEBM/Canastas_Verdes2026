@@ -6,7 +6,7 @@ const navigation = [
     links: [
       { label: "Inicio", href: "/" },
       { label: "Productos", href: "/tienda" },
-      { label: "Nosotros", href: "/aboutUs" },
+      { label: "Conocenos", href: "/aboutUs" },
       { label: "Fincas", href: "/ubicaciones" },
     ],
   },

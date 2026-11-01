@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useState } from "react";
 
 import MobileMenu from "@/components/layout/MobileMenu";
@@ -17,7 +18,7 @@ const navigation = [
     href: "/tienda",
   },
   {
-    label: "Nosotros",
+    label: "Conocenos",
     href: "/aboutUs",
   },
   {
@@ -72,9 +73,12 @@ export default function Navbar() {
               max-md:-translate-x-1/2 max-md:-translate-y-1/2
             "
           >
-            <img
+            <Image
               src="/images/logo.webp"
+              width={40}
+              height={40}
               alt="Logo de Canastas Verdes"
+              priority
               className="h-full w-full object-cover"
             />
           </span>
@@ -282,4 +286,3 @@ export default function Navbar() {
     </header>
   );
 }
-

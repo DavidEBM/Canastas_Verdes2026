@@ -95,3 +95,37 @@ export function matchesTolerantSearch(
     ),
   );
 }
+
+export function createSearchIndex(values: unknown[]): string {
+  return normalizeSearchText(values.join(" "));
+}
+
+export function matchesSearchIndex(
+  normalizedValue: string,
+  query: unknown,
+): boolean {
+  const normalizedQuery = normalizeSearchText(query);
+
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  const compactQuery = normalizedQuery.replace(/ /g, "");
+  const compactValue = normalizedValue.replace(/ /g, "");
+
+  if (
+    normalizedValue.includes(normalizedQuery) ||
+    compactValue.includes(compactQuery)
+  ) {
+    return true;
+  }
+
+  const queryTokens = normalizedQuery.split(" ").filter(Boolean);
+  const valueTokens = normalizedValue.split(" ").filter(Boolean);
+
+  return queryTokens.every((queryToken) =>
+    valueTokens.some((valueToken) =>
+      tokenMatches(queryToken, valueToken),
+    ),
+  );
+}

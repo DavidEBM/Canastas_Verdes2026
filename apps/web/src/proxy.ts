@@ -25,24 +25,13 @@ function isProtectedPath(
   );
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  /**
-   * Las rutas API protegidas validan el Firebase ID Token
-   * dentro de cada Route Handler mediante Firebase Admin.
-   *
-   * El middleware no intenta utilizar auth.currentUser,
-   * ya que ese estado solamente existe en el navegador.
-   */
   if (isProtectedPath(pathname, PROTECTED_API)) {
     return NextResponse.next();
   }
 
-  /**
-   * Las páginas protegidas también realizan su comprobación
-   * de autenticación en el servidor.
-   */
   if (isProtectedPath(pathname, PROTECTED_ROUTES)) {
     return NextResponse.next();
   }
@@ -57,4 +46,3 @@ export const config = {
     "/api/:path*",
   ],
 };
-

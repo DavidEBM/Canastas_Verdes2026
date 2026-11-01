@@ -44,6 +44,12 @@ interface FirmaRecibo {
   fechaRecibido: string | null;
 }
 
+interface PagoRecibo {
+  medioPago: "efectivo" | "transferencia" | "nequi" | string;
+  efectivoRecibido: number | null;
+  cambio: number | null;
+}
+
 interface ReciboData {
   id: string;
   estado:
@@ -70,6 +76,7 @@ interface ReciboData {
     total: number;
   };
   firma: FirmaRecibo | null;
+  pago: PagoRecibo | null;
   verificacion: {
     valido: boolean;
     mensaje: string;
@@ -703,6 +710,29 @@ export default function ReciboPage() {
                   </span>
                 </div>
               </div>
+
+              {data.pago && (
+                <div className="mt-4 grid gap-3 border-t border-gray-200 pt-4 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                      Medio de pago
+                    </p>
+                    <p className="mt-1 text-sm font-bold capitalize text-[var(--foreground)]">
+                      {data.pago.medioPago}
+                    </p>
+                  </div>
+                  {data.pago.medioPago === "efectivo" && (
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                        Efectivo y cambio
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">
+                        {formatMoney(data.pago.efectivoRecibido ?? 0)} · Cambio {formatMoney(data.pago.cambio ?? 0)}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -768,6 +798,8 @@ export default function ReciboPage() {
                         src={
                           data.firma.valor
                         }
+                        width={512}
+                        height={128}
                         alt="Firma registrada del cliente"
                         className="max-h-32 max-w-full object-contain"
                       />

@@ -16,6 +16,11 @@ import {
   normalizeTipoPrecio,
   type TipoPrecio,
 } from "@/lib/pedidos/precios";
+import {
+  normalizeMedioPago,
+  numberValue,
+  paymentChange,
+} from "@/lib/pagos";
 
 export const runtime = "nodejs";
 
@@ -1804,6 +1809,55 @@ export async function PATCH(
               }
             }
 
+            const resultingStatus =
+              normalizeEstado(
+                updates.estado ?? currentStatus,
+              ) ?? currentStatus;
+            const paymentRequested =
+              input.medioPago !== undefined;
+
+            if (
+              resultingStatus === "entregado" &&
+              (currentStatus !== "entregado" || paymentRequested)
+            ) {
+              const medioPago = normalizeMedioPago(
+                input.medioPago,
+              );
+              if (!medioPago) {
+                throw new Error("MEDIO_PAGO_INVALIDO");
+              }
+
+              const totalPedido = Math.max(0, numberValue(total));
+              const efectivoRecibido = numberValue(
+                input.efectivoRecibido,
+              );
+              if (
+                medioPago === "efectivo" &&
+                (efectivoRecibido <= 0 ||
+                  efectivoRecibido < totalPedido)
+              ) {
+                throw new Error("EFECTIVO_INSUFICIENTE");
+              }
+
+              updates.medioPago = medioPago;
+              updates.pago = {
+                medioPago,
+                valorPedido: totalPedido,
+                efectivoRecibido:
+                  medioPago === "efectivo"
+                    ? efectivoRecibido
+                    : null,
+                cambio:
+                  medioPago === "efectivo"
+                    ? paymentChange(totalPedido, efectivoRecibido)
+                    : 0,
+                registradoPor: user.uid,
+                fechaPago: FieldValue.serverTimestamp(),
+              };
+              updates.fechaPago = FieldValue.serverTimestamp();
+              updates.fechaEntrega = FieldValue.serverTimestamp();
+            }
+
             const usuarioSnap =
               await transaction.get(
                 adminDb
@@ -2130,6 +2184,44 @@ export async function PATCH(
             }
           }
 
+          if (
+            updates.estado === "entregado" &&
+            (currentStatus !== "entregado" || input.medioPago !== undefined)
+          ) {
+            const medioPago = normalizeMedioPago(input.medioPago);
+            if (!medioPago) {
+              throw new Error("MEDIO_PAGO_INVALIDO");
+            }
+
+            const totalPedido = Math.max(
+              0,
+              numberValue(current.total ?? current.precioFinal ?? current.subtotal),
+            );
+            const efectivoRecibido = numberValue(input.efectivoRecibido);
+            if (
+              medioPago === "efectivo" &&
+              (efectivoRecibido <= 0 || efectivoRecibido < totalPedido)
+            ) {
+              throw new Error("EFECTIVO_INSUFICIENTE");
+            }
+
+            updates.medioPago = medioPago;
+            updates.pago = {
+              medioPago,
+              valorPedido: totalPedido,
+              efectivoRecibido:
+                medioPago === "efectivo" ? efectivoRecibido : null,
+              cambio:
+                medioPago === "efectivo"
+                  ? paymentChange(totalPedido, efectivoRecibido)
+                  : 0,
+              registradoPor: user.uid,
+              fechaPago: FieldValue.serverTimestamp(),
+            };
+            updates.fechaPago = FieldValue.serverTimestamp();
+            updates.fechaEntrega = FieldValue.serverTimestamp();
+          }
+
           transaction.update(
             pedidoRef,
             updates,
@@ -2216,6 +2308,18 @@ export async function PATCH(
           return errorResponse(
             "El cambio de estado solicitado no está permitido.",
             409,
+          );
+
+        case "MEDIO_PAGO_INVALIDO":
+          return errorResponse(
+            "Debes seleccionar un medio de pago vÃ¡lido.",
+            400,
+          );
+
+        case "EFECTIVO_INSUFICIENTE":
+          return errorResponse(
+            "El efectivo recibido debe cubrir el total del pedido.",
+            400,
           );
 
         case "INVALID_DELIVERER":

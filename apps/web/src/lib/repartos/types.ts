@@ -124,6 +124,19 @@ export interface PuntoRecogidaPedido {
 export interface Pedido {
   id: string;
 
+  numeroPedido?: number | null;
+
+  numeroPedidoVisible?: string;
+
+  medioPago?: "efectivo" | "transferencia" | "nequi" | null;
+
+  pago?: {
+    medioPago?: "efectivo" | "transferencia" | "nequi" | null;
+    valorPedido?: number | null;
+    efectivoRecibido?: number | null;
+    cambio?: number | null;
+  } | null;
+
   usuarioId: string;
 
   productos: ProductoPedido[];
@@ -145,6 +158,8 @@ export interface Pedido {
    * Datos utilizados únicamente para domicilio.
    */
   IdMunicipalidad: string;
+
+  municipioNombre?: string;
 
   direccionEntrega: string;
 

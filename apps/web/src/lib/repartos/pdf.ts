@@ -64,6 +64,14 @@ interface Firma {
   fechaRecibido?: unknown;
 }
 
+export interface Pago {
+  medioPago?: "efectivo" | "transferencia" | "nequi" | string | null;
+  valorPedido?: number | null;
+  efectivoRecibido?: number | null;
+  cambio?: number | null;
+  fechaPago?: unknown;
+}
+
 interface Pedido {
   id: string;
   productos: ProductoPedido[];
@@ -104,6 +112,7 @@ export interface RepartoPDFData {
   modalidadEntrega?: "domicilio" | "recogida";
 
   firma: Firma | null;
+  pago?: Pago | null;
   ventaCompletada?: boolean;
 }
 
@@ -1404,7 +1413,7 @@ export async function generarPDFReparto(
     MARGIN_X -
     costsWidth;
 
-  const costsHeight = 130;
+  const costsHeight = data.pago ? 178 : 130;
 
   drawBox(
     page,
@@ -1510,6 +1519,56 @@ export async function generarPDFReparto(
     10,
     PRIMARY,
   );
+
+  if (data.pago?.medioPago) {
+    const paymentY = totalY - 23;
+    const paymentLabel =
+      data.pago.medioPago === "efectivo"
+        ? "Efectivo"
+        : data.pago.medioPago === "transferencia"
+          ? "Transferencia"
+          : data.pago.medioPago === "nequi"
+            ? "Nequi"
+            : data.pago.medioPago;
+
+    drawText(
+      page,
+      "MEDIO DE PAGO",
+      costsX + costsPadding,
+      paymentY,
+      bold,
+      8,
+      DARK,
+    );
+    drawRightText(
+      page,
+      paymentLabel,
+      costsRight,
+      paymentY,
+      bold,
+      8,
+      PRIMARY,
+    );
+
+    if (data.pago.medioPago === "efectivo") {
+      drawText(
+        page,
+        "Recibido / cambio",
+        costsX + costsPadding,
+        paymentY - 15,
+        regular,
+        8,
+      );
+      drawRightText(
+        page,
+        `${money(data.pago.efectivoRecibido ?? 0)} / ${money(data.pago.cambio ?? 0)}`,
+        costsRight,
+        paymentY - 15,
+        regular,
+        8,
+      );
+    }
+  }
 
   y -=
     costsHeight + 20;

@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import Image from "next/image";
 import {
   useCallback,
   useEffect,
@@ -321,9 +322,12 @@ export default function AlliesCarouselClient({
                 key={`${image.src}-${index}`}
                 className="flex h-20 w-32 shrink-0 items-center justify-center sm:h-24 sm:w-40"
               >
-                <img
+                <Image
                   src={image.src}
+                  width={160}
+                  height={96}
                   alt={image.name}
+                  sizes="(max-width: 640px) 128px, 160px"
                   draggable={false}
                   className="max-h-full max-w-full object-contain"
                 />
@@ -335,4 +339,3 @@ export default function AlliesCarouselClient({
     </section>
   );
 }
-

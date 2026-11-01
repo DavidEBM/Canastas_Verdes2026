@@ -23,6 +23,10 @@ const adminNavigation: NavigationItem[] = [
     href: "/dashboard/productos",
   },
   {
+    label: "Disponibilidad",
+    href: "/dashboard/disponibilidad",
+  },
+  {
     label: "Productores",
     href: "/dashboard/productores",
   },
@@ -39,12 +43,20 @@ const adminNavigation: NavigationItem[] = [
     href: "/dashboard/municipalidades",
   },
   {
+    label: "Veredas",
+    href: "/dashboard/veredas",
+  },
+  {
   label: "Fincas",
   href: "/dashboard/lugares-recogida",
   },
   {
     label: "Usuarios",
     href: "/dashboard/usuarios",
+  },
+  {
+    label: "Etiquetas",
+    href: "/dashboard/etiquetas",
   },
   {
     label: "Pedidos",
