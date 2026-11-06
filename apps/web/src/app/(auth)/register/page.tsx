@@ -376,6 +376,20 @@ export default function RegisterPage() {
 
       const user = result.user;
 
+      if (!user.email) {
+        throw new Error(
+          "La cuenta de Google no tiene un correo electrónico válido.",
+        );
+      }
+
+      if (
+        !user.providerData.some(
+          (provider) => provider.providerId === "password",
+        )
+      ) {
+        return;
+      }
+
       const googleName = getGoogleProfileName(
         user.displayName,
         user.email,

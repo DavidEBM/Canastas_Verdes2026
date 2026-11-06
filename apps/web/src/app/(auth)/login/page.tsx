@@ -536,10 +536,15 @@ export default function LoginPage() {
          * No creamos el perfil aquí porque el registro ya se
          * encarga de crearlo. En login simplemente lo buscamos.
          */
-        const role =
-          await getUserRole(
-            currentUser.uid,
-          );
+        const hasPasswordProvider = currentUser.providerData.some(
+          (provider) => provider.providerId === "password",
+        );
+
+        if (!hasPasswordProvider) {
+          return;
+        }
+
+        const role = await getUserRole(currentUser.uid);
 
         console.log(
           "Rol del usuario de Google:",

@@ -17,7 +17,7 @@ La URL de producción se usa también al generar enlaces de recibos y códigos Q
 ## Cómo funciona el sistema
 
 1. Un visitante consulta la página pública y el catálogo de la tienda.
-2. Un consumidor crea una cuenta o inicia sesión mediante Firebase Authentication.
+2. Un consumidor crea una cuenta o inicia sesión mediante Firebase Authentication. Las cuentas creadas con Google deben configurar una contraseña al primer acceso para poder entrar posteriormente con Google o con correo y contraseña, sin crear una segunda cuenta.
 3. La aplicación carga el rol vigente desde `usuarios/{uid}` en Firestore.
 4. El consumidor agrega productos al carrito, selecciona entrega a domicilio o recogida y crea el pedido.
 5. Las APIs del servidor validan el token Firebase, los datos recibidos y las reglas de autorización antes de consultar o modificar información.

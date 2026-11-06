@@ -179,10 +179,28 @@ export async function POST(request: Request) {
         ? "google"
         : "local";
 
-    const correo =
+    const authenticatedEmail = decoded.email?.trim().toLowerCase() ?? "";
+    const requestedEmail =
       typeof input.Correo === "string"
-        ? input.Correo.trim()
-        : decoded.email ?? "";
+        ? input.Correo.trim().toLowerCase()
+        : "";
+
+    if (
+      requestedEmail &&
+      authenticatedEmail &&
+      requestedEmail !== authenticatedEmail
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "El correo del perfil debe coincidir con la cuenta autenticada.",
+        },
+        { status: 400 },
+      );
+    }
+
+    const correo = authenticatedEmail || requestedEmail;
 
     const nombreCompleto =
       typeof input.NombreCompleto === "string" &&

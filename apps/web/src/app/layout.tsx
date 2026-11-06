@@ -8,6 +8,7 @@ import Footer from "@/components/layout/Footer";
 import AlliesCarousel from "@/components/layout/AlliesCarousel";
 import Cart from "@/components/tienda/Cart";
 import NotificationManager from "@/components/notifications/NotificationManager";
+import GooglePasswordGate from "@/components/auth/GooglePasswordGate";
 import { CartProvider } from "@/hooks/useCart";
 
 export const metadata: Metadata = {
@@ -28,7 +29,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es">
+    <html lang="es" suppressHydrationWarning>
       <body className="min-h-dvh bg-[var(--background)] text-[var(--foreground)]">
         <CartProvider>
           <div className="flex min-h-dvh flex-col">
@@ -54,6 +55,7 @@ export default function RootLayout({
 
             {/* Notificaciones Web Push */}
             <NotificationManager />
+            <GooglePasswordGate />
           </div>
         </CartProvider>
       </body>
