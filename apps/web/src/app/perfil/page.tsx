@@ -1,6 +1,11 @@
 "use client";
 
 import {
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  updatePassword,
+} from "firebase/auth";
+import {
   useCallback,
   useEffect,
   useState,
@@ -86,6 +91,27 @@ export default function PerfilPage() {
     useState<string | null>(null);
 
   const [notice, setNotice] =
+    useState<string | null>(null);
+
+  const [passwordModalOpen, setPasswordModalOpen] =
+    useState(false);
+
+  const [currentPassword, setCurrentPassword] =
+    useState("");
+
+  const [newPassword, setNewPassword] =
+    useState("");
+
+  const [passwordConfirmation, setPasswordConfirmation] =
+    useState("");
+
+  const [passwordConfirmed, setPasswordConfirmed] =
+    useState(false);
+
+  const [changingPassword, setChangingPassword] =
+    useState(false);
+
+  const [passwordError, setPasswordError] =
     useState<string | null>(null);
 
   const request = useCallback(
@@ -353,6 +379,72 @@ export default function PerfilPage() {
     }
   };
 
+  const changePassword = async (
+    event: React.FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+
+    if (!user?.email) {
+      setPasswordError("No fue posible identificar tu correo.");
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setPasswordError("La nueva contraseña debe tener al menos 6 caracteres.");
+      return;
+    }
+
+    if (newPassword !== passwordConfirmation) {
+      setPasswordError("Las contraseñas no coinciden.");
+      return;
+    }
+
+    if (!passwordConfirmed) {
+      setPasswordError("Confirma que deseas cambiar tu contraseña.");
+      return;
+    }
+
+    try {
+      setChangingPassword(true);
+      setPasswordError(null);
+      const credential = EmailAuthProvider.credential(
+        user.email,
+        currentPassword,
+      );
+      await reauthenticateWithCredential(user, credential);
+      await updatePassword(user, newPassword);
+      setPasswordModalOpen(false);
+      setCurrentPassword("");
+      setNewPassword("");
+      setPasswordConfirmation("");
+      setPasswordConfirmed(false);
+      setNotice("Contraseña actualizada correctamente.");
+    } catch (caught) {
+      const code =
+        caught &&
+        typeof caught === "object" &&
+        "code" in caught &&
+        typeof caught.code === "string"
+          ? caught.code
+          : "";
+
+      if (
+        code === "auth/invalid-credential" ||
+        code === "auth/wrong-password"
+      ) {
+        setPasswordError("La contraseña actual no es correcta.");
+      } else if (code === "auth/requires-recent-login") {
+        setPasswordError("Tu sesión expiró. Cierra sesión e inicia nuevamente para cambiar la contraseña.");
+      } else if (code === "auth/weak-password") {
+        setPasswordError("La nueva contraseña no cumple los requisitos de seguridad.");
+      } else {
+        setPasswordError("No fue posible cambiar la contraseña. Intenta nuevamente.");
+      }
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   if (loading || loadingProfile) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-12">
@@ -593,6 +685,119 @@ export default function PerfilPage() {
           </button>
         </div>
       </form>
+
+      <section className="mt-6 rounded-2xl border border-[var(--border)] bg-[var(--background)] p-6 shadow-sm">
+        <h2 className="text-lg font-bold">Seguridad</h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">
+          Actualiza la contraseña de acceso a tu cuenta.
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setPasswordError(null);
+            setPasswordModalOpen(true);
+          }}
+          className="mt-4 rounded-lg border border-[var(--primary)] px-5 py-2.5 text-sm font-semibold text-[var(--primary)] transition hover:bg-[var(--primary)]/10"
+        >
+          Cambiar contraseña
+        </button>
+      </section>
+
+      {passwordModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="change-password-title"
+        >
+          <div className="w-full max-w-md rounded-2xl bg-[var(--background)] p-6 shadow-2xl">
+            <h2 id="change-password-title" className="text-xl font-bold">
+              Cambiar contraseña
+            </h2>
+            <p className="mt-2 text-sm text-[var(--muted)]">
+              Ingresa tu contraseña actual y confirma la nueva para continuar.
+            </p>
+
+            {passwordError && (
+              <div
+                role="alert"
+                className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+              >
+                {passwordError}
+              </div>
+            )}
+
+            <form onSubmit={changePassword} className="mt-5 space-y-4">
+              <label className="block text-sm font-semibold">
+                Contraseña actual
+                <input
+                  type="password"
+                  required
+                  autoFocus
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  disabled={changingPassword}
+                  className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-normal outline-none focus:border-[var(--primary)]"
+                />
+              </label>
+              <label className="block text-sm font-semibold">
+                Nueva contraseña
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  disabled={changingPassword}
+                  className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-normal outline-none focus:border-[var(--primary)]"
+                />
+              </label>
+              <label className="block text-sm font-semibold">
+                Confirmar nueva contraseña
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  value={passwordConfirmation}
+                  onChange={(event) => setPasswordConfirmation(event.target.value)}
+                  disabled={changingPassword}
+                  className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-normal outline-none focus:border-[var(--primary)]"
+                />
+              </label>
+              <label className="flex items-start gap-2 text-sm text-[var(--muted)]">
+                <input
+                  type="checkbox"
+                  checked={passwordConfirmed}
+                  onChange={(event) => setPasswordConfirmed(event.target.checked)}
+                  disabled={changingPassword}
+                  className="mt-1"
+                />
+                <span>Confirmo que deseo cambiar la contraseña de mi cuenta.</span>
+              </label>
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setPasswordModalOpen(false)}
+                  disabled={changingPassword}
+                  className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={changingPassword}
+                  className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                >
+                  {changingPassword ? "Actualizando…" : "Confirmar cambio"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
