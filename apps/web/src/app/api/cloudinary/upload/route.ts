@@ -5,7 +5,8 @@ import { requireAdmin } from "@/lib/require-admin";
 
 export const runtime = "nodejs";
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
+// Keep multipart requests below common serverless request limits.
+const MAX_FILE_SIZE = 4 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 function getCloudinary() {
@@ -165,7 +166,7 @@ export async function POST(request: Request) {
     }
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { success: false, message: "La imagen no puede superar los 5 MB." },
+        { success: false, message: "La imagen no puede superar los 4 MB." },
         { status: 400 },
       );
     }
