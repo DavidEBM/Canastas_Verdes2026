@@ -27,6 +27,10 @@ const adminNavigation: NavigationItem[] = [
     href: "/dashboard/disponibilidad",
   },
   {
+    label: "Contenido del sitio",
+    href: "/dashboard/contenido",
+  },
+  {
     label: "Productores",
     href: "/dashboard/productores",
   },

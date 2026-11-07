@@ -8,6 +8,8 @@ import { MapPin, MessageCircle } from "lucide-react";
 
 import { useAuth } from "@/hooks/useAuth";
 import { auth, db } from "@/lib/firebase";
+import SiteContentEditor from "@/components/content/SiteContentEditor";
+import { useSiteContent } from "@/hooks/useSiteContent";
 
 const MAX_CARACTERES = 500;
 
@@ -60,6 +62,8 @@ mensaje: string;
 
 export default function ContactoPage() {
 const { user, loading } = useAuth();
+const { content, loading: contentLoading, error: contentError, lastDateUpdated } = useSiteContent("contacto");
+const contentUnavailable = Boolean(contentError && !lastDateUpdated);
 
 const [nombre, setNombre] = useState("");
 const [correo, setCorreo] = useState("");
@@ -348,29 +352,28 @@ HERO
    
   <section className="relative min-h-[40dvh] overflow-hidden">
     <Image
-      src="/images/backgrounds/Contacto.jpg"
-      alt="Contacto Canastas Verdes"
+      src={content.heroImage.url}
+      alt={content.heroImage.alt}
       fill
       priority
       className="object-cover"
     />
 
     <div className="absolute inset-0 bg-[rgb(23_53_31_/_70%)]" />
+    <SiteContentEditor page="contacto" content={content} contentLoading={contentLoading} contentUnavailable={contentUnavailable} fieldKeys={["heroEyebrow", "heroTitle", "heroDescription", "heroImage"]} title="Portada de Contacto" className="absolute right-4 top-4 z-10 inline-flex items-center gap-2 rounded-full border border-white/30 bg-[rgb(23_53_31_/_80%)] px-4 py-3 text-sm font-semibold text-white shadow-xl transition hover:bg-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--secondary)]" />
 
     <div className="relative mx-auto flex min-h-[40dvh] max-w-7xl items-center px-4 py-20 sm:px-6 lg:px-8">
       <div className="max-w-3xl text-white">
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--secondary)]">
-          Estamos para ayudarte
+          {content.heroEyebrow}
         </p>
 
         <h1 className="mt-4 text-4xl font-bold tracking-tight sm:text-5xl">
-          Contáctanos
+          {content.heroTitle}
         </h1>
 
         <p className="mt-5 max-w-2xl text-base leading-7 text-white/85 sm:text-lg">
-          ¿Tienes alguna pregunta, sugerencia o
-          necesitas información? Escríbenos y
-          estaremos encantados de ayudarte.
+          {content.heroDescription}
         </p>
       </div>
     </div>
@@ -380,79 +383,77 @@ HERO
       PQRDSF
   ======================================================= */}
 
-  <section className="bg-[var(--surface)] py-16 sm:py-20">
+  <section className="relative bg-[var(--surface)] py-16 sm:py-20">
+    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <SiteContentEditor page="contacto" content={content} contentLoading={contentLoading} contentUnavailable={contentUnavailable} fieldKeys={["infoEyebrow", "infoTitle", "infoDescription", "emailLabel", "email", "phoneLabel", "phone", "hoursLabel", "hours", "locationLabel", "location", "socialTitle", "whatsappUrl", "instagramUrl"]} title="Información de Contacto" className="absolute right-4 top-4 z-10 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--background)] px-4 py-3 text-sm font-semibold text-[var(--primary)] shadow-lg transition hover:bg-[var(--secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]" />
+    </div>
     <div className="mx-auto grid max-w-7xl gap-10 px-4 sm:px-6 lg:grid-cols-[0.8fr_1.2fr] lg:px-8">
 
       {/* Información */}
 
       <div>
         <p className="text-sm font-semibold uppercase tracking-wider text-[var(--primary)]">
-          PQRDSF
+          {content.infoEyebrow}
         </p>
 
         <h2 className="mt-3 text-3xl font-bold text-[var(--foreground)]">
-          Estamos para escucharte
+          {content.infoTitle}
         </h2>
 
         <p className="mt-4 leading-7 text-[var(--muted)]">
-          Presenta una Petición, Queja, Reclamo,
-          Denuncia, Sugerencia o Felicitación.
-          Registraremos tu solicitud para que pueda
-          ser gestionada por nuestro equipo.
+          {content.infoDescription}
         </p>
 
         <div className="mt-8 space-y-6">
           <div>
             <h3 className="font-semibold text-[var(--foreground)]">
-              Correo electrónico
+              {content.emailLabel}
             </h3>
 
             <p className="mt-1 text-sm text-[var(--muted)]">
-              contacto.canastasverdes@gmail.com
+              {content.email}
             </p>
           </div>
 
           <div>
             <h3 className="font-semibold text-[var(--foreground)]">
-              Teléfono
+              {content.phoneLabel}
             </h3>
 
             <p className="mt-1 text-sm text-[var(--muted)]">
-              +57 300 123 4567
+              {content.phone}
             </p>
           </div>
 
           <div>
             <h3 className="font-semibold text-[var(--foreground)]">
-              Horario de atención
+              {content.hoursLabel}
             </h3>
 
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Lunes a viernes
-              <br />
-              8:00 a. m. — 5:00 p. m.
+              {content.hours.split("\n").map((line) => <span key={line} className="block">{line}</span>)}
             </p>
           </div>
 
           <div>
             <h3 className="font-semibold text-[var(--foreground)]">
-              Ubicación de atencion.
+              {content.locationLabel}
             </h3>
 
             <p className="mt-1 flex items-start gap-2 text-sm text-[var(--muted)]">
               <MapPin size={17} className="mt-0.5 shrink-0 text-[var(--primary)]" aria-hidden="true" />
-              Calle 20, 24 - 64, Pasto, Nariño 520002
+              {content.location}
             </p>
           </div>
 
           <div>
             <h3 className="font-semibold text-[var(--foreground)]">
-              Habla con nosotros
+              {content.socialTitle}
             </h3>
 
             <div className="mt-3 flex flex-wrap gap-3">
               <a
-                href="https://wa.me/c/573154073347"
+                href={content.whatsappUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Escribir por WhatsApp"
@@ -464,7 +465,7 @@ HERO
               </a>
 
               <a
-                href="https://www.instagram.com/canastasverdespasto/"
+                href={content.instagramUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Visitar Instagram de Canastas Verdes"
@@ -498,12 +499,11 @@ HERO
       <div className="rounded-[var(--radius-xl)] border border-[var(--border)] bg-white p-6 shadow-sm sm:p-8">
 
         <h2 className="text-2xl font-bold text-[var(--foreground)]">
-          Envíanos tu PQRDSF
+          {content.formTitle}
         </h2>
 
         <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-          Completa los datos y selecciona el tipo
-          de solicitud que deseas presentar.
+          {content.formDescription}
         </p>
 
         <form
@@ -717,23 +717,23 @@ HERO
       FINCAS
   ======================================================= */}
 
-  <section className="bg-white py-16">
+  <section className="relative bg-white py-16">
+    <SiteContentEditor page="contacto" content={content} contentLoading={contentLoading} contentUnavailable={contentUnavailable} fieldKeys={["fincasTitle", "fincasDescription", "fincasCta"]} title="Sección de Fincas" className="absolute right-4 top-4 z-10 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-white px-4 py-3 text-sm font-semibold text-[var(--primary)] shadow-lg transition hover:bg-[var(--secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]" />
     <div className="mx-auto max-w-4xl px-4 text-center sm:px-6">
 
       <h2 className="text-2xl font-bold text-[var(--foreground)] sm:text-3xl">
-        También puedes visitarnos
+        {content.fincasTitle}
       </h2>
 
       <p className="mt-4 text-[var(--muted)]">
-        Consulta nuestras fincas para encontrar
-        el punto de atención más cercano.
+        {content.fincasDescription}
       </p>
 
       <a
         href="/ubicaciones"
         className="mt-6 inline-flex rounded-[var(--radius-md)] border-2 border-black/30 bg-[var(--primary)] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#18572f]"
       >
-        Ver fincas
+        {content.fincasCta}
       </a>
 
     </div>

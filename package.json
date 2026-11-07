@@ -13,6 +13,7 @@
     "importData": "tsx scripts/migrations/importData.ts",
     "rollbackData": "tsx scripts/migrations/rollbackData.ts",
     "migrateOrderNumbers": "tsx scripts/migrations/migrateOrderNumbers.ts",
+    "seedSiteContent": "tsx scripts/migrations/seedSiteContent.ts",
     "test:scripts": "vitest run --config scripts/vitest.config.ts",
     "test:security": "vitest run --config scripts/vitest.config.ts scripts/security",
     "test:concurrency": "vitest run --config scripts/vitest.config.ts scripts/tests/concurrency",

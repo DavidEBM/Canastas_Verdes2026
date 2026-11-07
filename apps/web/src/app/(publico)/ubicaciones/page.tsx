@@ -8,6 +8,8 @@ import {
   MapPin,
   Navigation,
 } from "lucide-react";
+import SiteContentEditor from "@/components/content/SiteContentEditor";
+import { useSiteContent } from "@/hooks/useSiteContent";
 
 interface Finca {
   id: string;
@@ -72,6 +74,8 @@ function municipalityEmbedUrl(
 }
 
 export default function UbicacionesPage() {
+  const { content, loading: contentLoading, error: contentError, lastDateUpdated } = useSiteContent("fincas");
+  const contentUnavailable = Boolean(contentError && !lastDateUpdated);
   const [fincas, setFincas] = useState<Finca[]>([]);
   const [viewMode, setViewMode] =
     useState<ViewMode>("inicio");
@@ -208,20 +212,20 @@ export default function UbicacionesPage() {
 
   return (
     <main className="min-h-screen bg-[var(--surface)]">
-      <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-        <div className="mb-8 max-w-3xl">
-          <p className="mb-2 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--primary)]">
-            Canastas Verdes · territorio
-          </p>
-
-          <h1 className="text-3xl font-bold tracking-tight text-[var(--foreground)] sm:text-5xl">
-            Fincas y lugares de recogida
-          </h1>
-
-          <p className="mt-4 text-base leading-7 text-[var(--muted)]">
-            Consulta nuestro lugar de recogida y explora las fincas por municipio. Selecciona una finca para abrir su ubicación exacta en Google Maps.
-          </p>
+      <section className="relative overflow-hidden border-b border-[var(--border)]">
+        <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${JSON.stringify(content.heroImage.url)})` }} />
+        <div className="absolute inset-0 bg-[rgb(23_53_31_/_70%)]" />
+        <SiteContentEditor page="fincas" content={content} contentLoading={contentLoading} contentUnavailable={contentUnavailable} title="Encabezado de Fincas" className="absolute right-4 top-4 z-10 inline-flex items-center gap-2 rounded-full border border-white/30 bg-[rgb(23_53_31_/_80%)] px-4 py-3 text-sm font-semibold text-white shadow-xl transition hover:bg-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--secondary)]" />
+        <div className="relative mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-20">
+          <div className="max-w-3xl text-white">
+            <p className="mb-2 text-sm font-semibold uppercase tracking-[0.16em] text-[var(--secondary)]">{content.heroEyebrow}</p>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-5xl">{content.heroTitle}</h1>
+            <p className="mt-4 text-base leading-7 text-white/85">{content.heroDescription}</p>
+          </div>
         </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
 
         {loading && (
           <div className="rounded-3xl border border-[var(--border)] bg-white p-10 text-center text-[var(--muted)] shadow-sm">

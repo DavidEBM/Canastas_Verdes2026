@@ -17,6 +17,12 @@ const adminSections = [
       "Gestionar usuarios y asignar roles.",
   },
   {
+    href: "/dashboard/contenido",
+    title: "Contenido del sitio",
+    description:
+      "Editar textos, imágenes y mensajes temporales de las páginas públicas.",
+  },
+  {
     href: "/dashboard/pedidos",
     title: "Pedidos",
     description:

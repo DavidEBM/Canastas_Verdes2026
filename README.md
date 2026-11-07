@@ -56,10 +56,25 @@ El repositorio es un monorepo administrado con pnpm y Turborepo. La aplicación 
 - Node.js compatible con Next.js 16 y React 19.
 - pnpm `10.15.0`.
 - Un proyecto Firebase con Authentication, Firestore y Storage habilitados.
+
 - Una cuenta de servicio de Firebase Admin para las operaciones del servidor.
 - Una cuenta Cloudinary si se utilizarán sus cargas de imágenes.
 - Claves VAPID si se desean notificaciones web.
 - Git y acceso al repositorio.
+
+### Contenido editable del sitio
+
+Las páginas públicas Inicio, Productos, Conócenos, Fincas, Contacto y el carrusel Nuestros aliados pueden ser actualizadas por cuentas con rol `admin` desde los botones con icono de lápiz. El contenido se almacena en la colección `contenidoSitio`, con un documento por página y un documento `siteMeta` que mantiene `lastDateUpdated` y la versión global.
+
+En Conócenos también se pueden editar las secciones de productores, fincas, productos, Valores y Misión y Visión. En Nuestros aliados se pueden agregar, quitar o desactivar imágenes, cambiar el título y la descripción, y ajustar la velocidad del carrusel. Los cambios se limitan a textos, títulos, imágenes informativas o de fondo y enlaces configurados; no modifican productos, pedidos ni datos obtenidos dinámicamente desde Firebase.
+
+Para crear la colección con los valores predeterminados en un proyecto Firebase vacío, configure las variables de Firebase Admin y ejecute:
+
+```bash
+pnpm seedSiteContent
+```
+
+El navegador guarda cada página en `localStorage`. Antes de descargar el contenido completo consulta únicamente `lastDateUpdated`; si la fecha coincide, reutiliza la copia local. Si el navegador no tiene fecha, descarga el contenido completo después de comparar la metadata. Las imágenes editables se validan y se cargan mediante Cloudinary.
 
 Instalación:
 
@@ -134,6 +149,7 @@ El archivo `vercel.json` programa el recordatorio semanal los sábados a las 14:
 ### Administración y comunicación
 
 - Dashboard para administrar catálogo, usuarios, roles, ubicaciones y operación.
+- Módulo **Contenido del sitio** para consultar o editar las ventanas públicas con permisos de administrador.
 - Dashboard adaptado por rol: administración completa para `admin`, gestión sensible adicional para el administrador privilegiado y vista de repartos asignados para `repartidor`.
 - Estadísticas de ventas, costos, utilidad, pedidos y stock.
 - Etiquetas de usuarios.

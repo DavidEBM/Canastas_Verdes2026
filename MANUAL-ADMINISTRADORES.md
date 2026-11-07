@@ -39,8 +39,33 @@ El menú administrativo contiene:
 | **Pedidos** | Revisar, editar según permisos, asignar y actualizar pedidos |
 | **Repartos** | Coordinar entregas y consultar estados |
 | **Estadísticas** | Filtrar métricas y exportar resultados |
+| **Contenido del sitio** | Editar textos, imágenes y configuración visual de las páginas públicas |
 
 En tabletas y teléfonos el menú se desplaza horizontalmente. Si una opción no aparece, desplácese dentro de la barra de navegación.
+
+## Contenido editable del sitio
+
+Las cuentas con rol `admin` pueden editar las ventanas públicas mediante el botón con icono de lápiz que aparece sobre cada sección editable. También pueden entrar a **Dashboard > Contenido del sitio** para revisar la disponibilidad del contenido y abrir la página correspondiente.
+
+Se pueden editar:
+
+- **Inicio:** portada, beneficios, historia y cierre.
+- **Productos:** únicamente la barra superior con el título, descripción e imagen de fondo.
+- **Conócenos:** portada, historia, valores, productores, fincas, productos y Misión y Visión.
+- **Fincas:** título, descripción e imagen de fondo.
+- **Contacto:** portada, información de contacto, redes sociales, formulario y enlace a fincas.
+- **Nuestros aliados:** título, texto, velocidad del carrusel y galería de imágenes.
+
+Para editar una sección:
+
+1. Inicie sesión con una cuenta `admin`.
+2. Abra la página pública o **Dashboard > Contenido del sitio**.
+3. Pulse el lápiz de la sección que desea modificar.
+4. Cambie los campos permitidos. En galerías puede agregar imágenes, desactivarlas o quitarlas.
+5. Para imágenes, seleccione un archivo JPG, PNG o WEBP de máximo 5 MB y espere la confirmación de carga.
+6. Pulse **Guardar** y compruebe la vista pública en una pestaña nueva.
+
+El editor no modifica productos, pedidos, productores, fincas ni otros datos que se consultan dinámicamente desde Firebase. Las imágenes requieren un proveedor configurado, como Cloudinary. Si un navegador tenía una versión anterior en caché, la metadata `lastDateUpdated` provoca la actualización automática sin que sea necesario borrar manualmente el almacenamiento local.
 
 ## 3. Ventanas de error
 
@@ -269,6 +294,9 @@ Las notificaciones requieren permiso del navegador y configuración VAPID. Si el
 | Estadísticas en cero | Revisar rango de fechas y que los pedidos estén entregados |
 | No llegan notificaciones | Revisar permiso del navegador, suscripción y claves VAPID |
 | El cron no ejecuta recordatorios | Revisar `CRON_SECRET`, VAPID y configuración de Vercel Cron |
+| El contenido público no se actualiza | Recargar la página, comprobar `lastDateUpdated`, revisar permisos `admin` y confirmar que el guardado terminó correctamente |
+| No aparece el botón de editar | Confirmar que la sesión tenga rol `admin`; consumidores y repartidores solo ven el contenido público |
+| Falla una imagen del contenido | Revisar formato, tamaño máximo de 5 MB y configuración de Cloudinary o Firebase Storage |
 | El formulario parece desactualizado | Recargar, cerrar sesión y volver a abrir; revisar consola solo en entornos de prueba |
 
 Si el problema persiste, registre la fecha, usuario afectado, URL, operación realizada y mensaje visible. Nunca adjunte contraseñas, tokens ni claves privadas.

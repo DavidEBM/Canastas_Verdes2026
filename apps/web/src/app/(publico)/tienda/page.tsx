@@ -19,6 +19,8 @@ import {
   useCart,
   type CartProduct,
 } from "@/hooks/useCart";
+import SiteContentEditor from "@/components/content/SiteContentEditor";
+import { useSiteContent } from "@/hooks/useSiteContent";
 
 interface Municipality {
   id: string;
@@ -34,6 +36,8 @@ function productToCartProduct(
 }
 
 export default function TiendaPage() {
+  const { content, loading: contentLoading, error: contentError, lastDateUpdated } = useSiteContent("productos");
+  const contentUnavailable = Boolean(contentError && !lastDateUpdated);
   const [products, setProducts] = useState<
     CartProduct[]
   >([]);
@@ -463,31 +467,36 @@ export default function TiendaPage() {
         <div
           className="absolute inset-0 bg-cover bg-center bg-no-repeat"
           style={{
-            backgroundImage:
-              "url('/images/backgrounds/alimentos.webp')",
+            backgroundImage: `url(${JSON.stringify(content.heroImage.url)})`,
           }}
         />
 
         <div className="absolute inset-0 bg-[var(--surface)]/65" />
+        <SiteContentEditor
+          page="productos"
+          content={content}
+          contentLoading={contentLoading}
+          contentUnavailable={contentUnavailable}
+          title="Encabezado de Productos"
+          className="absolute right-4 top-4 z-10 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--background)]/90 px-4 py-3 text-sm font-semibold text-[var(--primary)] shadow-lg transition hover:bg-[var(--secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+        />
 
         <div className="relative mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8 lg:py-20">
           <div className="max-w-3xl">
             <span className="inline-flex rounded-full bg-[var(--secondary)] px-3 py-1 text-xs font-semibold text-[var(--primary)]">
-              Productos del campo
+              {content.heroEyebrow}
             </span>
 
             <h1 className="mt-4 text-4xl font-bold tracking-tight text-[var(--foreground)] sm:text-5xl">
-              Compra productos
+              {content.heroTitleLead}
               <span className="text-[var(--primary)]">
                 {" "}
-                frescos
+                {content.heroTitleAccent}
               </span>
             </h1>
 
             <p className="mt-4 max-w-2xl text-base leading-7 text-[var(--muted)] sm:text-lg">
-              Encuentra frutas, verduras y
-              productos provenientes del campo
-              directamente en nuestra plataforma.
+              {content.heroDescription}
             </p>
           </div>
         </div>

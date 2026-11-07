@@ -7,22 +7,36 @@ import {
   useRef,
   useState,
 } from "react";
+import SiteContentEditor from "@/components/content/SiteContentEditor";
+import type { AliadosContent } from "@/lib/site-content";
 
 type AllyImage = {
+  id: string;
   name: string;
   src: string;
 };
 
 type Props = {
-  images: AllyImage[];
+  content: AliadosContent;
+  contentLoading: boolean;
+  contentUnavailable: boolean;
 };
 
-const AUTO_SPEED = 0.15; // Optimizado: más lento y elegante; // pÃ­xeles por frame. Menor = mÃ¡s lento.
 const RESUME_DELAY = 1500;
 
 export default function AlliesCarouselClient({
-  images,
+  content,
+  contentLoading,
+  contentUnavailable,
 }: Props) {
+  const images: AllyImage[] = content.items
+    .filter((item) => item.active)
+    .map((item) => ({
+      id: item.id,
+      name: item.image.alt,
+      src: item.image.url,
+    }));
+  const autoSpeed = Math.min(1, Math.max(0.03, content.speed));
   const trackRef = useRef<HTMLDivElement>(null);
 
   const animationFrameRef = useRef<number | null>(null);
@@ -137,7 +151,7 @@ export default function AlliesCarouselClient({
 
       const animate = () => {
         if (!isDraggingRef.current) {
-          positionRef.current += AUTO_SPEED;
+          positionRef.current += autoSpeed;
 
           normalizePosition();
         }
@@ -167,11 +181,7 @@ export default function AlliesCarouselClient({
         clearTimeout(resumeTimeoutRef.current);
       }
     };
-  }, [
-    images.length,
-    normalizePosition,
-    stopAutoMovement,
-  ]);
+  }, [autoSpeed, images.length, normalizePosition, stopAutoMovement]);
 
   const startResumeTimer = useCallback(() => {
     if (resumeTimeoutRef.current) {
@@ -260,7 +270,7 @@ export default function AlliesCarouselClient({
 
       const animate = () => {
         if (!isDraggingRef.current) {
-          positionRef.current += AUTO_SPEED;
+          positionRef.current += autoSpeed;
           normalizePosition();
         }
 
@@ -286,16 +296,23 @@ export default function AlliesCarouselClient({
   }
 
   return (
-    <section className="border-t border-[var(--border)] bg-white py-10">
+    <section className="relative border-t border-[var(--border)] bg-white py-10">
       <div className="mx-auto w-full max-w-7xl">
+        <SiteContentEditor
+          page="aliados"
+          content={content}
+          contentLoading={contentLoading}
+          contentUnavailable={contentUnavailable}
+          title="Nuestros aliados"
+          className="absolute right-4 top-4 z-10 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-white px-4 py-3 text-sm font-semibold text-[var(--primary)] shadow-lg transition hover:bg-[var(--secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+        />
         <div className="mb-7 flex w-full flex-col items-center justify-center px-4 text-center sm:px-6 lg:px-8">
           <h2 className="text-center text-lg font-semibold text-[var(--foreground)] sm:text-xl">
-            Nuestros aliados
+            {content.title}
           </h2>
 
           <p className="mt-1.5 w-full max-w-xl text-center text-sm text-[var(--muted)]">
-            Empresas, organizaciones y comunidades que hacen
-            parte de Canastas Verdes.
+            {content.description}
           </p>
         </div>
 

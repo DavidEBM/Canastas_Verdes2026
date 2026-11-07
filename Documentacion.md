@@ -163,6 +163,14 @@ En el estado de trabajo actual y ultima version subida se revisaron y ajustaron 
 - Enlace de una contraseña a cuentas creadas con Google.
 - Validación de que el correo del perfil coincida con la identidad verificada de Firebase.
 
+### 07-11-2026 — Contenido público editable y caché optimizada
+
+Se incorporó un sistema de contenido administrable para las páginas públicas. Los administradores pueden editar textos, títulos, enlaces, imágenes informativas y fondos desde botones con icono de lápiz. También se habilitó la gestión del carrusel **Nuestros aliados**, incluyendo imágenes, activación, título, descripción y velocidad.
+
+El contenido se guarda en `contenidoSitio`. El documento `siteMeta` centraliza `lastDateUpdated` y la versión global para que el navegador consulte primero la metadata y descargue el contenido completo únicamente cuando sea necesario. Cada página se conserva además en `localStorage` y en una caché de memoria de la sesión.
+
+En **Conócenos** se añadieron secciones editables sobre productores, fincas, productos y **Misión y Visión**, además de los valores existentes.
+
 
 
 ---
@@ -240,6 +248,7 @@ La aplicación se encuentra en `apps/web` y utiliza:
 - `/dashboard/pedidos` — gestión de pedidos.
 - `/dashboard/repartos` — coordinación de entregas.
 - `/dashboard/estadisticas` — métricas y exportaciones.
+- `/dashboard/contenido` — administración del contenido editable de las páginas públicas.
 
 ---
 
@@ -312,6 +321,7 @@ Estas operaciones incluyen la gestión de cuentas administrativas y la eliminaci
 - `veredas` — veredas.
 - `fincas` y puntos relacionados — lugares de recogida.
 - `pedidos` — pedidos de consumidores.
+- `contenidoSitio` — textos, imágenes, enlaces y configuración visual de las páginas públicas.
 - Colecciones de repartos, notificaciones y auditoría según el flujo.
 
 ### Identidad de usuarios
@@ -333,6 +343,21 @@ FechaRegistro
 AceptacionTerminos
 ultimaActualizacion
 ```
+
+### Contenido público (`contenidoSitio`)
+
+La colección utiliza los documentos `inicio`, `productos`, `aboutUs`, `fincas`, `contacto` y `aliados`. Cada documento contiene un objeto `content` normalizado contra sus valores predeterminados, además de información de actualización. El documento `siteMeta` contiene la fecha global `lastDateUpdated` y la versión utilizada para detectar cambios.
+
+Las imágenes se guardan como objetos con `url`, `publicId` y `alt`. El carrusel de aliados utiliza una lista de elementos con identificador, imagen y estado `active`, junto con `speed` para la velocidad automática. Las actualizaciones se validan en el servidor y solo las cuentas con rol `admin` pueden guardarlas.
+
+### Estrategia de lectura y caché
+
+1. La página carga valores predeterminados y revisa memoria y `localStorage`.
+2. Si existe una fecha local, consulta únicamente la metadata global.
+3. Si `lastDateUpdated` coincide, conserva el contenido local sin descargar la página completa.
+4. Si cambia, descarga el contenido actualizado y reemplaza la caché.
+5. Si el navegador no tiene `lastDateUpdated`, realiza la comparación de metadata y solicita el contenido completo para crear la primera copia local.
+6. Los cambios guardados por un administrador actualizan la caché de la pestaña y notifican a otras pestañas mediante eventos del navegador.
 
 ---
 
