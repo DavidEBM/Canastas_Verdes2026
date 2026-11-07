@@ -18,6 +18,10 @@ import {
 } from "firebase/storage";
 
 import { storage } from "@/lib/firebase";
+import {
+  getApiErrorMessage,
+  readApiResponse,
+} from "@/lib/api-response";
 import { useAuth } from "@/hooks/useAuth";
 import ExcelProductos from "@/components/productos/ExcelProductos";
 import { matchesTolerantSearch } from "@/lib/search";
@@ -707,24 +711,18 @@ import { matchesTolerantSearch } from "@/lib/search";
               : undefined,
         });
 
-        let result: unknown = null;
-
-        try {
-          result = await response.json();
-        } catch {
-          result = null;
-        }
+        const { data: result, text } =
+          await readApiResponse(response);
 
         if (!response.ok) {
-          const message =
-            result &&
-            typeof result === "object" &&
-            "message" in result &&
-            typeof result.message === "string"
-              ? result.message
-              : "No fue posible completar la operación.";
-
-          throw new Error(message);
+          throw new Error(
+            getApiErrorMessage(
+              response,
+              result,
+              text,
+              "No fue posible completar la operación.",
+            ),
+          );
         }
 
         return result;
@@ -1066,9 +1064,9 @@ import { matchesTolerantSearch } from "@/lib/search";
         return;
       }
 
-      if (file.size > 5 * 1024 * 1024) {
+      if (file.size > 4 * 1024 * 1024) {
         setError(
-          "La imagen no puede superar los 5 MB.",
+          "La imagen no puede superar los 4 MB.",
         );
         return;
       }
@@ -1158,18 +1156,28 @@ import { matchesTolerantSearch } from "@/lib/search";
         body: uploadForm,
       });
 
-      const result = (await response.json()) as {
-        success?: boolean;
-        message?: string;
-        data?: {
-          imgPath?: string;
-          imageName?: string;
-        };
-      };
+      const { data: result, text } =
+        await readApiResponse<{
+          success?: boolean;
+          message?: string;
+          data?: {
+            imgPath?: string;
+            imageName?: string;
+          };
+        }>(response);
 
-      if (!response.ok || !result.success || !result.data?.imgPath) {
+      if (
+        !response.ok ||
+        !result?.success ||
+        !result.data?.imgPath
+      ) {
         throw new Error(
-          result.message || "No fue posible cargar la imagen en Cloudinary.",
+          getApiErrorMessage(
+            response,
+            result,
+            text,
+            "No fue posible cargar la imagen en Cloudinary.",
+          ),
         );
       }
 
@@ -2792,7 +2800,7 @@ import { matchesTolerantSearch } from "@/lib/search";
                       </div>
 
                       <div className="text-xs text-[var(--foreground)]/60">
-                        JPG, PNG o WEBP · Máx. 5 MB
+                        JPG, PNG o WEBP · Máx. 4 MB
                       </div>
                     </div>
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import {
   GoogleAuthProvider,
+  sendPasswordResetEmail,
   sendEmailVerification,
   signOut,
   signInWithEmailAndPassword,
@@ -234,6 +235,18 @@ export default function LoginPage() {
     useState(false);
 
   const [verificationMessage, setVerificationMessage] =
+    useState("");
+
+  const [forgotOpen, setForgotOpen] =
+    useState(false);
+
+  const [resetEmail, setResetEmail] =
+    useState("");
+
+  const [resetLoading, setResetLoading] =
+    useState(false);
+
+  const [resetMessage, setResetMessage] =
     useState("");
 
   /*
@@ -661,6 +674,44 @@ export default function LoginPage() {
       }
     };
 
+  const handlePasswordReset = async (
+    event: React.FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+    setResetLoading(true);
+    setResetMessage("");
+    setError("");
+
+    try {
+      await authPersistenceReady;
+      await sendPasswordResetEmail(
+        auth,
+        resetEmail.trim(),
+      );
+      setResetMessage(
+        "Si existe una cuenta con ese correo, recibirás instrucciones para cambiar tu contraseña.",
+      );
+    } catch (caught: unknown) {
+      const code =
+        caught &&
+        typeof caught === "object" &&
+        "code" in caught &&
+        typeof caught.code === "string"
+          ? caught.code
+          : "";
+
+      if (code === "auth/invalid-email") {
+        setError("El correo electrónico no tiene un formato válido.");
+      } else if (code === "auth/too-many-requests") {
+        setError("Se realizaron demasiadas solicitudes. Intenta nuevamente más tarde.");
+      } else {
+        setError("No fue posible enviar el correo de recuperación. Intenta nuevamente.");
+      }
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
   const isLoading =
     loading ||
     googleLoading;
@@ -759,6 +810,20 @@ export default function LoginPage() {
                 disabled={isLoading}
                 className="w-full rounded-[var(--radius-md)] border border-[var(--border)] bg-white px-4 py-3 text-sm outline-none transition focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary)]/20 disabled:cursor-not-allowed disabled:bg-gray-100"
               />
+
+              <button
+                type="button"
+                onClick={() => {
+                  setResetEmail(email);
+                  setResetMessage("");
+                  setError("");
+                  setForgotOpen(true);
+                }}
+                disabled={isLoading}
+                className="mt-2 text-sm font-semibold text-[var(--primary)] hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                ¿Olvidaste tu contraseña?
+              </button>
             </div>
 
             {/* CONTRASEÑA */}
@@ -906,6 +971,86 @@ export default function LoginPage() {
           </div>
         </section>
       </div>
+
+      {forgotOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="forgot-password-title"
+        >
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <h2
+              id="forgot-password-title"
+              className="text-xl font-bold text-[var(--foreground)]"
+            >
+              Recuperar contraseña
+            </h2>
+            <p className="mt-2 text-sm text-[var(--muted)]">
+              Ingresa tu correo y te enviaremos las instrucciones para cambiarla.
+            </p>
+
+            {error && (
+              <div
+                role="alert"
+                className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+              >
+                {error}
+              </div>
+            )}
+
+            {resetMessage && (
+              <p
+                role="status"
+                className="mt-4 rounded-lg bg-green-50 p-3 text-sm text-green-700"
+              >
+                {resetMessage}
+              </p>
+            )}
+
+            <form
+              onSubmit={handlePasswordReset}
+              className="mt-5 space-y-4"
+            >
+              <label
+                htmlFor="reset-email"
+                className="block text-sm font-semibold"
+              >
+                Correo electrónico
+                <input
+                  id="reset-email"
+                  type="email"
+                  required
+                  autoFocus
+                  autoComplete="email"
+                  value={resetEmail}
+                  onChange={(event) => setResetEmail(event.target.value)}
+                  disabled={resetLoading}
+                  className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 font-normal outline-none focus:border-[var(--primary)]"
+                />
+              </label>
+
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setForgotOpen(false)}
+                  disabled={resetLoading}
+                  className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={resetLoading}
+                  className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                >
+                  {resetLoading ? "Enviando…" : "Enviar instrucciones"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
